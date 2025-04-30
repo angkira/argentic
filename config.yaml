@@ -1,0 +1,29 @@
+# filepath: /mnt/c/Users/angkira/Project/services/rag/config.yaml
+llm:
+  model_name: 'gemma3:12b-it-qat' # Or llama3:8b, mistral:7b, gemma:7b etc.
+
+embedding:
+  model_name: 'all-MiniLM-L6-v2' # Or all-mpnet-base-v2
+  device: 'cuda' # "cuda" or "cpu"
+  normalize: true
+
+vector_store:
+  directory: './pc_knowledge_db'
+  collection_name: 'local_info'
+
+retriever:
+  k: 4 # Number of documents to retrieve
+
+mqtt:
+  broker_address: 'localhost' # Or IP address of your Mosquitto broker
+  port: 1883
+  client_id: 'rag_agent_client'
+  keepalive: 60
+  subscriptions: # Topics to subscribe to and their handlers
+    'rag/command/add_info': 'handle_add_info'
+    'rag/command/ask_question': 'handle_ask_question'
+    'rag/status/request': 'handle_status_request'
+  publish_topics: # Topics to publish responses/status to
+    response: 'rag/response/answer'
+    status: 'rag/status/info'
+    log: 'rag/log'
