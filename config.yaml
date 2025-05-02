@@ -1,6 +1,7 @@
 # filepath: /mnt/c/Users/angkira/Project/services/rag/config.yaml
 llm:
-  backend: 'llamaserver' # Choose 'ollama', 'llamacpp', or 'llamaserver'
+  # backend: 'llamaserver' # Choose 'ollama', 'llamacpp', or 'llamaserver'
+  backend: 'ollama'
   model_name: 'gemma3:12b-it-qat'
   # llama.cpp HTTP server
   server_binary: '~/llama.cpp/build/bin/llama-server' # Updated binary path

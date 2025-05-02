@@ -9,6 +9,40 @@ from subprocess import Popen
 from langchain_ollama import OllamaLLM
 
 
+class OllamaChatLLM:
+    """
+    Adapter for OllamaLLM to expose a chat interface.
+    """
+
+    def __init__(self, model: str):
+        self.llm = OllamaLLM(model=model)
+
+    def __call__(self, prompt: str, **kwargs: Any) -> str:
+        # Use invoke() correctly with a string prompt
+        raw = self.llm.invoke(prompt)
+        # Normalize to a native string
+        if isinstance(raw, str):
+            return raw
+        if hasattr(raw, "value"):
+            return raw.value
+        if hasattr(raw, "content"):
+            return raw.content
+        if isinstance(raw, dict):
+            return next(iter(raw.values()))
+        return str(raw)
+
+    def chat(self, messages: list[dict], **kwargs: Any) -> str:
+        # Combine all message contents into a single prompt
+        combined = []
+        for m in messages:
+            role = m.get("role", "").upper()
+            content = m.get("content", "")
+            combined.append(f"{role}: {content}")
+        prompt = "\n".join(combined)
+        # Use our __call__ to leverage invoke() and normalization
+        return self(prompt, **kwargs)
+
+
 class LlamaCppLLM:
     """
     Wrapper that invokes the llama.cpp compiled binary for text generation.
@@ -124,7 +158,8 @@ class LLMFactory:
             model_name = config.get("model_name")
             if not model_name:
                 raise ValueError("'model_name' must be set for Ollama backend.")
-            return OllamaLLM(model=model_name)
+            # Use chat adapter so .chat() is available
+            return OllamaChatLLM(model_name)
         elif backend == "llamacpp":
             model_path = config.get("model_path")
             binary = config.get("llama_cpp_binary")
