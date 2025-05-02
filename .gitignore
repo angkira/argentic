@@ -1,15 +1,49 @@
+# Environments
+.env
 .venv/
-*_db/
+env/
+venv/
+ENV/
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
-*.**.pyc
+*.pyc
 *.pyo
 *.pyd
+*.cpython-*
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+sdist/
 *.egg-info/
 *.egg
-*.log
+
+# Databases - Keep if relevant to your project
 *.sqlite3
 *.db
 *.db-journal
-*.DS_Store
-**/__pycache__/*
+*_db/
+
+# Logs
+*.log
+
+# Test / Coverage Reports
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+
+# Type Checking
+.mypy_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+
+# OS generated files
+.DS_Store
+Thumbs.db
+

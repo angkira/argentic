@@ -1,13 +1,12 @@
-import json
 import sys
 import yaml
-import threading
-import time  # Added for sleep
 import uuid  # For generating a unique session user_id
 
 # Local application imports
 from core.messager import Messager, MQTTMessage
 from core.decorators import mqtt_handler_decorator  # Import the decorator
+from core.rag import RAGController  # Import RAGController for type hint consistency
+from typing import Any, Dict, Optional  # Import necessary types
 
 # --- Load Configuration ---
 CONFIG_PATH = "config.yaml"
@@ -56,13 +55,30 @@ messager = Messager(
 )
 
 # Create decorator instance with the messager
+# The decorator itself will pass None for rag_controller and an empty dict for handler_kwargs
+# when called without them specified here.
 handler_decorator = mqtt_handler_decorator(messager)
 
 
 @handler_decorator
-# Change signature to accept parsed data and original message
-def handle_answer(data: dict, msg: MQTTMessage) -> None:
+# Update signature to accept all injected arguments
+def handle_answer(
+    messager: Messager,  # Added messager (might be useful for logging)
+    _rag_controller: Optional[RAGController],  # Added rag_controller, marked as unused
+    data: Optional[Dict[str, Any]],  # Keep data, mark as Optional
+    msg: MQTTMessage,  # Keep msg
+    _handler_kwargs: Dict[str, Any],  # Added handler_kwargs, marked as unused
+) -> None:
     """Handles incoming answer messages."""
+    # Check if data is None (JSON parsing failed in decorator)
+    if data is None:
+        print("\n--- Agent Response ---")
+        print(f"Error: Received non-JSON or invalid payload on topic {msg.topic}")
+        print("----------------------")
+        print("> ", end="", flush=True)
+        return
+
+    # Proceed with data extraction
     question = data.get("question", "N/A")
     answer = data.get("answer")
     error = data.get("error")

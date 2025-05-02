@@ -4,6 +4,9 @@ import time
 import warnings
 import argparse
 import sys
+import requests
+import json
+import threading
 from typing import Any, Callable, Dict, Optional
 
 # Third-party imports
@@ -12,17 +15,18 @@ import yaml
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 
-# Local LLM factory import
-from core.llm import LLMFactory
-
 # Local application imports
-from core.decorators import mqtt_handler_decorator
+from core.llm import LLMFactory
 from core.messager import MQTTMessage, Messager
 from core.rag import RAGController
+from core.decorators import mqtt_handler_decorator  # Import the decorator factory
 
-# Ignore specific warnings if they are noisy (optional)
-warnings.filterwarnings(
-    "ignore", category=UserWarning, message="TypedStorage is deprecated"
+# Import RAW handler functions from the new location
+from handlers.add_info_handler import handle_add_info as raw_handle_add_info
+from handlers.ask_question_handler import handle_ask_question as raw_handle_ask_question
+from handlers.forget_info_handler import handle_forget_info as raw_handle_forget_info
+from handlers.status_request_handler import (
+    handle_status_request as raw_handle_status_request,
 )
 
 # --- Load Configuration ---
@@ -39,13 +43,25 @@ except yaml.YAMLError as e:
     exit()
 
 # --- Configuration Values --- (Extracted from loaded config)
-OLLAMA_MODEL: str = config["llm"]["model_name"]
+# LLM Config
+llm_config = config["llm"]
+backend: str = llm_config.get("backend", "ollama")
+model_name: str = llm_config.get("model_name")
+use_chat: bool = llm_config.get("use_chat", False)
+
+# Embedding Config
 EMBEDDING_MODEL_NAME: str = config["embedding"]["model_name"]
 EMBEDDING_DEVICE: str = config["embedding"]["device"]
 EMBEDDING_NORMALIZE: bool = config["embedding"]["normalize"]
+
+# Vector Store Config
 VECTORSTORE_DIR: str = config["vector_store"]["directory"]
 COLLECTION_NAME: str = config["vector_store"]["collection_name"]
+
+# Retriever Config
 RETRIEVER_K: int = config["retriever"]["k"]
+
+# MQTT Config
 MQTT_BROKER: str = config["mqtt"]["broker_address"]
 MQTT_PORT: int = config["mqtt"]["port"]
 MQTT_CLIENT_ID: str = config["mqtt"]["client_id"]
@@ -54,240 +70,263 @@ MQTT_SUBSCRIPTIONS: Dict[str, str] = config["mqtt"]["subscriptions"]
 MQTT_PUB_RESPONSE: str = config["mqtt"]["publish_topics"]["response"]
 MQTT_PUB_STATUS: str = config["mqtt"]["publish_topics"]["status"]
 MQTT_PUB_LOG: str = config["mqtt"]["publish_topics"]["log"]
-use_chat: bool = config.get("llm", {}).get("use_chat", False)
+
+# Ollama Config
+OLLAMA_BASE_URL = llm_config.get("base_url", "http://localhost:11434")
 
 # Ensure the persistence directory exists
 os.makedirs(VECTORSTORE_DIR, exist_ok=True)
 print(f"Vector store persistence directory: '{os.path.abspath(VECTORSTORE_DIR)}'")
 
-# --- Initialize Components ---
-
-# 1. Initialize LLM backend (Ollama or llama.cpp)
-llm_config = config["llm"]
-backend: str = llm_config.get("backend", "ollama")
-model_name: str = llm_config.get("model_name")
-print(f"Initializing LLM backend='{backend}', model='{model_name}'...")
-try:
-    llm = LLMFactory.create(llm_config)
-    print(f"LLM ({backend}:{model_name}) initialized successfully.")
-except Exception as e:
-    print(f"Error initializing LLM: {e}")
-    exit()
-
-# 2. Initialize Embedding Model
-embedding_function: HuggingFaceEmbeddings
-print(f"Initializing Embedding Model: {EMBEDDING_MODEL_NAME}...")
-embedding_function = HuggingFaceEmbeddings(
-    model_name=EMBEDDING_MODEL_NAME,
-    model_kwargs={"device": EMBEDDING_DEVICE},
-    encode_kwargs={"normalize_embeddings": EMBEDDING_NORMALIZE},
-)
-print("Embedding Model initialized.")
-
-# 3. Initialize Vector Store (ChromaDB)
-db_client: chromadb.PersistentClient
-vectorstore: Chroma
-print("Initializing ChromaDB Vector Store...")
-db_client = chromadb.PersistentClient(path=VECTORSTORE_DIR)
-
-vectorstore = Chroma(
-    client=db_client,
-    collection_name=COLLECTION_NAME,
-    embedding_function=embedding_function,
-    persist_directory=VECTORSTORE_DIR,
-)
-print(f"ChromaDB collection '{COLLECTION_NAME}' loaded/created.")
-
-# 4. Initialize Messager
-messager: Messager = Messager(
-    broker_address=MQTT_BROKER,
-    port=MQTT_PORT,
-    client_id=MQTT_CLIENT_ID,
-    keepalive=MQTT_KEEPALIVE,
-    pub_log_topic=MQTT_PUB_LOG,
-)
-
-# 5. Initialize RAG Controller
-rag_controller: RAGController = RAGController(
-    llm=llm,
-    vectorstore=vectorstore,
-    db_client=db_client,
-    retriever_k=RETRIEVER_K,
-    messager=messager,
-    use_chat=use_chat,
-)
-
-# --- MQTT Topic Handlers (Simplified with Decorator) ---
-
-# Create the decorator instance with the messager
-handler_decorator = mqtt_handler_decorator(messager)
+# --- Command Line Argument Parsing & Execution Modes ---
 
 
-@handler_decorator
-def handle_add_info(data: Dict[str, Any], msg: MQTTMessage) -> None:
-    """Handles messages on the 'add_info' topic (core logic)."""
-    topic = msg.topic
-    text: Optional[str] = data.get("text")
-    source: str = data.get("source", "mqtt_input")
-    timestamp: Optional[float] = data.get("timestamp")
-
-    if text:
-        success: bool = rag_controller.remember(text, source, timestamp)
-        status = "processed" if success else "error_remembering"
-        messager.publish(
-            MQTT_PUB_STATUS,
-            {"status": status, "topic": topic, "source": source},
-        )
-    else:
-        messager.publish_log(
-            "Received add_info command with missing 'text'.", level="warning"
-        )
-        messager.publish(
-            MQTT_PUB_STATUS,
-            {
-                "status": "error",
-                "topic": topic,
-                "error": "Missing 'text' in payload",
-            },
-        )
-
-
-@handler_decorator
-def handle_ask_question(data: Dict[str, Any], msg: MQTTMessage) -> None:
-    """Handles messages on the 'ask_question' topic (core logic)."""
-    topic = msg.topic
-    question: Optional[str] = data.get("question")
-    if question:
-        user_id = data.get("user_id")  # may be None
-        print(f"\n🤔 Processing Question via MQTT (user={user_id}): {question}")
-        start_time = time.time()
-        # Invoke RAG controller with session awareness
-        raw_resp = rag_controller.query(question, user_id=user_id)
-        response_str = str(raw_resp)
-        end_time = time.time()
-        print(f"\n💡 Answer: {response_str}")
-        if "Sorry, an error occurred" in response_str:
-            messager.publish(
-                MQTT_PUB_RESPONSE,
-                {"user_id": user_id, "question": question, "error": response_str},
-            )
-        else:
-            messager.publish(
-                MQTT_PUB_RESPONSE,
-                {"user_id": user_id, "question": question, "answer": response_str},
-            )
-        print(f"(Response time: {end_time - start_time:.2f} seconds)")
-        messager.publish_log(
-            f"Processed question '{question}' in {end_time - start_time:.2f}s."
-        )
-    else:
-        messager.publish_log(
-            "Received ask_question command with missing 'question'.",
-            level="warning",
-        )
-        messager.publish(MQTT_PUB_RESPONSE, {"error": "Missing 'question' in payload"})
-
-
-@handler_decorator
-def handle_forget_info(data: Dict[str, Any], msg: MQTTMessage) -> None:
-    """Handles messages on the 'forget_info' topic (core logic)."""
-    topic = msg.topic
-    where_filter: Optional[Dict[str, Any]] = data.get("where_filter")
-
-    if where_filter and isinstance(where_filter, dict):
-        result: Dict[str, Any] = rag_controller.forget(where_filter)
-        messager.publish(
-            MQTT_PUB_STATUS,
-            {
-                "status": result["status"],
-                "topic": topic,
-                "filter": where_filter,
-                "deleted_count": result["deleted_count"],
-                "message": result.get("message"),
-            },
-        )
-    else:
-        err_msg = "Received forget_info command requires a valid JSON object in 'where_filter'."
-        messager.publish_log(err_msg, level="warning")
-        messager.publish(
-            MQTT_PUB_STATUS,
-            {"status": "error", "topic": topic, "error": err_msg},
-        )
-
-
-# Note: Status request might not need JSON parsing, adjust decorator or handler if needed
-# For simplicity, keeping it decorated, assuming payload might be empty JSON {} or ignored
-@handler_decorator
-def handle_status_request(data: Dict[str, Any], msg: MQTTMessage) -> None:
-    """Handles messages on the 'status_request' topic (core logic)."""
-    topic = msg.topic
-    # Payload (data) is likely ignored for status requests, but decorator provides it
-    messager.publish_log(
-        f"Processing status request for topic {topic}"
-    )  # Log moved from wrapper
-    status_info: Dict[str, Any] = {
-        "status": "running",
-        "llm_model": OLLAMA_MODEL,
-        "embedding_model": EMBEDDING_MODEL_NAME,
-        "vector_store_collection": COLLECTION_NAME,
-        "mqtt_broker": MQTT_BROKER,
-        "subscribed_topics": list(MQTT_SUBSCRIPTIONS.keys()),
-        "timestamp": time.time(),
-    }
-    messager.publish(MQTT_PUB_STATUS, status_info)
-
-
-# Map handler names from config to the decorated functions
-# Note the change in function signature expected by Messager.start
-topic_handlers: Dict[str, Callable[[MQTTMessage], None]] = {
-    "handle_add_info": handle_add_info,
-    "handle_ask_question": handle_ask_question,
-    "handle_forget_info": handle_forget_info,
-    "handle_status_request": handle_status_request,
-}
-
-
-def start_llm_server(llm_config):
+def start_llm_server(llm_config_dict):
     """Start the LLM server in its own process without running the agent."""
     print("Starting LLM server...")
     # Force auto_start so the server process is launched
-    llm_cfg = dict(llm_config, auto_start=True)
-    llm = LLMFactory.create(llm_cfg)
-    print("LLM server started. Press Ctrl+C to stop.")
+    llm_cfg = dict(llm_config_dict, auto_start=True)
+    # Create LLM instance which starts the server if configured
     try:
+        _ = LLMFactory.create(llm_cfg)
+        print("LLM server started (or connection attempted). Press Ctrl+C to stop.")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Shutting down LLM server.")
+        print("Shutting down LLM server process watcher.")
+        # Note: Actual server process might need separate termination depending on how it runs
         sys.exit(0)
+    except Exception as e:
+        print(f"Error initializing LLM for server start: {e}")
+        sys.exit(1)
+
+
+# Flag to control the background monitor thread
+ollama_monitor_stop_event = threading.Event()
+
+
+def monitor_ollama_status(base_url: str, stop_event: threading.Event):
+    """Periodically checks the status of the Ollama server API in a background thread."""
+    print(f"[Monitor] Starting Ollama status checks at {base_url}...")
+    check_interval = 30  # seconds (increased interval for background task)
+    while not stop_event.is_set():
+        status_message = "Unknown"
+        try:
+            # Simple check: Can we connect to the base URL?
+            response = requests.get(base_url, timeout=5)
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+            # Check if the response indicates Ollama is running
+            if "Ollama is running" in response.text:
+                status_message = "Running"
+            else:
+                # Check specific API endpoint like /api/ps for more detail
+                try:
+                    ps_response = requests.get(f"{base_url}/api/ps", timeout=5)
+                    ps_response.raise_for_status()
+                    running_models = ps_response.json().get("models", [])
+                    if running_models:
+                        model_names = [m.get("name") for m in running_models]
+                        status_message = f"Running (Models: {', '.join(model_names)})"
+                    else:
+                        status_message = "Running (No models loaded)"
+                except requests.exceptions.RequestException as api_err:
+                    status_message = (
+                        f"API endpoint error ({api_err.__class__.__name__})"
+                    )
+                except json.JSONDecodeError:
+                    status_message = "Running (API response not valid JSON)"
+
+        except requests.exceptions.ConnectionError:
+            status_message = "Connection Error (Server down?)"
+        except requests.exceptions.Timeout:
+            status_message = "Timeout (Server unresponsive)"
+        except requests.exceptions.RequestException as e:
+            status_message = f"Error ({e.__class__.__name__})"
+        except Exception as e:
+            status_message = f"Unexpected error: {e}"
+            print(f"[Monitor] Unexpected error: {e}")  # Log unexpected errors
+
+        print(
+            f"[Monitor] {time.strftime('%Y-%m-%d %H:%M:%S')} - Ollama status: {status_message}"
+        )
+
+        # Wait for the interval or until the stop event is set
+        stop_event.wait(check_interval)
+    print("[Monitor] Ollama status monitoring stopped.")
 
 
 def run_rag_agent():
-    """Initialize components and launch the RAG agent loop (wrapper)."""
+    """Initialize components and launch the RAG agent loop."""
     print("\n--- RAG Agent Starting ---")
+
+    monitor_thread = None
+    # Start Ollama monitor in background if backend is ollama
+    if backend == "ollama":
+        monitor_thread = threading.Thread(
+            target=monitor_ollama_status,
+            args=(OLLAMA_BASE_URL, ollama_monitor_stop_event),
+            daemon=True,  # Set as daemon so it exits when main thread exits
+        )
+        monitor_thread.start()
+
+    # --- Initialize Components ---
     try:
-        messager.start(MQTT_SUBSCRIPTIONS, topic_handlers)
-        print("RAG Agent is running. Press Ctrl+C to exit.")
+        # 1. Initialize LLM backend
+        print(f"Initializing LLM backend='{backend}', model='{model_name}'...")
+        llm = LLMFactory.create(llm_config)
+        print(f"LLM ({backend}:{model_name}) initialized successfully.")
+
+        # 2. Initialize Embedding Model
+        embedding_function: HuggingFaceEmbeddings
+        print(f"Initializing Embedding Model: {EMBEDDING_MODEL_NAME}...")
+        embedding_function = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL_NAME,
+            model_kwargs={"device": EMBEDDING_DEVICE},
+            encode_kwargs={"normalize_embeddings": EMBEDDING_NORMALIZE},
+        )
+        print("Embedding Model initialized.")
+
+        # 3. Initialize Vector Store (ChromaDB)
+        db_client: chromadb.PersistentClient
+        vectorstore: Chroma
+        print("Initializing ChromaDB Vector Store...")
+        db_client = chromadb.PersistentClient(path=VECTORSTORE_DIR)
+        vectorstore = Chroma(
+            client=db_client,
+            collection_name=COLLECTION_NAME,
+            embedding_function=embedding_function,
+            persist_directory=VECTORSTORE_DIR,
+        )
+        print(f"ChromaDB collection '{COLLECTION_NAME}' loaded/created.")
+
+        # 4. Initialize Messager
+        messager: Messager = Messager(
+            broker_address=MQTT_BROKER,
+            port=MQTT_PORT,
+            client_id=MQTT_CLIENT_ID,
+            keepalive=MQTT_KEEPALIVE,
+            pub_log_topic=MQTT_PUB_LOG,
+        )
+
+        # 5. Initialize RAG Controller
+        rag_controller: RAGController = RAGController(
+            llm=llm,
+            vectorstore=vectorstore,
+            db_client=db_client,
+            retriever_k=RETRIEVER_K,
+            messager=messager,
+            use_chat=use_chat,
+        )
+
+        # --- Dynamically Apply Decorators to Handlers ---
+        handle_add_info = mqtt_handler_decorator(
+            messager=messager,
+            rag_controller=rag_controller,
+            pub_status_topic=MQTT_PUB_STATUS,
+        )(raw_handle_add_info)
+
+        handle_ask_question = mqtt_handler_decorator(
+            messager=messager,
+            rag_controller=rag_controller,
+            pub_response_topic=MQTT_PUB_RESPONSE,
+        )(raw_handle_ask_question)
+
+        handle_forget_info = mqtt_handler_decorator(
+            messager=messager,
+            rag_controller=rag_controller,
+            pub_status_topic=MQTT_PUB_STATUS,
+        )(raw_handle_forget_info)
+
+        handle_status_request = mqtt_handler_decorator(
+            messager=messager,
+            pub_status_topic=MQTT_PUB_STATUS,
+            llm_model=model_name,
+            embedding_model=EMBEDDING_MODEL_NAME,
+            collection_name=COLLECTION_NAME,
+            mqtt_broker=MQTT_BROKER,
+            subscribed_topics=list(MQTT_SUBSCRIPTIONS.keys()),
+        )(raw_handle_status_request)
+
+        topic_handlers: Dict[str, Callable[[MQTTMessage], None]] = {
+            "handle_add_info": handle_add_info,
+            "handle_ask_question": handle_ask_question,
+            "handle_forget_info": handle_forget_info,
+            "handle_status_request": handle_status_request,
+        }
+
+        # --- Start MQTT Client Loop ---
+        print("Starting MQTT client loop...")
+        messager.start(MQTT_SUBSCRIPTIONS, topic_handlers, wait_for_connection=True)
+        # The start method now blocks until KeyboardInterrupt or error
+
     except KeyboardInterrupt:
-        print("\n\n--- RAG Agent Shutdown Initiated ---")
-        messager.stop()
-        print("RAG Agent has been stopped.")
+        print("\n\n--- RAG Agent Shutdown Initiated (Ctrl+C) ---")
+        # Signal the monitor thread to stop
+        ollama_monitor_stop_event.set()
+        if "messager" in locals() and messager.is_connected():
+            print("Stopping MQTT client...")
+            messager.stop()
+    except Exception as e:
+        print(
+            f"\n--- RAG Agent encountered an unhandled error during setup or runtime: {e} ---"
+        )
+        # Signal the monitor thread to stop
+        ollama_monitor_stop_event.set()
+        if "messager" in locals() and messager.is_connected():
+            print("Attempting to stop MQTT client due to error...")
+            messager.stop()
     finally:
+        # Wait briefly for the monitor thread to finish if it was started
+        if monitor_thread and monitor_thread.is_alive():
+            print("Waiting for Ollama monitor thread to exit...")
+            monitor_thread.join(timeout=2)  # Wait max 2 seconds
         print("\n--- RAG Agent Shutdown Complete ---")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--start-llm", action="store_true", help="Start LLM server only"
+    parser = argparse.ArgumentParser(
+        description="RAG Agent Service with MQTT Interface"
     )
     parser.add_argument(
-        "--start-agent", action="store_true", help="Start RAG agent wrapper"
+        "--start-llm",
+        action="store_true",
+        help="Start LLM server only (if configured with auto_start=True)",
+    )
+    parser.add_argument(
+        "--start-agent",
+        action="store_true",
+        help="Start RAG agent (includes background Ollama monitoring if configured)",
+    )
+    parser.add_argument(
+        "--monitor-ollama-only",
+        action="store_true",
+        help="Run only the Ollama status monitor in the foreground",
     )
     args = parser.parse_args()
-    if args.start_llm:
-        start_llm_server(config["llm"])
-    elif args.start_agent:
+
+    # Determine execution mode
+    if args.monitor_ollama_only:
+        # Run monitor in foreground, blocking until Ctrl+C
+        try:
+            monitor_ollama_status(OLLAMA_BASE_URL, ollama_monitor_stop_event)
+        except KeyboardInterrupt:
+            print("\nOllama monitor stopped by user.")
+            sys.exit(0)
+    elif args.start_llm:
+        # Check if backend is llamaserver and auto_start is intended
+        if llm_config.get("backend") == "llamaserver" and llm_config.get(
+            "server_binary"
+        ):
+            start_llm_server(llm_config)
+        else:
+            print(
+                "LLM server start requested, but backend is not 'llamaserver' or 'server_binary' is not configured."
+            )
+            print(
+                "Please configure config.yaml appropriately if you intend to auto-start the server."
+            )
+            sys.exit(1)
+    elif args.start_agent or not (args.start_llm or args.monitor_ollama_only):
         run_rag_agent()
     else:
         parser.print_help()

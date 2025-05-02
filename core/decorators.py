@@ -1,22 +1,40 @@
 import json
 from functools import wraps
 from typing import Callable, Dict, Any, Optional
-from core.messager import (
-    Messager,
-    MQTTMessage,
-)  # Assuming Messager and MQTTMessage are importable
+
+# Local application imports (assuming these are still correct relative paths)
+from core.messager import Messager, MQTTMessage
+from core.rag import RAGController  # Import RAGController
 
 
-def mqtt_handler_decorator(messager: Messager) -> Callable:
+# Modified decorator factory
+def mqtt_handler_decorator(
+    messager: Messager, rag_controller: Optional[RAGController] = None, **handler_kwargs
+) -> Callable:
     """
-    Decorator for MQTT message handlers to handle common boilerplate:
-    - Decode payload (UTF-8)
-    - Parse JSON payload
-    - Basic error handling and logging for decoding/parsing errors.
+    Decorator factory for MQTT message handlers.
+
+    Handles common boilerplate and injects dependencies.
+    - Decodes payload (UTF-8)
+    - Parses JSON payload
+    - Basic error handling for decoding/parsing.
+    - Injects Messager, RAGController (optional), parsed data, original message,
+      and any extra keyword arguments passed to the decorator factory
+      into the decorated handler function.
     """
 
     def decorator(
-        func: Callable[[Dict[str, Any], MQTTMessage], None],
+        # The decorated function now expects injected args + handler_kwargs
+        func: Callable[
+            [
+                Messager,
+                Optional[RAGController],
+                Optional[Dict[str, Any]],
+                MQTTMessage,
+                Dict[str, Any],  # handler_kwargs
+            ],
+            None,
+        ],
     ) -> Callable[[MQTTMessage], None]:
         @wraps(func)
         def wrapper(msg: MQTTMessage) -> None:
@@ -27,8 +45,8 @@ def mqtt_handler_decorator(messager: Messager) -> Callable:
             try:
                 # 1. Decode Payload
                 payload_str = msg.payload.decode("utf-8")
-                print(f"MQTT Received on {topic}: {payload_str}")  # Keep basic log
-                messager.publish_log(f"Received message on {topic}")
+                # Basic log kept for visibility, detailed logging via injected messager
+                print(f"MQTT Received on {topic}: {payload_str}")
 
                 # 2. Parse JSON
                 try:
@@ -36,25 +54,24 @@ def mqtt_handler_decorator(messager: Messager) -> Callable:
                 except json.JSONDecodeError:
                     err_msg = f"Invalid JSON received on {topic}: {payload_str}"
                     print(err_msg)
-                    messager.publish_log(err_msg, level="error")
-                    # Optionally publish an error status message here if needed
-                    return  # Stop processing if JSON is invalid
+                    # Use the injected messager for logging
+                    messager.publish_log(err_msg, level="warning")
+                    data = None  # Pass None for data if JSON parsing fails
 
-                # 3. Call original handler with parsed data and original message
-                func(data, msg)
+                # 3. Call original handler with injected dependencies and kwargs
+                func(messager, rag_controller, data, msg, handler_kwargs)
 
             except UnicodeDecodeError:
                 err_msg = f"Cannot decode payload on {topic} as UTF-8: {msg.payload!r}"
                 print(err_msg)
                 messager.publish_log(err_msg, level="error")
-                # Optionally publish an error status message here if needed
             except Exception as e:
                 # Catch-all for unexpected errors within the handler logic itself
-                # or during the initial processing steps.
-                err_msg = f"Unhandled error processing message on {topic}: {e}"
+                err_msg = f"Unhandled error processing message on {topic}: {e.__class__.__name__}: {e}"
                 print(err_msg)
                 messager.publish_log(err_msg, level="error")
-                # Optionally publish an error status message here if needed
+                # Optionally re-raise or handle more gracefully depending on needs
+                # raise # Uncomment to propagate the error if needed
 
         return wrapper
 
