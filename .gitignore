@@ -1,2 +1,14 @@
 .venv/
 *_db/
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+*.log
+*.sqlite3
+*.db
+*.db-journal
+*.DS_Store
