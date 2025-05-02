@@ -3,6 +3,7 @@ import sys
 import yaml
 import threading
 import time  # Added for sleep
+import uuid  # For generating a unique session user_id
 
 # Local application imports
 from core.messager import Messager, MQTTMessage
@@ -80,7 +81,11 @@ def handle_answer(data: dict, msg: MQTTMessage) -> None:
 
 # --- Main CLI Loop ---
 if __name__ == "__main__":
+    # Generate a persistent user_id for this CLI session
+    USER_ID = str(uuid.uuid4())
+    print(f"CLI: Using session user_id={USER_ID}")
     # Define subscriptions and handlers for the CLI
+    # Subscribe to the exact response topic
     cli_subscriptions = {MQTT_TOPIC_ANSWER: "handle_answer"}
     cli_handlers = {"handle_answer": handle_answer}
 
@@ -101,6 +106,8 @@ if __name__ == "__main__":
             handler_func = cli_handlers.get(handler_name)
             if handler_func:
                 messager.register_handler(topic, handler_func)
+        # Debug: show CLI subscriptions
+        print(f"CLI: Subscribed to topics: {list(messager._topic_handlers.keys())}")
 
         # Start background loop for receiving messages
         messager.start_background_loop()
@@ -124,8 +131,8 @@ if __name__ == "__main__":
                 continue
 
             print("\nRequesting answer...")
-            # Construct payload and publish using Messager
-            payload = {"question": user_input}
+            # Construct payload including session user_id and question
+            payload = {"question": user_input, "user_id": USER_ID}
             messager.publish(MQTT_TOPIC_ASK, payload)
 
     except KeyboardInterrupt:

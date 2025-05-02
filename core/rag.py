@@ -8,6 +8,13 @@ from langchain.schema.output_parser import StrOutputParser
 from langchain.docstore.document import Document
 import chromadb
 
+# import warnings
+
+# from langchain.schema import LangChainDeprecationWarning
+
+# Suppress deprecated get_relevant_documents warning
+# warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
+
 # Import Messager for type hinting (assuming messager.py is in the same dir)
 from core.messager import Messager
 
@@ -22,12 +29,18 @@ class RAGController:
         db_client: chromadb.Client,
         retriever_k: int,
         messager: Messager,
+        use_chat: bool = False,
     ):
         self.llm = llm
         self.vectorstore = vectorstore
         self.db_client = db_client
         self.retriever_k = retriever_k
         self.messager = messager  # Store the messager instance
+        self.use_chat = use_chat
+        from collections import defaultdict
+
+        # Per-user chat history when use_chat=True
+        self.histories: Dict[str, list] = defaultdict(list)
         self.retriever = self.vectorstore.as_retriever(
             search_kwargs={"k": self.retriever_k}
         )
@@ -36,9 +49,8 @@ class RAGController:
         print("RAGController initialized.")
 
     def _build_prompt_template(self) -> PromptTemplate:
-        template = """You are a helpful assistant answering questions based ONLY on the provided context.
-If the information is not in the context, politely state that you don't have that specific information in your knowledge base.
-Do not make assumptions or add information not present in the context. Be concise and accurate.
+        template = """You are a highly capable assistant. Use the provided CONTEXT to inform your response when it is relevant, but regardless of context relevance you must always provide a complete, informed answer using your own knowledge.
+Do not apologize or state that you lack information; simply answer the question directly.
 
 CONTEXT:
 {context}
@@ -46,6 +58,8 @@ CONTEXT:
 QUESTION: {question}
 
 ANSWER:"""
+        # Store raw template string for manual rendering
+        self.raw_template = template
         return PromptTemplate.from_template(template)
 
     def _format_docs_with_metadata(self, docs: List[Document]) -> str:
@@ -180,16 +194,81 @@ ANSWER:"""
             self.messager.publish_log(err_msg, level="error")
             return {"status": "error", "message": str(e), "deleted_count": 0}
 
-    def query(self, question: str) -> str:
+    def query(self, question: str, user_id: Optional[str] = None) -> str:
         """Processes a question using the RAG chain."""
         if not question:
             return "Please provide a question."
         try:
-            response = self.rag_chain.invoke(question)
-            return response
+            # Debug: show session mode and user_id
+            print(
+                f"DEBUG [RAGController.query] use_chat={self.use_chat}, user_id={user_id}"
+            )
+            # Session-based chat if enabled
+            if self.use_chat:
+                print("DEBUG [RAGController.query] entering chat branch")
+                # Retrieve context via new API (optional)
+                docs = self.retriever.invoke(question)
+                context = self._format_docs_with_metadata(docs)
+                # Stronger system instructions: answer directly, ignore context if irrelevant
+                system_msg = (
+                    "You are an expert assistant with full domain knowledge. ALWAYS answer the user's question directly, without disclaimers or apologies. "
+                    "Disregard any provided context if it does not contain the answer, and do not mention the context under any circumstances."
+                )
+                # Build chat messages: always system message, optionally context, then user question
+                messages = [{"role": "system", "content": system_msg}]
+                # Only include context if it contains real content
+                if docs and not context.strip().startswith("No relevant context found"):
+                    messages.append(
+                        {"role": "system", "content": f"CONTEXT:\n{context}"}
+                    )
+                # Append the user question
+                messages.append({"role": "user", "content": question})
+                print(f"DEBUG [RAGController.query] chat messages: {messages}")
+                reply = self.llm.chat(messages)
+                # If the model still refuses, fallback to a direct question-only chat
+                lower = reply.lower()
+                # refusal detection list expanded
+                refusals = [
+                    "don't have",
+                    "i cannot",
+                    "cannot provide",
+                    "don't know",
+                    "lack information",
+                    "outside the scope",
+                    "outside scope",
+                    "request is outside",
+                ]
+                if any(phrase in lower for phrase in refusals):
+                    print(
+                        "DEBUG [RAGController.query] refusal detected, retrying without context"
+                    )
+                    sys_msg = (
+                        "You are a highly capable assistant. Always answer directly using your knowledge; "
+                        "regardless of any provided context, provide a complete informed answer."
+                    )
+                    retry_msgs = [
+                        {"role": "system", "content": sys_msg},
+                        {"role": "user", "content": question},
+                    ]
+                    reply_retry = self.llm.chat(retry_msgs)
+                    return reply_retry
+                return reply
+            # Single-turn RAG chain invocation (avoids deprecated get_relevant_documents)
+            print("DEBUG [RAGController.query] using single-turn rag_chain.invoke")
+            raw = self.rag_chain.invoke({"question": question})
+            print(
+                f"DEBUG [RAGController.query] raw result: {raw!r} (type: {type(raw)})"
+            )
+            # Normalize output to string
+            if hasattr(raw, "value"):
+                return raw.value
+            if hasattr(raw, "content"):
+                return raw.content
+            if isinstance(raw, dict):
+                return next(iter(raw.values()))
+            return str(raw)
         except Exception as e:
             err_msg = f"Error processing query '{question}': {e}"
             print(err_msg)
-            # Use self.messager to publish log
             self.messager.publish_log(err_msg, level="error")
             return f"Sorry, an error occurred while processing your question: {e}"

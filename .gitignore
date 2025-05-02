@@ -2,7 +2,7 @@
 *_db/
 __pycache__/
 *.py[cod]
-*.pyc
+*.**.pyc
 *.pyo
 *.pyd
 *.egg-info/
@@ -12,3 +12,4 @@ __pycache__/
 *.db
 *.db-journal
 *.DS_Store
+**/__pycache__/*

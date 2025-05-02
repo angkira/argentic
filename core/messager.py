@@ -49,6 +49,11 @@ class Messager:
         self.client: MQTTClient = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id
         )
+        # Improve reliability: auto reconnect delays and higher inflight/queue limits
+        self.client.reconnect_delay_set(min_delay=1, max_delay=120)
+        # Allow larger message flows
+        self.client.max_inflight_messages_set(100)
+        self.client.max_queued_messages_set(0)  # unlimited
         # --- Assign Paho Logger ---
         self.client.enable_logger(mqtt_logger)  # Add this line
         # --------------------------
@@ -79,8 +84,9 @@ class Messager:
             self.publish_log(f"Connected to MQTT Broker: {self.broker_address}")
             # Resubscribe to topics upon reconnection
             for topic in self._topic_handlers.keys():
-                print(f"Messager: Subscribing to topic: {topic}")
-                self.client.subscribe(topic)
+                print(f"Messager: Subscribing to topic: {topic} (qos=1)")
+                # Subscribe with QoS 1 for reliable delivery
+                self.client.subscribe(topic, qos=1)
         else:
             self._is_connected = False
             self._connection_event.clear()  # Ensure event is clear on failure
@@ -145,8 +151,8 @@ class Messager:
         self._topic_handlers[topic] = handler
         # If already connected, subscribe to the new topic immediately
         if self._is_connected:
-            print(f"Messager: Subscribing to newly registered topic: {topic}")
-            self.client.subscribe(topic)
+            print(f"Messager: Subscribing to newly registered topic: {topic} (qos=1)")
+            self.client.subscribe(topic, qos=1)
 
     def connect(self, start_loop: bool = True) -> bool:  # Add start_loop parameter
         """Connects to the MQTT broker. Optionally starts background loop."""
@@ -184,7 +190,8 @@ class Messager:
         try:
             if not isinstance(payload, str):
                 payload = json.dumps(payload)
-            self.client.publish(topic, payload, retain=retain)
+            # Publish with QoS 1 to ensure delivery
+            self.client.publish(topic, payload, qos=1, retain=retain)
             # print(f"Messager: Published to {topic}: {payload[:100]}...") # Optional verbose log
             return True
         except Exception as e:

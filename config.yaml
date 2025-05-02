@@ -1,6 +1,26 @@
 # filepath: /mnt/c/Users/angkira/Project/services/rag/config.yaml
 llm:
-  model_name: 'gemma3:12b-it-qat' # Or llama3:8b, mistral:7b, gemma:7b etc.
+  backend: 'llamaserver' # Choose 'ollama', 'llamacpp', or 'llamaserver'
+  model_name: 'gemma3:12b-it-qat'
+  # llama.cpp HTTP server
+  server_binary: '~/llama.cpp/build/bin/llama-server' # Updated binary path
+  server_args:
+    - '--host'
+    - '127.0.0.1'
+    - '--port'
+    - '5000'
+    - '-m'
+    - '~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf'
+  server_host: '127.0.0.1'
+  server_port: 5000
+  # Optional direct llama.cpp CLI binary (for 'llamacpp' backend)
+  llama_cpp_binary: '~/llama.cpp/build/bin/llama-gemma3-cli'
+  llama_cpp_args:
+    - '--temp'
+    - '0.7'
+    - '--n'
+    - '128'
+  use_chat: true # enable session-based chat endpoint
 
 embedding:
   model_name: 'all-MiniLM-L6-v2' # Or all-mpnet-base-v2

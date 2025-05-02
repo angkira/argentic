@@ -2,6 +2,8 @@
 import os
 import time
 import warnings
+import argparse
+import sys
 from typing import Any, Callable, Dict, Optional
 
 # Third-party imports
@@ -9,7 +11,9 @@ import chromadb
 import yaml
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain_ollama import OllamaLLM
+
+# Local LLM factory import
+from core.llm import LLMFactory
 
 # Local application imports
 from core.decorators import mqtt_handler_decorator
@@ -50,6 +54,7 @@ MQTT_SUBSCRIPTIONS: Dict[str, str] = config["mqtt"]["subscriptions"]
 MQTT_PUB_RESPONSE: str = config["mqtt"]["publish_topics"]["response"]
 MQTT_PUB_STATUS: str = config["mqtt"]["publish_topics"]["status"]
 MQTT_PUB_LOG: str = config["mqtt"]["publish_topics"]["log"]
+use_chat: bool = config.get("llm", {}).get("use_chat", False)
 
 # Ensure the persistence directory exists
 os.makedirs(VECTORSTORE_DIR, exist_ok=True)
@@ -57,18 +62,16 @@ print(f"Vector store persistence directory: '{os.path.abspath(VECTORSTORE_DIR)}'
 
 # --- Initialize Components ---
 
-# 1. Initialize LLM via LangChain
-llm: OllamaLLM
+# 1. Initialize LLM backend (Ollama or llama.cpp)
+llm_config = config["llm"]
+backend: str = llm_config.get("backend", "ollama")
+model_name: str = llm_config.get("model_name")
+print(f"Initializing LLM backend='{backend}', model='{model_name}'...")
 try:
-    print(f"Initializing LLM: {OLLAMA_MODEL} via Ollama...")
-    llm = OllamaLLM(model=OLLAMA_MODEL)
-    print(f"LLM ({OLLAMA_MODEL}) initialized successfully.")
-    print("Ollama should automatically use your NVIDIA GPU if drivers are correct.")
+    llm = LLMFactory.create(llm_config)
+    print(f"LLM ({backend}:{model_name}) initialized successfully.")
 except Exception as e:
-    print(f"Error initializing LLM with Ollama: {e}")
-    print(
-        f"Ensure the Ollama server/application is running and the model '{OLLAMA_MODEL}' is pulled ('ollama pull {OLLAMA_MODEL}')."
-    )
+    print(f"Error initializing LLM: {e}")
     exit()
 
 # 2. Initialize Embedding Model
@@ -111,6 +114,7 @@ rag_controller: RAGController = RAGController(
     db_client=db_client,
     retriever_k=RETRIEVER_K,
     messager=messager,
+    use_chat=use_chat,
 )
 
 # --- MQTT Topic Handlers (Simplified with Decorator) ---
@@ -154,18 +158,23 @@ def handle_ask_question(data: Dict[str, Any], msg: MQTTMessage) -> None:
     topic = msg.topic
     question: Optional[str] = data.get("question")
     if question:
-        print(f"\n🤔 Processing Question via MQTT: {question}")
+        user_id = data.get("user_id")  # may be None
+        print(f"\n🤔 Processing Question via MQTT (user={user_id}): {question}")
         start_time = time.time()
-        response: str = rag_controller.query(question)
+        # Invoke RAG controller with session awareness
+        raw_resp = rag_controller.query(question, user_id=user_id)
+        response_str = str(raw_resp)
         end_time = time.time()
-        print(f"\n💡 Answer: {response}")
-        if "Sorry, an error occurred" in response:
+        print(f"\n💡 Answer: {response_str}")
+        if "Sorry, an error occurred" in response_str:
             messager.publish(
-                MQTT_PUB_RESPONSE, {"question": question, "error": response}
+                MQTT_PUB_RESPONSE,
+                {"user_id": user_id, "question": question, "error": response_str},
             )
         else:
             messager.publish(
-                MQTT_PUB_RESPONSE, {"question": question, "answer": response}
+                MQTT_PUB_RESPONSE,
+                {"user_id": user_id, "question": question, "answer": response_str},
             )
         print(f"(Response time: {end_time - start_time:.2f} seconds)")
         messager.publish_log(
@@ -237,17 +246,48 @@ topic_handlers: Dict[str, Callable[[MQTTMessage], None]] = {
     "handle_status_request": handle_status_request,
 }
 
-# --- Main Execution ---
-if __name__ == "__main__":
-    print("\n--- RAG Agent Starting ---")
 
+def start_llm_server(llm_config):
+    """Start the LLM server in its own process without running the agent."""
+    print("Starting LLM server...")
+    # Force auto_start so the server process is launched
+    llm_cfg = dict(llm_config, auto_start=True)
+    llm = LLMFactory.create(llm_cfg)
+    print("LLM server started. Press Ctrl+C to stop.")
     try:
-        # Pass the mapping of *handler names* to *decorated functions*
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down LLM server.")
+        sys.exit(0)
+
+
+def run_rag_agent():
+    """Initialize components and launch the RAG agent loop (wrapper)."""
+    print("\n--- RAG Agent Starting ---")
+    try:
         messager.start(MQTT_SUBSCRIPTIONS, topic_handlers)
         print("RAG Agent is running. Press Ctrl+C to exit.")
     except KeyboardInterrupt:
         print("\n\n--- RAG Agent Shutdown Initiated ---")
         messager.stop()
         print("RAG Agent has been stopped.")
+    finally:
+        print("\n--- RAG Agent Shutdown Complete ---")
 
-    print("\n--- RAG Agent Shutdown Complete ---")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--start-llm", action="store_true", help="Start LLM server only"
+    )
+    parser.add_argument(
+        "--start-agent", action="store_true", help="Start RAG agent wrapper"
+    )
+    args = parser.parse_args()
+    if args.start_llm:
+        start_llm_server(config["llm"])
+    elif args.start_agent:
+        run_rag_agent()
+    else:
+        parser.print_help()
