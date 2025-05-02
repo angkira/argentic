@@ -7,6 +7,7 @@ from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
 from langchain.docstore.document import Document
 import chromadb
+from langchain.schema import SystemMessage, HumanMessage
 
 # import warnings
 
@@ -199,74 +200,50 @@ ANSWER:"""
         if not question:
             return "Please provide a question."
         try:
-            # Debug: show session mode and user_id
-            print(
-                f"DEBUG [RAGController.query] use_chat={self.use_chat}, user_id={user_id}"
-            )
             # Session-based chat if enabled
             if self.use_chat:
-                print("DEBUG [RAGController.query] entering chat branch")
-                # Retrieve context via new API (optional)
+                # 1. Retrieve and format context
                 docs = self.retriever.invoke(question)
                 context = self._format_docs_with_metadata(docs)
-                # Stronger system instructions: answer directly, ignore context if irrelevant
+                # 2. Build the chat messages as plain dicts
                 system_msg = (
-                    "You are an expert assistant with full domain knowledge. ALWAYS answer the user's question directly, without disclaimers or apologies. "
-                    "Disregard any provided context if it does not contain the answer, and do not mention the context under any circumstances."
+                    "You are a highly capable assistant. Always answer the user's question directly using your general knowledge. "
+                    "If the provided context is relevant, you may briefly use it; otherwise, ignore it without apology."
                 )
-                # Build chat messages: always system message, optionally context, then user question
-                messages = [{"role": "system", "content": system_msg}]
-                # Only include context if it contains real content
-                if docs and not context.strip().startswith("No relevant context found"):
-                    messages.append(
-                        {"role": "system", "content": f"CONTEXT:\n{context}"}
-                    )
-                # Append the user question
-                messages.append({"role": "user", "content": question})
-                print(f"DEBUG [RAGController.query] chat messages: {messages}")
-                reply = self.llm.chat(messages)
-                # If the model still refuses, fallback to a direct question-only chat
-                lower = reply.lower()
-                # refusal detection list expanded
-                refusals = [
-                    "don't have",
-                    "i cannot",
-                    "cannot provide",
-                    "don't know",
-                    "lack information",
-                    "outside the scope",
-                    "outside scope",
-                    "request is outside",
+                # Compose a single user content combining context and question
+                if context and not context.startswith("No relevant context found"):
+                    user_content = f"CONTEXT:\n{context}\n\nQUESTION: {question}"
+                else:
+                    user_content = question
+                messages = [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_content},
                 ]
-                if any(phrase in lower for phrase in refusals):
-                    print(
-                        "DEBUG [RAGController.query] refusal detected, retrying without context"
-                    )
-                    sys_msg = (
-                        "You are a highly capable assistant. Always answer directly using your knowledge; "
-                        "regardless of any provided context, provide a complete informed answer."
-                    )
-                    retry_msgs = [
-                        {"role": "system", "content": sys_msg},
-                        {"role": "user", "content": question},
-                    ]
-                    reply_retry = self.llm.chat(retry_msgs)
-                    return reply_retry
+                # Call chat endpoint
+                reply = self.llm.chat(messages)
+                # If refusal pattern detected, retry without context
+                lower = reply.lower()
+                for fail in (
+                    "don't have",
+                    "do not have",
+                    "don't know",
+                    "cannot provide",
+                ):
+                    if fail in lower:
+                        retry_msgs = [
+                            {"role": "system", "content": system_msg},
+                            {"role": "user", "content": question},
+                        ]
+                        return self.llm.chat(retry_msgs)
                 return reply
-            # Single-turn RAG chain invocation (avoids deprecated get_relevant_documents)
-            print("DEBUG [RAGController.query] using single-turn rag_chain.invoke")
-            raw = self.rag_chain.invoke({"question": question})
-            print(
-                f"DEBUG [RAGController.query] raw result: {raw!r} (type: {type(raw)})"
+
+            # Single-turn manual pipeline: fallback to direct RAG prompt
+            docs = self.retriever.invoke(question)
+            context = self._format_docs_with_metadata(docs)
+            prompt = self.raw_template.replace("{context}", context).replace(
+                "{question}", question
             )
-            # Normalize output to string
-            if hasattr(raw, "value"):
-                return raw.value
-            if hasattr(raw, "content"):
-                return raw.content
-            if isinstance(raw, dict):
-                return next(iter(raw.values()))
-            return str(raw)
+            return self.llm(prompt)
         except Exception as e:
             err_msg = f"Error processing query '{question}': {e}"
             print(err_msg)
