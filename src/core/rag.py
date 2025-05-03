@@ -4,7 +4,6 @@ from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
 import chromadb
 
-# Import Messager for type hinting
 from core.messager import Messager
 
 DEFAULT_COLLECTION_NAME = "default_rag_collection"

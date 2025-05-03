@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional, Type, TypeVar
-from paho.mqtt.client import MQTTMessage  # Placeholder for actual MQTT message type
+from paho.mqtt.client import MQTTMessage
 import json
 
 T = TypeVar("T", bound="Message")
@@ -55,24 +55,20 @@ class Message:
 
         try:
             message_type = MessageType(message_type_str)
-        except ValueError as e:  # Capture the original error
-            raise ValueError(
-                f"Unknown message type: {message_type_str}"
-            ) from e  # Chain the exception
+        except ValueError as e:
+            raise ValueError(f"Unknown message type: {message_type_str}") from e
 
-        # Find the appropriate subclass based on the type
         target_cls = message_subclass_map.get(message_type, cls)
 
         return target_cls(
             timestamp=datetime.fromisoformat(data_dict["timestamp"]),
             source=data_dict["source"],
             recipient=data_dict.get("recipient"),
-            type=message_type,  # Use the enum member
+            type=message_type,
             data=data_dict["data"],
         )
 
-    # Placeholder for MQTT-specific conversion if needed later
-    def to_mqtt_message(self) -> Any:  # Replace Any with actual MQTTMessage type
+    def to_mqtt_message(self) -> Any:
         """Converts the message to an MQTT message format."""
         payload = json.dumps(self.to_dict())
 
@@ -80,22 +76,15 @@ class Message:
         msg.payload = payload.encode("utf-8")
         return msg
 
-    # @classmethod
-    def from_mqtt_message(
-        cls: Type[T], mqtt_msg: Any
-    ) -> T:  # Replace Any with actual MQTTMessage type
+    def from_mqtt_message(cls: Type[T], mqtt_msg: Any) -> T:
         """Creates a Message instance from an MQTT message."""
         try:
             payload_str = mqtt_msg.payload.decode("utf-8")
             data_dict = json.loads(payload_str)
             return cls.from_dict(data_dict)
         except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError) as e:
-            # Handle parsing errors appropriately
             print(f"Error decoding MQTT message: {e}")
             raise ValueError("Invalid MQTT message format") from e
-
-
-# --- Specific Message Type Classes ---
 
 
 class SystemMessage(Message):
@@ -228,8 +217,6 @@ class StatusMessage(Message):
     ):
         super().__init__(source, MessageType.STATUS, data, recipient, timestamp)
 
-
-# --- Mapping for deserialization ---
 
 message_subclass_map: Dict[MessageType, Type[Message]] = {
     MessageType.SYSTEM: SystemMessage,

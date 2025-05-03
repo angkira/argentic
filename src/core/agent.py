@@ -1,31 +1,39 @@
-from typing import Dict, List, Optional
 import time
-from langchain_ollama import OllamaLLM
+import json
+from typing import Any, List, Optional
+
 from langchain.prompts import PromptTemplate
 from langchain.docstore.document import Document
 
-# Local imports
 from core.messager import Messager
-from core.rag import RAGManager  # Import RAGManager for interaction
+from core.rag import RAGManager
+from core.llm import LlamaServerLLM
+from core.tool_manager import ToolManager
 
 
 class Agent:
-    """Manages tools, prompts, and interaction with the LLM and RAGManager."""
+    """Manages interaction with LLM, RAGManager, and ToolManager."""
 
-    def __init__(self, llm: OllamaLLM, rag_manager: RAGManager, messager: Messager):
+    def __init__(self, llm: Any, rag_manager: RAGManager, messager: Messager):
         self.llm = llm
         self.rag_manager = rag_manager
         self.messager = messager
-        self.tools: Dict[str, Dict[str, str]] = {}
+        self.tool_manager = ToolManager(messager)
         self.prompt_template = self._build_prompt_template()
-        print("Agent initialized.")
+
+        print("Agent initialized (uses ToolManager).")
 
     def _build_prompt_template(self) -> PromptTemplate:
-        # Base template - might be enhanced with tool usage instructions later
-        template = """You are a highly capable assistant. Use the provided CONTEXT to inform your response when it is relevant, but regardless of context relevance you must always provide a complete, informed answer using your own knowledge.
-Do not apologize or state that you lack information; simply answer the question directly.
+        template = """You are a highly capable assistant. Use the provided CONTEXT to inform your response when it is relevant. Always provide a complete answer using your own knowledge or the available tools.
+Do not apologize or state that you lack information.
 
-{tool_instructions}
+If you need to use one or more tools to answer the question, respond ONLY with a JSON object containing a 'tool_calls' list, like this:
+{"tool_calls": [{"tool_id": "...", "arguments": {...}}, ...]}
+Do not add any other text before or after the JSON.
+If you do not need a tool, provide a direct textual answer.
+
+Available Tools:
+{tool_descriptions}
 
 CONTEXT:
 {context}
@@ -33,11 +41,10 @@ CONTEXT:
 QUESTION: {question}
 
 ANSWER:"""
-        self.raw_template = template  # Store raw template for manual formatting
+        self.raw_template = template
         return PromptTemplate.from_template(template)
 
     def _format_docs_with_metadata(self, docs: List[Document]) -> str:
-        """Helper function to format retrieved documents including metadata."""
         formatted_docs = []
         for i, doc in enumerate(docs):
             ts_unix = doc.metadata.get("timestamp", 0)
@@ -54,77 +61,99 @@ ANSWER:"""
             )
         return "\n\n".join(formatted_docs) if formatted_docs else "No relevant context found."
 
-    def register_tool(self, tool_id: str, tool_name: str, tool_manual: str, tool_api: str) -> str:
-        """Stores tool information."""
-        if tool_id in self.tools:
-            self.messager.log(
-                f"Warning: Tool with ID '{tool_id}' already registered. Overwriting.",
-                level="warning",
-            )
-
-        self.tools[tool_id] = {
-            "name": tool_name,
-            "manual": tool_manual,
-            "api": tool_api,
-        }
-
-        tool_description = (
-            f"Tool Name: {tool_name}\n"
-            f"Tool ID: {tool_id}\n"
-            f"Manual: {tool_manual}\n"
-            f"API Schema: {tool_api}"
-        )
-
-        self.messager.log(f"Agent registered tool '{tool_name}' (ID: {tool_id}).")
-        return tool_description
-
-    def get_tool_prompt_segment(self) -> str:
-        """Generates a string describing available tools for inclusion in an LLM prompt."""
-        if not self.tools:
-            return ""
-
-        prompt_lines = ["You have access to the following tools:"]
-        for tool_id, tool_data in self.tools.items():
-            prompt_lines.append(f"- Tool Name: {tool_data['name']} (ID: {tool_id})")
-            prompt_lines.append(f"  Description: {tool_data['manual']}")
-            prompt_lines.append(f"  API Schema (use this format for requests): {tool_data['api']}")
-        prompt_lines.append(
-            'To use a tool, respond with a JSON object matching the tool\'s API schema within <tool_call> tags. Example: <tool_call>{"tool_id": "some_id", "parameters": {...}}</tool_call>'
-        )
-
-        return "\n".join(prompt_lines)
-
     def query(
         self, question: str, collection_name: Optional[str] = None, user_id: Optional[str] = None
     ) -> str:
-        """Handles a user query: retrieves context, formats prompt, calls LLM."""
-        if not question:
-            return "Please provide a question."
+        max_tool_iterations = 3
+        current_iteration = 0
+        messages = []
 
         try:
-            # 1. Retrieve context using RAGManager
             docs = self.rag_manager.retrieve(question, collection_name)
-            context = self._format_docs_with_metadata(docs)
+            context_str = self._format_docs_with_metadata(docs)
 
-            # 2. Get tool instructions
-            tool_instructions = self.get_tool_prompt_segment()
+            tool_descriptions = self.tool_manager.generate_tool_descriptions_for_prompt()
 
-            # 3. Format the prompt using the raw template
-            prompt = self.raw_template.format(
-                tool_instructions=tool_instructions, context=context, question=question
+            grammar = None
+            if self.tool_manager.tools and isinstance(self.llm, LlamaServerLLM):
+                grammar = self.tool_manager.generate_tool_grammar()
+
+            initial_prompt_text = self.raw_template.format(
+                tool_descriptions=tool_descriptions, context=context_str, question=question
             )
+            messages = [{"role": "user", "content": initial_prompt_text}]
 
-            # 4. Call the LLM
-            self.messager.log(
-                f"Sending prompt to LLM (query for user: {user_id or 'N/A'}):\n{prompt}"
-            )
-            response = self.llm(prompt)
-            self.messager.log(f"Received LLM response: {response}")
+            while current_iteration < max_tool_iterations:
+                current_iteration += 1
+                self.messager.log(f"Agent Query Iteration: {current_iteration}")
 
-            return response
+                llm_kwargs = {}
+                if grammar:
+                    llm_kwargs["grammar"] = grammar
+
+                if hasattr(self.llm, "chat"):
+                    response_text = self.llm.chat(messages, **llm_kwargs)
+                else:
+                    combined_prompt = "\n".join(
+                        [f"{m['role'].upper()}: {m['content']}" for m in messages]
+                    )
+                    response_text = self.llm(combined_prompt, **llm_kwargs)
+
+                try:
+                    potential_json = response_text.strip()
+                    if potential_json.startswith("{") and potential_json.endswith("}"):
+                        response_data = json.loads(potential_json)
+                        tool_calls = response_data.get("tool_calls")
+
+                        if isinstance(tool_calls, list) and tool_calls:
+                            self.messager.log(f"LLM requested {len(tool_calls)} tool call(s).")
+                            messages.append({"role": "assistant", "content": response_text})
+
+                            tool_results = []
+                            for call in tool_calls:
+                                tool_id = call.get("tool_id")
+                                arguments = call.get("arguments")
+                                if tool_id and isinstance(arguments, dict):
+                                    tool_result = self.tool_manager.execute_tool(tool_id, arguments)
+                                    tool_results.append(
+                                        {"tool_call_id": tool_id, "result": tool_result}
+                                    )
+                                else:
+                                    self.messager.log(
+                                        f"Invalid tool call structure in list: {call}",
+                                        level="warning",
+                                    )
+                                    tool_results.append(
+                                        {
+                                            "tool_call_id": "unknown",
+                                            "result": f"Error: Invalid tool call format received ({call})",
+                                        }
+                                    )
+
+                            combined_results_str = json.dumps(tool_results)
+                            messages.append({"role": "tool", "content": combined_results_str})
+                            continue
+                        else:
+                            return response_text
+                    else:
+                        return response_text
+
+                except json.JSONDecodeError:
+                    return response_text
+                except Exception as e:
+                    self.messager.log(
+                        f"Error parsing LLM response or executing tool: {e}", level="error"
+                    )
+                    return f"Error processing response: {e}"
+
+            self.messager.log("Max tool iterations reached.", level="warning")
+            return "Sorry, I couldn't complete the request after multiple tool calls."
 
         except Exception as e:
             err_msg = f"Error processing query in Agent for user '{user_id or 'N/A'}': {e}"
             self.messager.log(err_msg, level="error")
             print(err_msg)
+            import traceback
+
+            traceback.print_exc()
             return f"Sorry, an error occurred while processing your question: {e}"
