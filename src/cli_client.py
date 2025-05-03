@@ -51,18 +51,10 @@ messager = Messager(
     pub_log_topic=MQTT_PUB_LOG,
 )
 
+
 # --- Define MQTT Handlers ---
-# Create a decorator instance (optional, could apply directly)
-handler_decorator = mqtt_handler_decorator(messager)
-
-
-@handler_decorator
-def handle_answer(
-    messager: Messager,
-    data: Optional[Dict[str, Any]],
-    msg: MQTTMessage,
-    _handler_kwargs: Dict[str, Any],  # Keep kwargs placeholder
-) -> None:
+# Define RAW handlers (ensure only messager, data, msg are parameters)
+def handle_answer(messager: Messager, data: Optional[Dict[str, Any]], msg: MQTTMessage) -> None:
     """Handles incoming messages on the answer topic."""
     if data is None:
         print("\n--- Agent Response ---")
@@ -90,6 +82,17 @@ def handle_answer(
     print("> ", end="", flush=True)
 
 
+def handle_status(messager: Messager, data: Optional[Dict[str, Any]], msg: MQTTMessage) -> None:
+    """Handles incoming messages on the status topic."""
+    print("\n--- Status Update ---")
+    if data:
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"Error: Received non-JSON or invalid payload on topic {msg.topic}")
+    print("----------------------")
+    print("> ", end="", flush=True)
+
+
 # --- Main Execution Block ---
 if __name__ == "__main__":
     USER_ID = str(uuid.uuid4())  # Unique ID for this CLI session
@@ -113,10 +116,17 @@ if __name__ == "__main__":
         print(f"CLI: Connected to {MQTT_BROKER}:{MQTT_PORT}")
 
         # Register handlers for subscribed topics
+        print("CLI: Registering handlers...")
         for topic, handler_name in cli_subscriptions.items():
-            handler_func = cli_handlers.get(handler_name)
-            if handler_func:
-                messager.register_handler(topic, handler_func)
+            raw_handler_func = cli_handlers.get(handler_name)
+            if raw_handler_func:
+                # Apply the decorator manually here
+                decorated_handler = mqtt_handler_decorator(messager=messager)(raw_handler_func)
+                messager.register_handler(topic, decorated_handler)
+                print(f"  - Registered handler for topic: {topic}")
+            else:
+                print(f"  - Warning: Handler function '{handler_name}' not found.")
+
         print(f"CLI: Subscribed to topics: {list(messager._topic_handlers.keys())}")
 
         # Start the MQTT background loop for receiving messages

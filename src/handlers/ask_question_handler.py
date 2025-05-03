@@ -10,16 +10,17 @@ def handle_ask_question(
     agent: Optional[Agent],
     data: Optional[Dict[str, Any]],
     msg: MQTTMessage,
-    handler_kwargs: Dict[str, Any],
+    handler_kwargs: Dict[str, Any],  # Ensure parameter is named handler_kwargs
 ) -> None:
     """Handles messages on the 'ask_question' topic (core logic)."""
     topic = msg.topic
+    # Use the standard parameter name to get specific kwargs
     pub_response_topic = handler_kwargs.get("pub_response_topic")
 
     if agent is None:
         err_msg = f"Agent not available for handle_ask_question on topic {topic}"
         print(err_msg)
-        messager.publish_log(err_msg, level="error")
+        messager.log(err_msg, level="error")
         if pub_response_topic:
             messager.publish(
                 pub_response_topic, {"error": "Internal configuration error: Agent missing"}
@@ -27,7 +28,7 @@ def handle_ask_question(
         return
 
     if pub_response_topic is None:
-        messager.publish_log(f"Response topic not configured for {topic}", level="error")
+        messager.log(f"Response topic not configured for {topic}", level="error")
         # Cannot publish response, maybe just log the question processing
         # return # Or continue processing but without publishing result?
 
@@ -64,9 +65,9 @@ def handle_ask_question(
                 )
 
         print(f"(Response time: {end_time - start_time:.2f} seconds)")
-        messager.publish_log(f"Processed question '{question}' in {end_time - start_time:.2f}s.")
+        messager.log(f"Processed question '{question}' in {end_time - start_time:.2f}s.")
     else:
-        messager.publish_log(
+        messager.log(
             f"Received ask_question command on {topic} with missing 'question'.",
             level="warning",
         )

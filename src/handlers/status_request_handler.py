@@ -8,10 +8,11 @@ def handle_status_request(
     messager: Messager,
     data: Optional[Dict[str, Any]],
     msg: MQTTMessage,
-    handler_kwargs: Dict[str, Any],
+    handler_kwargs: Dict[str, Any],  # Ensure parameter is named handler_kwargs
 ) -> None:
     """Handles messages on the 'status_request' topic (core logic)."""
     topic = msg.topic
+    # Use the standard parameter name to get specific kwargs
     pub_status_topic = handler_kwargs.get("pub_status_topic")
     llm_model = handler_kwargs.get("llm_model", "Unknown")
     embedding_model = handler_kwargs.get("embedding_model", "Unknown")
@@ -19,7 +20,7 @@ def handle_status_request(
     mqtt_broker = handler_kwargs.get("mqtt_broker", "Unknown")
     subscribed_topics = handler_kwargs.get("subscribed_topics", [])
 
-    messager.publish_log(f"Processing status request received on topic {topic}")
+    messager.log(f"Processing status request received on topic {topic}")
 
     status_info: Dict[str, Any] = {
         "status": "running",
@@ -34,4 +35,4 @@ def handle_status_request(
     if pub_status_topic:
         messager.publish(pub_status_topic, status_info)
     else:
-        messager.publish_log(f"Status topic not configured for {topic}", level="error")
+        messager.log(f"Status topic not configured for {topic}", level="error")

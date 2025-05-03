@@ -15,7 +15,7 @@ def handle_register_tool(
     agent: Agent,
     data: Dict[str, Any],
     msg: MQTTMessage,
-    handler_kwargs: Dict[str, Any],
+    handler_kwargs: Dict[str, Any],  # Ensure parameter is named handler_kwargs
 ) -> None:
     try:
         tool_name = data.get("tool_name")
@@ -71,12 +71,14 @@ def handle_register_tool(
         print(f"Registered placeholder tool '{tool_name}' (ID: {tool_id}) from source '{source}'.")
 
         confirmation_message = ToolRegisteredMessage(
-            source=handler_kwargs.get("mqtt_client_id", "rag_agent"),
+            source=handler_kwargs.get("mqtt_client_id", "rag_agent"),  # Use standard param
             tool_id=tool_id,
             tool_name=tool_name,
             recipient=source,
         )
-        response_topic = handler_kwargs.get("pub_status_topic", "rag/status/info")
+        response_topic = handler_kwargs.get(
+            "pub_status_topic", "rag/status/info"
+        )  # Use standard param
         messager.publish(response_topic, confirmation_message.to_dict())
         messager.log(
             f"Sent TOOL_REGISTERED confirmation for tool '{tool_name}' to topic '{response_topic}' for recipient '{source}'."

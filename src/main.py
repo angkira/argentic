@@ -138,8 +138,18 @@ def run_rag_agent():
         monitor_thread.start()
 
     try:
+        # Initialize Messager first as it might be needed by LLMFactory
+        messager: Messager = Messager(
+            broker_address=MQTT_BROKER,
+            port=MQTT_PORT,
+            client_id=MQTT_CLIENT_ID,
+            keepalive=MQTT_KEEPALIVE,
+            pub_log_topic=MQTT_PUB_LOG,
+        )
+
         print(f"Initializing LLM backend='{backend}', model='{model_name}'...")
-        llm = LLMFactory.create(llm_config)
+        # Pass messager to LLMFactory
+        llm = LLMFactory.create(llm_config, messager=messager)
         print(f"LLM ({backend}:{model_name}) initialized successfully.")
 
         embedding_function: HuggingFaceEmbeddings
@@ -163,21 +173,10 @@ def run_rag_agent():
         )
         print(f"ChromaDB collection '{COLLECTION_NAME}' loaded/created.")
 
-        messager: Messager = Messager(
-            broker_address=MQTT_BROKER,
-            port=MQTT_PORT,
-            client_id=MQTT_CLIENT_ID,
-            keepalive=MQTT_KEEPALIVE,
-            pub_log_topic=MQTT_PUB_LOG,
-        )
-
         rag_manager: RAGManager = RAGManager(
-            llm=llm,
-            vectorstore=vectorstore,
             db_client=db_client,
             retriever_k=RETRIEVER_K,
             messager=messager,
-            use_chat=use_chat,
         )
 
         agent: Agent = Agent(
@@ -186,37 +185,39 @@ def run_rag_agent():
             messager=messager,
         )
 
+        # Apply decorators, injecting correct dependencies and kwargs
         handle_add_info = mqtt_handler_decorator(
             messager=messager,
-            rag_controller=rag_manager,
+            rag_manager=rag_manager,  # Correct dependency
             pub_status_topic=MQTT_PUB_STATUS,
         )(raw_handle_add_info)
 
         handle_ask_question = mqtt_handler_decorator(
             messager=messager,
-            rag_controller=rag_manager,
+            agent=agent,  # Correct dependency
             pub_response_topic=MQTT_PUB_RESPONSE,
         )(raw_handle_ask_question)
 
         handle_forget_info = mqtt_handler_decorator(
             messager=messager,
-            rag_controller=rag_manager,
+            rag_manager=rag_manager,  # Correct dependency
             pub_status_topic=MQTT_PUB_STATUS,
         )(raw_handle_forget_info)
 
         handle_status_request = mqtt_handler_decorator(
             messager=messager,
+            # No rag_manager or agent needed, pass config via kwargs
             pub_status_topic=MQTT_PUB_STATUS,
             llm_model=model_name,
             embedding_model=EMBEDDING_MODEL_NAME,
-            collection_name=COLLECTION_NAME,
+            default_collection_name=COLLECTION_NAME,  # Pass the configured default collection name
             mqtt_broker=MQTT_BROKER,
             subscribed_topics=list(MQTT_SUBSCRIPTIONS.keys()),
         )(raw_handle_status_request)
 
         handle_register_tool = mqtt_handler_decorator(
             messager=messager,
-            agent=agent,
+            agent=agent,  # Correct dependency
             pub_status_topic=MQTT_PUB_STATUS,
             mqtt_client_id=MQTT_CLIENT_ID,
         )(raw_handle_register_tool)

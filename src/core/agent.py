@@ -24,13 +24,13 @@ class Agent:
         print("Agent initialized (uses ToolManager).")
 
     def _build_prompt_template(self) -> PromptTemplate:
+        # Escape literal curly braces in the example JSON to prevent .format() issues
         template = """You are a highly capable assistant. Use the provided CONTEXT to inform your response when it is relevant. Always provide a complete answer using your own knowledge or the available tools.
 Do not apologize or state that you lack information.
 
 If you need to use one or more tools to answer the question, respond ONLY with a JSON object containing a 'tool_calls' list, like this:
-{"tool_calls": [{"tool_id": "...", "arguments": {...}}, ...]}
+{{"tool_calls": [{{"tool_id": "...", "arguments": {{...}}}}, ...]}}
 Do not add any other text before or after the JSON.
-If you do not need a tool, provide a direct textual answer.
 
 Available Tools:
 {tool_descriptions}

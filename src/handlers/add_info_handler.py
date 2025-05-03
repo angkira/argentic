@@ -14,17 +14,18 @@ def handle_add_info(
     rag_manager: Optional[RAGManager],
     data: Optional[Dict[str, Any]],
     msg: MQTTMessage,
-    handler_kwargs: Dict[str, Any],
+    handler_kwargs: Dict[str, Any],  # Ensure parameter is named handler_kwargs
 ) -> None:
     """Handles messages on the 'add_info' topic (core logic)."""
     topic = msg.topic
+    # Use the standard parameter name to get specific kwargs
     pub_status_topic = handler_kwargs.get("pub_status_topic")
 
     # Ensure RAGManager was injected if needed for this handler
     if rag_manager is None:
         err_msg = f"RAGManager not available for handle_add_info on topic {topic}"
         print(err_msg)
-        messager.publish_log(err_msg, level="error")
+        messager.log(err_msg, level="error")
         if pub_status_topic:
             messager.publish(
                 pub_status_topic,
@@ -72,12 +73,10 @@ def handle_add_info(
 
             messager.publish(pub_status_topic, response_payload)
         else:
-            messager.publish_log(f"Status topic not configured for {topic}", level="warning")
+            messager.log(f"Status topic not configured for {topic}", level="warning")
 
     else:
-        messager.publish_log(
-            f"Received add_info command on {topic} with missing 'text'.", level="warning"
-        )
+        messager.log(f"Received add_info command on {topic} with missing 'text'.", level="warning")
         if pub_status_topic:
             messager.publish(
                 pub_status_topic,

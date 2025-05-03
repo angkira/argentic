@@ -34,9 +34,9 @@ def mqtt_handler_decorator(
         func: Callable[
             [
                 Messager,
-                Optional[Dict[str, Any]],  # Parsed data comes before dependencies
-                MQTTMessage,
-                Dict[str, Any],  # handler_kwargs
+                Optional[Dict[str, Any]],  # Parsed data
+                MQTTMessage,  # Original message
+                Dict[str, Any],  # handler_kwargs (handler specific kwargs)
             ],
             None,
         ],
@@ -60,47 +60,60 @@ def mqtt_handler_decorator(
                     err_msg = f"Invalid JSON received on {topic}: {payload_str}"
                     print(err_msg)
                     # Use the injected messager for logging
-                    messager.publish_log(err_msg, level="warning")
+                    messager.log(err_msg, level="warning")
                     data = None  # Pass None for data if JSON parsing fails
 
                 # 3. Call original handler with injected dependencies and kwargs
-                # Check for available keyword arguments in the function signature
                 import inspect
 
                 sig = inspect.signature(func)
                 params = sig.parameters
-                kwargs = {}
+                call_kwargs = {}
 
                 # Prepare kwargs based on available parameters in the function signature
                 if "messager" in params:
-                    kwargs["messager"] = messager
+                    call_kwargs["messager"] = messager
                 if "data" in params:
-                    kwargs["data"] = data
+                    call_kwargs["data"] = data
                 if "msg" in params:
-                    kwargs["msg"] = msg
+                    call_kwargs["msg"] = msg
+
+                # Conditionally pass handler_kwargs ONLY if the function expects it
                 if "handler_kwargs" in params:
-                    kwargs["handler_kwargs"] = handler_kwargs
+                    call_kwargs["handler_kwargs"] = handler_kwargs
 
                 # Add optional dependencies if they exist and are in the signature
                 if "rag_manager" in params and rag_manager is not None:
-                    kwargs["rag_manager"] = rag_manager
+                    call_kwargs["rag_manager"] = rag_manager
                 if "agent" in params and agent is not None:
-                    kwargs["agent"] = agent
+                    call_kwargs["agent"] = agent
+
+                # --- DEBUGGING ---
+                print(f"DEBUG: Decorator wrapping func: {func.__name__}")
+                print(f"DEBUG: Inspected params: {list(params.keys())}")
+                print(f"DEBUG: Call kwargs being passed: {list(call_kwargs.keys())}")
+                # --- END DEBUGGING ---
 
                 # Call the function with the collected kwargs
-                func(**kwargs)
+                try:
+                    func(**call_kwargs)
+                except Exception as e:
+                    print(
+                        f"DEBUG: Error during func call: {e}"
+                    )  # Add debug for the specific call error
+                    raise  # Re-raise the original exception
 
             except UnicodeDecodeError:
                 err_msg = f"Cannot decode payload on {topic} as UTF-8: {msg.payload!r}"
                 print(err_msg)
-                messager.publish_log(err_msg, level="error")
+                messager.log(err_msg, level="error")
             except Exception as e:
                 # Catch-all for unexpected errors within the handler logic itself
                 err_msg = (
                     f"Unhandled error processing message on {topic}: {e.__class__.__name__}: {e}"
                 )
                 print(err_msg)
-                messager.publish_log(err_msg, level="error")
+                messager.log(err_msg, level="error")
                 import traceback
 
                 traceback.print_exc()  # Print stack trace for debugging

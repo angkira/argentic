@@ -8,9 +8,7 @@ from typing import Dict, Any, Optional, Callable, Union
 # Define type aliases for clarity
 MQTTClient = mqtt.Client
 MQTTMessage = mqtt.MQTTMessage
-MQTTMessageHandler = Callable[
-    [MQTTClient, Any, MQTTMessage], None
-]  # Original handler signature
+MQTTMessageHandler = Callable[[MQTTClient, Any, MQTTMessage], None]  # Original handler signature
 MessageHandlerWrapper = Callable[[MQTTMessage], None]  # Simplified wrapper signature
 
 # --- Enable Paho MQTT Client Logging ---
@@ -78,10 +76,8 @@ class Messager:
         if rc == 0:
             self._is_connected = True
             self._connection_event.set()  # Signal connection success
-            print(
-                f"Messager: Connected successfully to MQTT Broker: {self.broker_address}"
-            )
-            self.publish_log(f"Connected to MQTT Broker: {self.broker_address}")
+            print(f"Messager: Connected successfully to MQTT Broker: {self.broker_address}")
+            self.log(f"Connected to MQTT Broker: {self.broker_address}")
             # Resubscribe to topics upon reconnection
             for topic in self._topic_handlers.keys():
                 print(f"Messager: Subscribing to topic: {topic} (qos=1)")
@@ -91,7 +87,7 @@ class Messager:
             self._is_connected = False
             self._connection_event.clear()  # Ensure event is clear on failure
             print(f"Messager: Failed to connect to MQTT Broker, return code {rc}")
-            # Note: publish_log won't work here
+            # Note: log won't work here
 
     def _on_message(self, client: MQTTClient, userdata: Any, msg: MQTTMessage) -> None:
         """Internal callback for received messages."""
@@ -103,12 +99,10 @@ class Messager:
                 # Pass only the message to the simplified handler wrapper
                 handler(msg)
             except Exception as e:
-                err_msg = (
-                    f"Messager: Unhandled exception in handler for topic '{topic}': {e}"
-                )
+                err_msg = f"Messager: Unhandled exception in handler for topic '{topic}': {e}"
                 print(err_msg)
                 try:
-                    self.publish_log(err_msg, level="error")
+                    self.log(err_msg, level="error")
                 except Exception:  # Avoid errors if publish fails during handler error
                     print("Messager: Failed to publish handler error log.")
         else:
@@ -160,9 +154,7 @@ class Messager:
             print("Messager: Already connected.")
             return True
         try:
-            print(
-                f"Messager: Connecting to MQTT Broker: {self.broker_address}:{self.port}..."
-            )
+            print(f"Messager: Connecting to MQTT Broker: {self.broker_address}:{self.port}...")
             self._connection_event.clear()
             self.client.connect(self.broker_address, self.port, self.keepalive)
             # Only start background loop if requested (e.g., for client)
@@ -198,7 +190,7 @@ class Messager:
             print(f"Messager: Error publishing MQTT message to {topic}: {e}")
             return False
 
-    def publish_log(self, message: str, level: str = "info") -> None:
+    def log(self, message: str, level: str = "info") -> None:
         """Publishes a log message to the configured log topic."""
         log_payload = {"timestamp": time.time(), "level": level, "message": message}
         self.publish(self.pub_log_topic, log_payload)
@@ -243,11 +235,11 @@ class Messager:
                 time.sleep(1)
         except KeyboardInterrupt:
             print("Messager: Loop interrupted by user (Ctrl+C). Shutting down.")
-            self.publish_log("Service stopped by user.", level="info")
+            self.log("Service stopped by user.", level="info")
         except Exception as e:
             print(f"Messager: An error occurred in the main loop: {e}")
             try:
-                self.publish_log(f"Main loop error: {e}", level="critical")
+                self.log(f"Main loop error: {e}", level="critical")
             except Exception:
                 print("Messager: Failed to publish main loop error log.")
         finally:
