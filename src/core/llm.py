@@ -1,9 +1,9 @@
-import subprocess
-import shlex
 import os
-from typing import Dict, Any
-import requests  # For HTTP API calls
+import subprocess
 from subprocess import Popen
+from typing import Any, Dict
+
+import requests  # For HTTP API calls
 
 # Ollama backend via LangChain
 from langchain_ollama import OllamaLLM
@@ -48,7 +48,7 @@ class LlamaCppLLM:
     Wrapper that invokes the llama.cpp compiled binary for text generation.
     """
 
-    def __init__(self, model_path: str, binary_path: str, args: list[str] = []):
+    def __init__(self, model_path: str, binary_path: str, args: list[str] = None):
         self.model_path = os.path.expanduser(model_path)
         self.binary_path = os.path.expanduser(binary_path)
         self.args = args or []
@@ -71,7 +71,7 @@ class LlamaCppLLM:
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"llama.cpp subprocess failed: {e.stderr}")
+            raise RuntimeError(f"llama.cpp subprocess failed: {e.stderr}, cmd: {cmd}") from e
 
 
 class LlamaServerLLM:
@@ -109,7 +109,7 @@ class LlamaServerLLM:
         # Send prompt to llama.cpp HTTP server via the /completion endpoint
         url = f"{self.server_url}/completion"
         payload = {"prompt": prompt}
-        resp = requests.post(url, json=payload)
+        resp = requests.post(url, json=payload, timeout=600)  # Add a 60-second timeout
         resp.raise_for_status()
         data = resp.json()
         # The completion endpoint returns JSON with a 'content' field
@@ -120,7 +120,7 @@ class LlamaServerLLM:
         url = f"{self.server_url}/v1/chat/completions"
         payload = {"model": None, "messages": messages}
         # omit model field if not required; llama.cpp-server uses default
-        resp = requests.post(url, json=payload)
+        resp = requests.post(url, json=payload, timeout=600)  # Add a 60-second timeout
         resp.raise_for_status()
         data = resp.json()
         # return the assistant's content from the first choice

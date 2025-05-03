@@ -1,13 +1,12 @@
 # Standard library imports
 import os
 import time
-import warnings
 import argparse
 import sys
 import requests
 import json
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Callable, Dict
 
 # Third-party imports
 import chromadb

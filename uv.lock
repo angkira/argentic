@@ -101,6 +101,51 @@ wheels = [
 ]
 
 [[package]]
+name = "argentic"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "chromadb" },
+    { name = "langchain" },
+    { name = "langchain-community" },
+    { name = "langchain-huggingface" },
+    { name = "langchain-ollama" },
+    { name = "llama-cpp-python" },
+    { name = "ollama" },
+    { name = "paho-mqtt" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "sentence-transformers" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "black" },
+    { name = "isort" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chromadb", specifier = ">=1.0.7,<2" },
+    { name = "langchain", specifier = ">=0.3.24,<0.4" },
+    { name = "langchain-community", specifier = ">=0.3.23,<0.4" },
+    { name = "langchain-huggingface", specifier = ">=0.1.2,<0.2" },
+    { name = "langchain-ollama", specifier = ">=0.3.2,<0.4" },
+    { name = "llama-cpp-python", specifier = "==0.3.8" },
+    { name = "ollama", specifier = ">=0.4.8,<0.5" },
+    { name = "paho-mqtt", specifier = ">=2.1.0,<3" },
+    { name = "pyyaml", specifier = ">=6.0.2,<7" },
+    { name = "requests", specifier = ">=2.31.0,<3" },
+    { name = "sentence-transformers", specifier = ">=4.1.0,<5" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=25.1.0,<26" },
+    { name = "isort", specifier = ">=6.0.1,<7" },
+]
+
+[[package]]
 name = "asgiref"
 version = "3.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1936,51 +1981,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fe/0f/25911a9f080464c59fab9027482f822b86bf0608957a5fcc6eaac85aa515/PyYAML-6.0.2-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:68ccc6023a3400877818152ad9a1033e3db8625d899c72eacb5a668902e4d652", size = 751597, upload-time = "2024-08-06T20:32:56.985Z" },
     { url = "https://files.pythonhosted.org/packages/14/0d/e2c3b43bbce3cf6bd97c840b46088a3031085179e596d4929729d8d68270/PyYAML-6.0.2-cp313-cp313-win32.whl", hash = "sha256:bc2fa7c6b47d6bc618dd7fb02ef6fdedb1090ec036abab80d4681424b84c1183", size = 140527, upload-time = "2024-08-06T20:33:03.001Z" },
     { url = "https://files.pythonhosted.org/packages/fa/de/02b54f42487e3d3c6efb3f89428677074ca7bf43aae402517bc7cca949f3/PyYAML-6.0.2-cp313-cp313-win_amd64.whl", hash = "sha256:8388ee1976c416731879ac16da0aff3f63b286ffdd57cdeb95f3f2e085687563", size = 156446, upload-time = "2024-08-06T20:33:04.33Z" },
-]
-
-[[package]]
-name = "rag"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "chromadb" },
-    { name = "langchain" },
-    { name = "langchain-community" },
-    { name = "langchain-huggingface" },
-    { name = "langchain-ollama" },
-    { name = "llama-cpp-python" },
-    { name = "ollama" },
-    { name = "paho-mqtt" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "sentence-transformers" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "black" },
-    { name = "isort" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chromadb", specifier = ">=1.0.7,<2" },
-    { name = "langchain", specifier = ">=0.3.24,<0.4" },
-    { name = "langchain-community", specifier = ">=0.3.23,<0.4" },
-    { name = "langchain-huggingface", specifier = ">=0.1.2,<0.2" },
-    { name = "langchain-ollama", specifier = ">=0.3.2,<0.4" },
-    { name = "llama-cpp-python", specifier = "==0.3.8" },
-    { name = "ollama", specifier = ">=0.4.8,<0.5" },
-    { name = "paho-mqtt", specifier = ">=2.1.0,<3" },
-    { name = "pyyaml", specifier = ">=6.0.2,<7" },
-    { name = "requests", specifier = ">=2.31.0,<3" },
-    { name = "sentence-transformers", specifier = ">=4.1.0,<5" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = ">=25.1.0,<26" },
-    { name = "isort", specifier = ">=6.0.1,<7" },
 ]
 
 [[package]]

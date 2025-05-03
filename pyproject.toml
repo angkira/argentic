@@ -1,5 +1,5 @@
 [project]
-name = "rag"
+name = "Argentic"
 version = "0.1.0"
 description = ""
 authors = [{ name = "Iurii", email = "angkira0@gmail.com" }]
