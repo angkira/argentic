@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional
 
 # Note: Imports remain the same relative to the project root
 from core.messager import Messager, MQTTMessage
-from core.rag import RAGController
+from core.rag import RAGManager
 
 # Decorator is no longer applied here, but imported for type hinting if needed
 # from core.decorators import mqtt_handler_decorator
@@ -11,7 +11,7 @@ from core.rag import RAGController
 # Raw handler function - decorator will be applied in main.py
 def handle_add_info(
     messager: Messager,
-    rag_controller: Optional[RAGController],
+    rag_manager: Optional[RAGManager],
     data: Optional[Dict[str, Any]],
     msg: MQTTMessage,
     handler_kwargs: Dict[str, Any],
@@ -20,9 +20,9 @@ def handle_add_info(
     topic = msg.topic
     pub_status_topic = handler_kwargs.get("pub_status_topic")
 
-    # Ensure RAGController was injected if needed for this handler
-    if rag_controller is None:
-        err_msg = f"RAGController not available for handle_add_info on topic {topic}"
+    # Ensure RAGManager was injected if needed for this handler
+    if rag_manager is None:
+        err_msg = f"RAGManager not available for handle_add_info on topic {topic}"
         print(err_msg)
         messager.publish_log(err_msg, level="error")
         if pub_status_topic:
@@ -31,7 +31,7 @@ def handle_add_info(
                 {
                     "status": "error",
                     "topic": topic,
-                    "error": "Internal configuration error: RAGController missing",
+                    "error": "Internal configuration error: RAGManager missing",
                 },
             )
         return
@@ -53,15 +53,24 @@ def handle_add_info(
     text: Optional[str] = data.get("text")
     source: str = data.get("source", "mqtt_input")  # Default source if not provided
     timestamp: Optional[float] = data.get("timestamp")
+    collection_name: Optional[str] = data.get("collection")  # Optional collection targeting
+    metadata: Optional[Dict[str, Any]] = data.get("metadata")  # Optional additional metadata
 
     if text:
-        success: bool = rag_controller.remember(text, source, timestamp)
+        success: bool = rag_manager.remember(
+            text=text,
+            collection_name=collection_name,
+            source=source,
+            timestamp=timestamp,
+            metadata=metadata,
+        )
         status = "processed" if success else "error_remembering"
         if pub_status_topic:
-            messager.publish(
-                pub_status_topic,
-                {"status": status, "topic": topic, "source": source},
-            )
+            response_payload = {"status": status, "topic": topic, "source": source}
+            if collection_name:
+                response_payload["collection"] = collection_name
+
+            messager.publish(pub_status_topic, response_payload)
         else:
             messager.publish_log(f"Status topic not configured for {topic}", level="warning")
 

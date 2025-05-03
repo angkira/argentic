@@ -2,17 +2,12 @@ import time
 from typing import Any, Dict, Optional
 
 from core.messager import Messager, MQTTMessage
-from core.rag import RAGController
-
-# Decorator is no longer applied here
-# from core.decorators import mqtt_handler_decorator
-
-# Removed create_ask_question_handler factory function
+from core.agent import Agent
 
 
 def handle_ask_question(
     messager: Messager,
-    rag_controller: Optional[RAGController],
+    agent: Optional[Agent],
     data: Optional[Dict[str, Any]],
     msg: MQTTMessage,
     handler_kwargs: Dict[str, Any],
@@ -21,13 +16,13 @@ def handle_ask_question(
     topic = msg.topic
     pub_response_topic = handler_kwargs.get("pub_response_topic")
 
-    if rag_controller is None:
-        err_msg = f"RAGController not available for handle_ask_question on topic {topic}"
+    if agent is None:
+        err_msg = f"Agent not available for handle_ask_question on topic {topic}"
         print(err_msg)
         messager.publish_log(err_msg, level="error")
         if pub_response_topic:
             messager.publish(
-                pub_response_topic, {"error": "Internal configuration error: RAGController missing"}
+                pub_response_topic, {"error": "Internal configuration error: Agent missing"}
             )
         return
 
@@ -46,10 +41,11 @@ def handle_ask_question(
     question: Optional[str] = data.get("question")
     if question:
         user_id = data.get("user_id")  # may be None
+        collection_name = data.get("collection")  # Optional collection targeting
         print(f"\n🤔 Processing Question via MQTT (user={user_id}): {question}")
         start_time = time.time()
-        # Invoke RAG controller with session awareness
-        raw_resp = rag_controller.query(question, user_id=user_id)
+        # Invoke Agent with question
+        raw_resp = agent.query(question, collection_name=collection_name, user_id=user_id)
         response_str = str(raw_resp)
         end_time = time.time()
         print(f"\n💡 Answer: {response_str}")
