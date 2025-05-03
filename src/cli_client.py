@@ -132,7 +132,7 @@ if __name__ == "__main__":
         # Start the MQTT background loop for receiving messages
         messager.start_background_loop()
 
-        print("\n--- RAG CLI Client ---")
+        print("\n--- Agent CLI Client ---")
         print("Type your question and press Enter.")
         print("Type 'quit' or 'exit' to leave.")
 

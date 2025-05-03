@@ -48,8 +48,16 @@ def handle_ask_question(
         # Invoke Agent with question
         raw_resp = agent.query(question, collection_name=collection_name, user_id=user_id)
         response_str = str(raw_resp)
-        end_time = time.time()
+        # Suppress JSON tool_calls from being returned to client (will be processed internally)
+        stripped = response_str.strip()
+        if stripped.startswith("{") and "tool_calls" in stripped:
+            messager.log(
+                f"handle_ask_question: Suppressing tool_calls JSON: {stripped}", level="debug"
+            )
+            return
+        # Final answer to send to client
         print(f"\n💡 Answer: {response_str}")
+        end_time = time.time()
 
         # Publish response only if topic is configured
         if pub_response_topic:

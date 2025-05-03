@@ -5,7 +5,9 @@ import sys
 import requests
 import json
 import threading
-from typing import Callable, Dict
+import signal
+import functools
+from typing import Callable, Dict, Any, Optional
 
 import chromadb
 import yaml
@@ -16,6 +18,7 @@ from core.llm import LLMFactory
 from core.messager import MQTTMessage, Messager
 from core.rag import RAGManager
 from core.agent import Agent
+from core.tool_manager import ToolManager
 from core.decorators import mqtt_handler_decorator
 
 from handlers.add_info_handler import handle_add_info as raw_handle_add_info
@@ -24,7 +27,8 @@ from handlers.forget_info_handler import handle_forget_info as raw_handle_forget
 from handlers.status_request_handler import (
     handle_status_request as raw_handle_status_request,
 )
-from handlers.register_tool_handler import handle_register_tool as raw_handle_register_tool
+
+from tools.knowledge_base_tool import KnowledgeBaseTool
 
 CONFIG_PATH = "config.yaml"
 try:
@@ -65,23 +69,6 @@ OLLAMA_BASE_URL = llm_config.get("base_url", "http://localhost:11434")
 
 os.makedirs(VECTORSTORE_DIR, exist_ok=True)
 print(f"Vector store persistence directory: '{os.path.abspath(VECTORSTORE_DIR)}'")
-
-
-def start_llm_server(llm_config_dict):
-    print("Starting LLM server...")
-    llm_cfg = dict(llm_config_dict, auto_start=True)
-    try:
-        _ = LLMFactory.create(llm_cfg)
-        print("LLM server started (or connection attempted). Press Ctrl+C to stop.")
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Shutting down LLM server process watcher.")
-        sys.exit(0)
-    except Exception as e:
-        print(f"Error initializing LLM for server start: {e}")
-        sys.exit(1)
-
 
 ollama_monitor_stop_event = threading.Event()
 
@@ -138,7 +125,6 @@ def run_rag_agent():
         monitor_thread.start()
 
     try:
-        # Initialize Messager first as it might be needed by LLMFactory
         messager: Messager = Messager(
             broker_address=MQTT_BROKER,
             port=MQTT_PORT,
@@ -148,7 +134,6 @@ def run_rag_agent():
         )
 
         print(f"Initializing LLM backend='{backend}', model='{model_name}'...")
-        # Pass messager to LLMFactory
         llm = LLMFactory.create(llm_config, messager=messager)
         print(f"LLM ({backend}:{model_name}) initialized successfully.")
 
@@ -185,53 +170,54 @@ def run_rag_agent():
             messager=messager,
         )
 
-        # Apply decorators, injecting correct dependencies and kwargs
+        kb_tool = KnowledgeBaseTool(rag_manager=rag_manager, messager=messager)
+        agent.tool_manager.register_tool(kb_tool)
+        print(f"Registered tool '{kb_tool.name}' with Agent's ToolManager.")
+
         handle_add_info = mqtt_handler_decorator(
             messager=messager,
-            rag_manager=rag_manager,  # Correct dependency
+            rag_manager=rag_manager,
             pub_status_topic=MQTT_PUB_STATUS,
         )(raw_handle_add_info)
 
         handle_ask_question = mqtt_handler_decorator(
             messager=messager,
-            agent=agent,  # Correct dependency
+            agent=agent,
             pub_response_topic=MQTT_PUB_RESPONSE,
         )(raw_handle_ask_question)
 
         handle_forget_info = mqtt_handler_decorator(
             messager=messager,
-            rag_manager=rag_manager,  # Correct dependency
+            rag_manager=rag_manager,
             pub_status_topic=MQTT_PUB_STATUS,
         )(raw_handle_forget_info)
 
         handle_status_request = mqtt_handler_decorator(
             messager=messager,
-            # No rag_manager or agent needed, pass config via kwargs
             pub_status_topic=MQTT_PUB_STATUS,
             llm_model=model_name,
             embedding_model=EMBEDDING_MODEL_NAME,
-            default_collection_name=COLLECTION_NAME,  # Pass the configured default collection name
+            default_collection_name=COLLECTION_NAME,
             mqtt_broker=MQTT_BROKER,
             subscribed_topics=list(MQTT_SUBSCRIPTIONS.keys()),
         )(raw_handle_status_request)
-
-        handle_register_tool = mqtt_handler_decorator(
-            messager=messager,
-            agent=agent,  # Correct dependency
-            pub_status_topic=MQTT_PUB_STATUS,
-            mqtt_client_id=MQTT_CLIENT_ID,
-        )(raw_handle_register_tool)
 
         topic_handlers: Dict[str, Callable[[MQTTMessage], None]] = {
             "handle_add_info": handle_add_info,
             "handle_ask_question": handle_ask_question,
             "handle_forget_info": handle_forget_info,
             "handle_status_request": handle_status_request,
-            "handle_register_tool": handle_register_tool,
         }
 
         print("Starting MQTT client loop...")
         messager.start(MQTT_SUBSCRIPTIONS, topic_handlers, wait_for_connection=True)
+
+        agent.tool_manager.initialize_tools()
+
+        # Block here to keep the agent running until interrupted by Ctrl+C
+        print("\n--- RAG Agent is running. Press Ctrl+C to exit ---")
+        while True:
+            time.sleep(1)
 
     except KeyboardInterrupt:
         print("\n\n--- RAG Agent Shutdown Initiated (Ctrl+C) ---")
@@ -250,6 +236,15 @@ def run_rag_agent():
             print("Waiting for Ollama monitor thread to exit...")
             monitor_thread.join(timeout=2)
         print("\n--- RAG Agent Shutdown Complete ---")
+
+
+def signal_handler(sig, frame):
+    print("\nSignal received, initiating graceful shutdown...")
+    sys.exit(0)
+
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 if __name__ == "__main__":
