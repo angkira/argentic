@@ -93,6 +93,26 @@ class Messager:
             self.logger.info(f"Subscribing to topic: {topic} (qos={qos})")
             self.client.subscribe(topic, qos=qos)
 
+    def unsubscribe(self, topic: str) -> None:
+        """Unsubscribe from a topic and remove its handler."""
+        if not self.is_connected():
+            self.logger.error(f"Cannot unsubscribe from {topic}: not connected")
+            return
+
+        try:
+            # Unsubscribe from the topic
+            result, _ = self.client.unsubscribe(topic)
+            if result == mqtt.MQTT_ERR_SUCCESS:
+                self.logger.debug(f"Unsubscribed from topic: {topic}")
+                # Remove the handler after successful unsubscription
+                self._topic_handlers.pop(topic, None)
+            else:
+                self.logger.error(
+                    f"Failed to unsubscribe from topic {topic} (error code: {result})"
+                )
+        except Exception as e:
+            self.logger.error(f"Error unsubscribing from topic {topic}: {e}")
+
     def _on_connect(
         self,
         client: MQTTClient,
