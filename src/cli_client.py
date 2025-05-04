@@ -5,6 +5,7 @@ import json
 
 from core.messager import Messager, MQTTMessage
 from core.decorators import mqtt_handler_decorator
+from core.protocol.message import AskQuestionMessage, AnswerMessage, from_mqtt_message, AnyMessage
 from typing import Any, Dict, Optional
 
 CONFIG_PATH = "config.yaml"
@@ -24,7 +25,7 @@ MQTT_BROKER = config["mqtt"]["broker_address"]
 MQTT_PORT = config["mqtt"]["port"]
 MQTT_KEEPALIVE = config["mqtt"]["keepalive"]
 MQTT_CLIENT_ID = config["mqtt"].get(
-    "cli_client_id", f"rag_cli_client_{uuid.uuid4()}"
+    "cli_client_id", f"cli_client_{uuid.uuid4()}"
 )  # Ensure unique ID
 
 # Find ASK topic based on handler name in config
@@ -53,42 +54,44 @@ messager = Messager(
 
 
 # --- Define MQTT Handlers ---
-# Define RAW handlers (ensure only messager, data, msg are parameters)
-def handle_answer(messager: Messager, data: Optional[Dict[str, Any]], msg: MQTTMessage) -> None:
-    """Handles incoming messages on the answer topic."""
-    if data is None:
-        print("\n--- Agent Response ---")
-        print(f"Error: Received non-JSON or invalid payload on topic {msg.topic}")
-        print("----------------------")
-        print("> ", end="", flush=True)
-        return
-
-    # Extract relevant fields from the response payload
-    question = data.get("question", "N/A")  # Original question
-    answer = data.get("answer")  # The final answer text
-    error = data.get("error")  # Any error message from the agent
-
+# Define RAW handlers - update signature to expect parsed message
+def handle_answer(messager: Messager, message: AnswerMessage, mqtt_msg: MQTTMessage) -> None:
+    """Handles incoming AnswerMessages on the answer topic."""
+    # Access data directly from the Pydantic model attributes
     print("\n--- Agent Response ---")
-    print(f"Question: {question}")
-    if answer:
+    print(f"Question: {message.question}")  # Echoed question
+    if message.answer:
+        # Clean up the answer - strip markdown code fences if present
+        answer = message.answer
+        if "```" in answer:
+            import re
+
+            # Find and extract content between markdown code fences
+            code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+            code_blocks = re.findall(code_block_pattern, answer)
+            if code_blocks:
+                # If there are code blocks, combine them
+                answer = "\n".join(code_blocks)
+            else:
+                # If regex didn't find anything but ``` exists, do basic cleanup
+                answer = answer.replace("```json", "").replace("```", "").strip()
+
         print(f"Answer: {answer}")
-    elif error:
-        print(f"Error: {error}")
+    elif message.error:
+        print(f"Error: {message.error}")
     else:
-        # Fallback if format is unexpected
-        print(f"Received unknown format: {json.dumps(data)}")
+        # Fallback if format is unexpected (less likely with Pydantic)
+        print(f"Received unexpected AnswerMessage format: {message.model_dump_json(indent=2)}")
     print("----------------------")
     # Re-display prompt for next input
     print("> ", end="", flush=True)
 
 
-def handle_status(messager: Messager, data: Optional[Dict[str, Any]], msg: MQTTMessage) -> None:
+def handle_status(messager: Messager, message: AnyMessage, mqtt_msg: MQTTMessage) -> None:
     """Handles incoming messages on the status topic."""
     print("\n--- Status Update ---")
-    if data:
-        print(json.dumps(data, indent=2))
-    else:
-        print(f"Error: Received non-JSON or invalid payload on topic {msg.topic}")
+    # Print the Pydantic model as JSON
+    print(message.model_dump_json(indent=2))
     print("----------------------")
     print("> ", end="", flush=True)
 
@@ -99,8 +102,12 @@ if __name__ == "__main__":
     print(f"CLI: Using session user_id={USER_ID}")
 
     # Define subscriptions and handlers for this client
-    cli_subscriptions = {MQTT_TOPIC_ANSWER: "handle_answer"}
-    cli_handlers = {"handle_answer": handle_answer}
+    cli_subscriptions = {
+        MQTT_TOPIC_ANSWER: "handle_answer",
+    }
+    cli_handlers = {
+        "handle_answer": handle_answer,
+    }
 
     try:
         print("CLI: Connecting to MQTT broker...")
@@ -121,6 +128,7 @@ if __name__ == "__main__":
             raw_handler_func = cli_handlers.get(handler_name)
             if raw_handler_func:
                 # Apply the decorator manually here
+                # The decorator now handles parsing based on the handler's type hint
                 decorated_handler = mqtt_handler_decorator(messager=messager)(raw_handler_func)
                 messager.register_handler(topic, decorated_handler)
                 print(f"  - Registered handler for topic: {topic}")
@@ -155,12 +163,17 @@ if __name__ == "__main__":
             if not user_input.strip():  # Ignore empty input
                 continue
 
-            # --- Publish Question ---
+            # --- Publish Question using AskQuestionMessage ---
             print("\nRequesting answer from agent...")
-            # Payload expected by handle_ask_question
-            payload = {"question": user_input, "user_id": USER_ID}
-            messager.publish(MQTT_TOPIC_ASK, payload)
-            # Response will be handled asynchronously by handle_answer
+            # Create the Pydantic message object
+            ask_message = AskQuestionMessage(
+                question=user_input,
+                user_id=USER_ID,
+                source=MQTT_CLIENT_ID,  # Identify the CLI client as source
+            )
+            # Publish the serialized Pydantic model
+            messager.publish(MQTT_TOPIC_ASK, ask_message.model_dump_json())
+            # Response handled asynchronously by handle_answer
 
     except KeyboardInterrupt:
         print("\nCLI: Ctrl+C received, exiting...")

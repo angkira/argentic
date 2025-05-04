@@ -1,13 +1,22 @@
 import json
 import threading
-import time
 import uuid
-from typing import Dict, Any, Type, Callable, Optional, List
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, ValidationError
-
+from pydantic import ValidationError
+from core.protocol.message import (
+    RegisterToolMessage,
+    UnregisterToolMessage,
+    ToolRegisteredMessage,
+    TaskMessage,
+    TaskResultMessage,
+    TaskStatus,
+    from_mqtt_message,
+    AnyMessage,
+    MessageType,
+)
 from .messager import Messager, MQTTMessage
-from .protocol.task_protocol import TaskMessage, TaskResultMessage, TaskStatus
 from .tool_base import BaseTool
 
 
@@ -16,21 +25,63 @@ class ToolManager:
 
     def __init__(self, messager: Messager):
         self.messager = messager
-        self.tools: Dict[str, BaseTool] = {}
+        self.tools: Dict[str, Dict[str, Any]] = {}
         self._pending_tasks: Dict[str, threading.Event] = {}
         self._task_results: Dict[str, TaskResultMessage] = {}
         self._result_lock = threading.Lock()
         self._subscribed_result_topics = set()
         self.messager.log("ToolManager initialized.")
 
+        # Also subscribe to dynamic tool registration requests
+        register_topic = "rag/command/register_tool"
+        self.messager.subscribe(register_topic, self._handle_tool_message)
+        self.messager.log(f"ToolManager subscribed to register topic: {register_topic}")
+
+    def _handle_tool_message(self, message: MQTTMessage):
+        """Handles tool registration and unregistration messages."""
+        try:
+            # Deserialize and validate using the helper
+            parsed_message: AnyMessage = from_mqtt_message(message)
+
+            # Handle different tool-related message types
+            if isinstance(parsed_message, RegisterToolMessage):
+                self._handle_register_tool(parsed_message)
+            elif isinstance(parsed_message, UnregisterToolMessage):
+                self._handle_unregister_tool(parsed_message)
+            else:
+                self.messager.log(
+                    f"ToolManager: Received unexpected message type {type(parsed_message).__name__} on tool message topic {message.topic}. Ignoring.",
+                    level="warning",
+                )
+        except (ValueError, ValidationError) as e:
+            payload_preview = message.payload[:100].decode("utf-8", errors="replace")
+            self.messager.log(
+                f"ToolManager: Failed to parse/validate tool message: {e}. Payload: '{payload_preview}...'",
+                level="error",
+            )
+        except Exception as e:
+            self.messager.log(f"ToolManager: Failed to handle tool message: {e}", level="error")
+            import traceback
+
+            traceback.print_exc()
+
     def _handle_result_message(self, message: MQTTMessage):
-        """Handles incoming task result messages from MQTT."""
+        """Handles incoming task result messages using Pydantic."""
         self.messager.log(
             f"ToolManager: Received message on result topic: {message.topic}", level="debug"
         )
         try:
-            payload_dict = json.loads(message.payload)
-            result_msg = TaskResultMessage(**payload_dict)
+            # Deserialize and validate using the helper
+            parsed_message: AnyMessage = from_mqtt_message(message)
+
+            if not isinstance(parsed_message, TaskResultMessage):
+                self.messager.log(
+                    f"ToolManager: Received unexpected message type {type(parsed_message).__name__} on result topic {message.topic}. Ignoring.",
+                    level="warning",
+                )
+                return
+
+            result_msg = parsed_message  # Now we know it's TaskResultMessage
             task_id = result_msg.task_id
 
             with self._result_lock:
@@ -39,8 +90,8 @@ class ToolManager:
                         f"ToolManager: Received expected result for task {task_id} (Status: {result_msg.status})"
                     )
                     self._task_results[task_id] = result_msg
-                    event = self._pending_tasks.pop(task_id)  # Remove before setting event
-                    event.set()  # Signal that the result is ready
+                    event = self._pending_tasks.pop(task_id)
+                    event.set()
                     self.messager.log(
                         f"ToolManager: Signaled completion for task {task_id}", level="debug"
                     )
@@ -49,15 +100,146 @@ class ToolManager:
                         f"ToolManager: Received result for unknown or already completed task {task_id}. Ignoring.",
                         level="warning",
                     )
-        except (json.JSONDecodeError, ValidationError) as e:
+        except (ValueError, ValidationError) as e:  # Catch errors from from_mqtt_message
+            payload_preview = message.payload[:100].decode("utf-8", errors="replace")
             self.messager.log(
-                f"ToolManager: Failed to parse result message payload: {message.payload}. Error: {e}",
+                f"ToolManager: Failed to parse/validate result message payload: '{payload_preview}...'. Error: {e}",
                 level="error",
             )
         except Exception as e:
             self.messager.log(
                 f"ToolManager: Unexpected error handling result message: {e}", level="error"
             )
+
+    def _handle_register_tool(self, reg_msg: RegisterToolMessage):
+        """Handles tool registration messages."""
+        self.messager.log(
+            f"ToolManager: Registering tool '{reg_msg.tool_name}' from '{reg_msg.source}'",
+            level="info",
+        )
+
+        # Generate a unique ID for this tool
+        tool_id = str(uuid.uuid4())
+
+        # Create a simple dictionary to store the tool information
+        tool_info = {
+            "tool_id": tool_id,
+            "name": reg_msg.tool_name,
+            "description": reg_msg.tool_manual,
+            "api_schema": json.loads(reg_msg.tool_api),
+            "source_service_id": reg_msg.source,
+            # Define topics for communication with this tool
+            "task_topic": f"tool/{tool_id}/task",
+            "result_topic": f"tool/{tool_id}/result",
+        }
+
+        # Store the tool info in the tools dictionary
+        self.tools[tool_id] = tool_info
+
+        # Subscribe to the tool's result topic
+        self.messager.subscribe(tool_info["result_topic"], self._handle_result_message)
+        self._subscribed_result_topics.add(tool_info["result_topic"])
+
+        self.messager.log(
+            f"ToolManager: Registered tool '{tool_info['name']}' ({tool_id}). Will listen on {tool_info['result_topic']} for results."
+        )
+
+        # Send back confirmation
+        confirmation = ToolRegisteredMessage(
+            source=self.messager.client_id,
+            tool_id=tool_id,
+            tool_name=reg_msg.tool_name,
+            recipient=reg_msg.source,
+        )
+
+        # Use a default status topic instead of trying to get from config
+        status_topic = "agent/status/info"
+
+        # Try to access config if it exists, otherwise use the default
+        try:
+            if hasattr(self.messager, "config"):
+                status_topic = (
+                    self.messager.config.get("mqtt", {})
+                    .get("publish_topics", {})
+                    .get("status", status_topic)
+                )
+        except AttributeError:
+            # Config doesn't exist, use the default
+            pass
+
+        self.messager.publish(status_topic, confirmation.model_dump_json())
+        self.messager.log(
+            f"ToolManager: Sent registration confirmation for '{reg_msg.tool_name}' to {reg_msg.source}",
+            level="info",
+        )
+
+    def _handle_unregister_tool(self, unreg_msg):
+        """Handles tool unregistration messages."""
+        tool_id = unreg_msg.tool_id
+        tool_name = unreg_msg.tool_name
+
+        self.messager.log(
+            f"ToolManager: Received unregistration request for tool '{tool_name}' (ID: {tool_id}) from '{unreg_msg.source}'",
+            level="info",
+        )
+
+        # Check if the tool exists
+        if tool_id not in self.tools:
+            self.messager.log(
+                f"ToolManager: Cannot unregister unknown tool ID '{tool_id}'. Ignoring.",
+                level="warning",
+            )
+            return
+
+        # Get the tool info before removal
+        tool_info = self.tools[tool_id]
+
+        # Check if the source matches (security check)
+        if tool_info.get("source_service_id") != unreg_msg.source:
+            self.messager.log(
+                f"ToolManager: Unregistration request from '{unreg_msg.source}' doesn't match registered source '{tool_info.get('source_service_id')}'. Ignoring.",
+                level="warning",
+            )
+            return
+
+        # Unsubscribe from result topic if we're subscribed
+        result_topic = tool_info.get("result_topic")
+        if result_topic and result_topic in self._subscribed_result_topics:
+            try:
+                self.messager.unsubscribe(result_topic)
+                self._subscribed_result_topics.remove(result_topic)
+                self.messager.log(f"ToolManager: Unsubscribed from result topic: {result_topic}")
+            except Exception as e:
+                self.messager.log(
+                    f"ToolManager: Error unsubscribing from result topic: {e}",
+                    level="error",
+                )
+
+        # Remove the tool from our registry
+        del self.tools[tool_id]
+        self.messager.log(
+            f"ToolManager: Successfully unregistered tool '{tool_name}' (ID: {tool_id})",
+            level="info",
+        )
+
+        # Send confirmation (optional - could use same message format as registration confirmation)
+        status_message = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": self.messager.client_id,
+            "recipient": unreg_msg.source,
+            "type": "TOOL_UNREGISTERED",
+            "tool_id": tool_id,
+            "tool_name": tool_name,
+            "status": "success",
+        }
+
+        # Use the same status topic as for registration confirmation
+        status_topic = "agent/status/info"
+        self.messager.publish(status_topic, json.dumps(status_message))
+        self.messager.log(
+            f"ToolManager: Sent unregistration confirmation for '{tool_name}' to {unreg_msg.source}",
+            level="info",
+        )
 
     def register_tool(self, tool: BaseTool):
         """Registers a tool instance and subscribes to its result topic."""
@@ -78,42 +260,82 @@ class ToolManager:
         )
 
     def initialize_tools(self):
-        """Initializes all registered tools (subscribes them to task topics)."""
+        """
+        Initializes all registered tools by ensuring subscriptions are active.
+        With the new message-based approach, this simply ensures subscriptions
+        are set up for all result topics.
+        """
         if not self.messager.is_connected():
             self.messager.log("Cannot initialize tools: Messager not connected.", level="error")
             return
+
         self.messager.log("ToolManager: Initializing registered tools...")
-        for tool_id, tool in self.tools.items():
+
+        # Ensure we're subscribed to all the result topics
+        for tool_id, tool_info in self.tools.items():
             try:
-                tool.initialize()
+                # For tool dictionaries, ensure we've subscribed to their result topics
+                if isinstance(tool_info, dict) and "result_topic" in tool_info:
+                    result_topic = tool_info["result_topic"]
+                    if result_topic not in self._subscribed_result_topics:
+                        self.messager.subscribe(result_topic, self._handle_result_message)
+                        self._subscribed_result_topics.add(result_topic)
+                        self.messager.log(
+                            f"ToolManager: Subscribed to result topic: {result_topic} for tool {tool_info['name']}"
+                        )
+                # Handle any legacy tools that may still be BaseTool instances
+                elif hasattr(tool_info, "initialize") and callable(
+                    getattr(tool_info, "initialize")
+                ):
+                    tool_info.initialize()
+                else:
+                    self.messager.log(
+                        f"ToolManager: Unknown tool format for tool_id {tool_id}. Skipping initialization.",
+                        level="warning",
+                    )
             except Exception as e:
-                self.messager.log(f"Failed to initialize tool '{tool.name}': {e}", level="error")
+                tool_name = (
+                    tool_info.get("name", tool_id)
+                    if isinstance(tool_info, dict)
+                    else getattr(tool_info, "name", tool_id)
+                )
+                self.messager.log(f"Failed to initialize tool '{tool_name}': {e}", level="error")
+
         self.messager.log("ToolManager: Tool initialization complete.")
 
     def execute_tool(self, tool_id: str, arguments: Dict[str, Any], timeout: float = 30.0) -> Any:
-        """Executes a tool by sending a task message and waiting for the result via MQTT."""
+        """Executes a tool by sending a TaskMessage and waiting for TaskResultMessage."""
         if tool_id not in self.tools:
             self.messager.log(
                 f"ToolManager: Attempted to execute unknown tool_id '{tool_id}'", level="error"
             )
             raise ValueError(f"Tool '{tool_id}' not found.")
 
-        tool = self.tools[tool_id]
-        task_id = str(uuid.uuid4())
-        task_message = TaskMessage(task_id=task_id, tool_id=tool_id, arguments=arguments)
+        tool_info = self.tools[tool_id]
+        task_id = str(uuid.uuid4())  # Generate unique task ID
+
+        # Create TaskMessage using Pydantic model
+        task_message = TaskMessage(
+            task_id=task_id,
+            tool_id=tool_id,
+            arguments=arguments,
+            source=self.messager.client_id,  # Identify the sender
+            recipient=tool_info.get("source_service_id"),  # Send to the tool's service
+        )
 
         event = threading.Event()
         with self._result_lock:
             self._pending_tasks[task_id] = event
-            # Clear any potential stale result for this task_id (highly unlikely)
             if task_id in self._task_results:
                 del self._task_results[task_id]
 
         try:
+            task_topic = tool_info["task_topic"]
             self.messager.log(
-                f"ToolManager: Publishing task {task_id} for tool '{tool_id}' to topic {tool.task_topic}"
+                f"ToolManager: Publishing task {task_id} for tool '{tool_info['name']}' to topic {task_topic}"
             )
-            self.messager.publish(tool.task_topic, task_message.model_dump_json())
+            # Publish using Pydantic's JSON serialization
+            self.messager.publish(task_topic, task_message.model_dump_json())
             self.messager.log(
                 f"ToolManager: Waiting for result for task {task_id} (timeout: {timeout}s)",
                 level="debug",
@@ -121,35 +343,37 @@ class ToolManager:
 
             # Wait for the result
             if event.wait(timeout=timeout):
-                # Result received
                 with self._result_lock:
-                    result_msg = self._task_results.pop(task_id)  # Get and remove result
+                    result_msg = self._task_results.pop(task_id)  # Get TaskResultMessage
 
+                # Process TaskResultMessage
                 if result_msg.status == TaskStatus.SUCCESS:
                     self.messager.log(f"ToolManager: Task {task_id} completed successfully.")
-                    return result_msg.result
+                    return result_msg.result  # Return the actual result field
                 else:
-                    # Task failed on the tool side
                     error_details = result_msg.error or "No error details provided."
                     self.messager.log(
-                        f"ToolManager: Task {task_id} failed on tool side: {error_details}",
+                        f"ToolManager: Task {task_id} failed on tool side (Tool: {result_msg.tool_id}): {error_details}",
                         level="error",
                     )
-                    return f"Error executing tool '{tool_id}': {error_details}"
+                    # Return the error string from the result message
+                    return f"Error executing tool '{tool_info['name']}': {error_details}"
             else:
                 # Timeout occurred
                 self.messager.log(
-                    f"ToolManager: Task {task_id} timed out after {timeout}s waiting for result from tool '{tool_id}'.",
+                    f"ToolManager: Task {task_id} timed out after {timeout}s waiting for result from tool '{tool_info['name']}'.",
                     level="error",
                 )
                 with self._result_lock:
                     # Clean up pending task if timeout occurred
                     if task_id in self._pending_tasks:
                         del self._pending_tasks[task_id]
-                return f"Error: Tool '{tool_id}' did not respond within the timeout period."
+                return (
+                    f"Error: Tool '{tool_info['name']}' did not respond within the timeout period."
+                )
 
         except Exception as e:
-            # Error during publishing or waiting (not timeout or tool-side error)
+            # Error during publishing or waiting
             self.messager.log(
                 f"ToolManager: Error during task {task_id} execution/waiting phase: {e}",
                 level="error",
@@ -160,12 +384,33 @@ class ToolManager:
                     del self._pending_tasks[task_id]
                 if task_id in self._task_results:
                     del self._task_results[task_id]
-            return f"Error communicating with or waiting for tool '{tool_id}': {e}"
+            return f"Error communicating with or waiting for tool '{tool_info['name']}': {e}"
 
     def generate_tool_descriptions_for_prompt(self) -> str:
         """Generates a JSON string describing available tools for the LLM prompt."""
         if not self.tools:
-            return "No tools available."
+            return "[]"  # Return empty JSON array if no tools
 
-        tool_defs = [tool.get_definition_for_prompt() for tool in self.tools.values()]
+        # Generate tool definitions in the format expected by LLMs
+        tool_defs = []
+        for tool_id, tool_info in self.tools.items():
+            # Create a function definition structure using the schema from registration
+            try:
+                tool_def = {
+                    "type": "function",
+                    "function": {
+                        "name": tool_info["name"].replace(" ", "_"),  # Ensure valid function name
+                        "description": tool_info["description"],
+                        "parameters": tool_info["api_schema"],  # Use the schema from registration
+                        "tool_id": tool_id,  # Include the tool_id for mapping in execute_tool
+                    },
+                }
+                tool_defs.append(tool_def)
+            except (KeyError, TypeError) as e:
+                self.messager.log(
+                    f"ToolManager: Error generating definition for tool {tool_id}: {e}",
+                    level="error",
+                )
+
+        # Return JSON string with all tool definitions
         return json.dumps(tool_defs, indent=2)

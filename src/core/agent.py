@@ -7,19 +7,16 @@ from langchain.prompts import PromptTemplate
 from langchain.docstore.document import Document
 
 from core.messager import Messager
-from core.rag import RAGManager
 from core.llm import LlamaServerLLM
 from core.tool_manager import ToolManager
 from core.protocol.task_protocol import TaskResultMessage  # Import for type hint
 
 
 class Agent:
-    """Manages interaction with LLM, RAGManager, and ToolManager."""
+    """Manages interaction with LLM and ToolManager."""
 
-    def __init__(self, llm: Any, rag_manager: RAGManager, messager: Messager):
+    def __init__(self, llm: Any, messager: Messager):
         self.llm = llm
-        # RAGManager is still needed for the tool implementation (passed to tool constructor)
-        self.rag_manager = rag_manager
         self.messager = messager
         # ToolManager now handles MQTT communication for tools
         self.tool_manager = ToolManager(messager)
@@ -91,17 +88,19 @@ ANSWER:"""
                     f"Agent received LLM response (Iteration {current_iteration}): {response_text[:100]}...",
                     level="debug",
                 )
+
                 # Extract JSON block by stripping markdown code fences if present
                 cleaned = response_text.strip()
-                if cleaned.startswith("```"):
-                    lines = cleaned.splitlines()
-                    # Drop the opening fence line
-                    lines = lines[1:]
-                    # Drop the closing fence line if present
-                    if lines and lines[-1].startswith("```"):
-                        lines = lines[:-1]
-                    cleaned = "\n".join(lines).strip()
-                self.messager.log(f"Agent Debug: cleaned JSON content: {cleaned!r}", level="debug")
+                if "```" in cleaned:
+                    code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+                    code_blocks = re.findall(code_block_pattern, cleaned)
+                    if code_blocks:
+                        # Take the first JSON code block
+                        cleaned = code_blocks[0].strip()
+                    else:
+                        # Fallback: basic replace if regex didn't match
+                        cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+
                 potential_json = cleaned
                 self.messager.log(
                     f"Agent Debug: potential_json for JSON parsing: {potential_json!r}",
@@ -115,85 +114,149 @@ ANSWER:"""
                         "Agent Debug: Attempting JSON load on potential_json...", level="debug"
                     )
                     parsed_data = None
+
                     # First, try direct load
                     try:
                         parsed_data = json.loads(potential_json)
                     except json.JSONDecodeError:
-                        # Fallback: extract first JSON object in original response_text
-                        fallback_match = re.search(r"\{[\s\S]*\}", response_text)
-                        if fallback_match:
-                            fallback_str = fallback_match.group(0)
-                            self.messager.log(
-                                f"Agent Debug: Fallback JSON extracted: {fallback_str}",
-                                level="debug",
-                            )
+                        # Fallback 1: Fix common JSON issues like missing closing brackets
+                        fixed_json = None
+                        if potential_json.strip().startswith(
+                            "{"
+                        ) and not potential_json.strip().endswith("}"):
+                            # Try adding the missing closing bracket
                             try:
-                                parsed_data = json.loads(fallback_str)
-                                potential_json = fallback_str
+                                fixed_json = potential_json.strip() + "}"
+                                parsed_data = json.loads(fixed_json)
+                                self.messager.log(
+                                    f"Agent Debug: Fixed JSON by adding closing bracket: {fixed_json}",
+                                    level="debug",
+                                )
                             except json.JSONDecodeError:
-                                parsed_data = None
+                                fixed_json = None
+
+                        # Fallback 2: extract first JSON object in original response_text
+                        if fixed_json is None:
+                            fallback_match = re.search(r"\{[\s\S]*\}", response_text)
+                            if fallback_match:
+                                fallback_str = fallback_match.group(0)
+                                self.messager.log(
+                                    f"Agent Debug: Fallback JSON extracted: {fallback_str}",
+                                    level="debug",
+                                )
+                                try:
+                                    parsed_data = json.loads(fallback_str)
+                                    potential_json = fallback_str
+                                except json.JSONDecodeError:
+                                    parsed_data = None
+
+                    # Process tool calls if found in JSON
                     if parsed_data and isinstance(parsed_data, dict):
                         response_data = parsed_data
                         tool_calls = response_data.get("tool_calls")
                         self.messager.log(
                             f"Agent Debug: Parsed response_data: {response_data}", level="debug"
                         )
-                    else:
-                        tool_calls = None
+
+                        # If LLM requested tool calls, execute them
+                        if isinstance(tool_calls, list) and tool_calls:
+                            is_tool_call_json = True
+                            self.messager.log(
+                                f"Reasoning: LLM decided to use tools: {json.dumps(tool_calls)}",
+                                level="info",
+                            )
+
+                            # Execute each tool call and collect results
+                            tool_results_for_history = []
+                            has_error = False
+
+                            for call in tool_calls:
+                                tool_id = call.get("tool_id")
+                                arguments = call.get("arguments")
+                                if tool_id and isinstance(arguments, dict):
+                                    self.messager.log(
+                                        f"Agent: Executing tool '{tool_id}' with args: {arguments}"
+                                    )
+                                    try:
+                                        tool_result = self.tool_manager.execute_tool(
+                                            tool_id, arguments
+                                        )
+                                        self.messager.log(
+                                            f"Agent: Received result from tool '{tool_id}': {str(tool_result)[:100]}..."
+                                        )
+                                        # Tag the message as coming from the tool
+                                        tool_results_for_history.append(
+                                            {
+                                                "role": "tool",
+                                                "name": tool_id,
+                                                "content": str(tool_result),
+                                            }
+                                        )
+                                    except Exception as e:
+                                        has_error = True
+                                        error_msg = f"Error executing tool '{tool_id}': {e}"
+                                        self.messager.log(error_msg, level="error")
+                                        # Add error as tool result so LLM knows about the failure
+                                        tool_results_for_history.append(
+                                            {
+                                                "role": "tool",
+                                                "name": tool_id,
+                                                "content": f"ERROR: {error_msg}",
+                                            }
+                                        )
+                                else:
+                                    has_error = True
+                                    self.messager.log(
+                                        f"Agent: Invalid tool call structure: {call}",
+                                        level="warning",
+                                    )
+
+                            # Add tool results to the message history
+                            if tool_results_for_history:
+                                messages.extend(tool_results_for_history)
+                                self.messager.log(
+                                    f"Agent: Appended {len(tool_results_for_history)} tool result(s) to history."
+                                )
+
+                                # If we had errors, add a message to help guide the LLM
+                                if has_error:
+                                    messages.append(
+                                        {
+                                            "role": "user",
+                                            "content": "Some tools encountered errors. Please provide the best answer you can based on any successful results and your own knowledge.",
+                                        }
+                                    )
+
+                                # Continue the loop to let the LLM process the tool results
+                                continue
+
+                    # If we reach here, either no tool calls were found or they weren't processed
+                    # Check if the response is a tool call JSON (without valid tool info)
+                    # This handles the case where the format is correct but tool details are wrong
+                    if (
+                        parsed_data
+                        and isinstance(parsed_data, dict)
+                        and "tool_calls" in parsed_data
+                    ):
                         self.messager.log(
-                            "Agent Debug: No valid JSON tool_calls found after fallback.",
-                            level="debug",
+                            "Agent: Found tool_calls but couldn't process them. Will try another iteration.",
+                            level="warning",
                         )
-                    self.messager.log(
-                        f"Agent Debug: Extracted tool_calls: {tool_calls}",
-                        level="debug",
-                    )
-                    # If LLM requested tool calls, execute them
-                    if isinstance(tool_calls, list) and tool_calls:
-                        is_tool_call_json = True
-                        self.messager.log(
-                            f"Reasoning: LLM decided to use tools: {json.dumps(tool_calls)}",
-                            level="info",
-                        )
-                        tool_results_for_history = []
-                        for call in tool_calls:
-                            tool_id = call.get("tool_id")
-                            arguments = call.get("arguments")
-                            if tool_id and isinstance(arguments, dict):
-                                self.messager.log(
-                                    f"Agent: Executing tool '{tool_id}' with args: {arguments}"
-                                )
-                                tool_result = self.tool_manager.execute_tool(tool_id, arguments)
-                                self.messager.log(
-                                    f"Agent: Received result from tool '{tool_id}': {str(tool_result)[:100]}..."
-                                )
-                                # Tag the message as coming from the tool
-                                tool_results_for_history.append(
-                                    {
-                                        "role": "tool",
-                                        "name": tool_id,
-                                        "content": str(tool_result),
-                                    }
-                                )
-                            else:
-                                self.messager.log(
-                                    f"Agent: Invalid tool call structure: {call}",
-                                    level="warning",
-                                )
-                        # Append tool results and continue LLM loop
-                        messages.extend(tool_results_for_history)
-                        self.messager.log(
-                            f"Agent: Appended {len(tool_results_for_history)} tool result(s) to history."
+                        # Add a clarification message for the LLM
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": "I couldn't process the tool calls. Please provide a complete answer to the original question without using tools.",
+                            }
                         )
                         continue
 
-                    # If no tool calls were requested, break with final answer
-                    if not is_tool_call_json:
-                        self.messager.log(
-                            "Agent: LLM response is not a tool call. Treating as final answer."
-                        )
-                        final_answer = response_text
-                        break  # Exit the loop, we have the answer
+                    # Not a tool call JSON or already processed, treat as final answer
+                    self.messager.log(
+                        "Agent: LLM response is not a tool call. Treating as final answer."
+                    )
+                    final_answer = response_text
+                    break  # Exit the loop, we have the answer
 
                 except json.JSONDecodeError:
                     self.messager.log(
@@ -211,50 +274,102 @@ ANSWER:"""
             # --- Loop finished (either by break or max iterations) ---
 
             if final_answer is not None:
-                self.messager.log(f"Agent: Returning final answer: {final_answer[:100]}...")
-                return final_answer
-            else:
-                # Max iterations were reached without a final answer
-                self.messager.log(
-                    "Agent: Max tool iterations reached without a definitive final answer.",
-                    level="warning",
-                )
-                # Get the very last assistant message, even if it was a tool call request
-                last_assistant_message = next(
-                    (m["content"] for m in reversed(messages) if m["role"] == "assistant"), None
-                )
-                # Check if the last message was a tool call JSON
-                is_last_message_tool_call = False
-                if last_assistant_message:
-                    try:
-                        potential_json = last_assistant_message.strip()
-                        if potential_json.startswith("{") and potential_json.endswith("}"):
-                            data = json.loads(potential_json)
-                            if isinstance(data.get("tool_calls"), list):
-                                is_last_message_tool_call = True
-                    except json.JSONDecodeError:
-                        pass  # Not JSON
+                # Cleanup the final answer, ensuring it's not a raw tool call JSON
+                # Check if what we have is still a tool call message
+                try:
+                    potential_json = final_answer.strip()
+                    if "```" in potential_json:
+                        # Handle ```json blocks
+                        code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+                        code_blocks = re.findall(code_block_pattern, potential_json)
+                        if code_blocks:
+                            potential_json = code_blocks[0].strip()
+                        else:
+                            potential_json = (
+                                potential_json.replace("```json", "").replace("```", "").strip()
+                            )
 
-                if is_last_message_tool_call:
-                    self.messager.log(
-                        "Agent: Max iterations reached, and the last message was still a tool call request. Returning error.",
-                        level="error",
-                    )
-                    return (
-                        "Sorry, I got stuck trying to use tools and couldn't find a final answer."
-                    )
-                elif last_assistant_message:
-                    self.messager.log(
-                        f"Agent: Max iterations reached. Returning last assistant message as fallback: {last_assistant_message[:100]}...",
-                        level="warning",
-                    )
-                    return last_assistant_message  # Return the last thing the assistant said as a fallback
-                else:
-                    self.messager.log(
-                        "Agent: Max iterations reached, but no assistant messages found. Returning generic error.",
-                        level="error",
-                    )
-                    return "Sorry, I couldn't complete the request after multiple attempts."
+                    parsed = json.loads(potential_json)
+                    if isinstance(parsed, dict) and "tool_calls" in parsed:
+                        # It's still a tool call JSON, this shouldn't be our final answer
+                        self.messager.log(
+                            "Agent: Final answer is still a tool call JSON. Getting a proper answer.",
+                            level="warning",
+                        )
+                        # Add one more message asking for a proper answer
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": "Please provide a complete answer to the original question based on your knowledge and any tool results, not another tool call.",
+                            }
+                        )
+
+                        # Get one more response
+                        if hasattr(self.llm, "chat"):
+                            final_answer = self.llm.chat(messages)
+                        else:
+                            combined_prompt = "\n".join(
+                                [f"{m['role'].upper()}: {m['content']}" for m in messages]
+                            )
+                            final_answer = self.llm(combined_prompt)
+                except (json.JSONDecodeError, Exception):
+                    # Not JSON or error parsing, which is fine
+                    pass
+
+            # Final safety check - NEVER return a tool call JSON to the user
+            final_result = final_answer
+            try:
+                # Check if the final answer still looks like a tool call
+                if isinstance(final_result, str):
+                    # Try to identify tool call JSON in the final result
+                    if "tool_calls" in final_result and (
+                        "arguments" in final_result or "tool_id" in final_result
+                    ):
+                        is_still_tool_call = False
+
+                        # Try to parse as JSON first
+                        try:
+                            # Clean up any markdown formatting
+                            cleaned = final_result.strip()
+                            if "```" in cleaned:
+                                code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+                                code_blocks = re.findall(code_block_pattern, cleaned)
+                                if code_blocks:
+                                    cleaned = code_blocks[0].strip()
+                                else:
+                                    cleaned = (
+                                        cleaned.replace("```json", "").replace("```", "").strip()
+                                    )
+
+                            parsed = json.loads(cleaned)
+                            if isinstance(parsed, dict) and "tool_calls" in parsed:
+                                is_still_tool_call = True
+                                self.messager.log(
+                                    "CRITICAL: Final answer is still a tool call JSON in final safety check!",
+                                    level="error",
+                                )
+                        except Exception:
+                            # If we can't parse as JSON but has the keywords, be cautious
+                            if (
+                                final_result.strip().startswith("{")
+                                and final_result.strip().endswith("}")
+                                and "tool_calls" in final_result
+                            ):
+                                is_still_tool_call = True
+                                self.messager.log(
+                                    "CRITICAL: Final answer appears to be a tool call JSON (not parseable but has format)!",
+                                    level="error",
+                                )
+
+                        # If it still looks like a tool call, return a safe fallback instead
+                        if is_still_tool_call:
+                            final_result = "I'm sorry, but I couldn't retrieve the information needed to answer your question properly. Please try asking in a different way or ask another question."
+            except Exception as e:
+                self.messager.log(f"Error in final safety check: {e}", level="error")
+                # If anything goes wrong in the safety check, don't change the answer
+                pass
+
+            return final_result
 
         except Exception as e:
             err_msg = f"Agent: Unhandled error processing query for user '{user_id or 'N/A'}': {e}"

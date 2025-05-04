@@ -3,10 +3,99 @@ import subprocess
 from subprocess import Popen
 from typing import Any, Dict, Optional
 import json
+import time
+import sys
 
 import requests
 
 from langchain_ollama import OllamaLLM
+
+
+def start_llm_server(config: Dict[str, Any]) -> None:
+    """
+    Start the LLM server based on the provided configuration.
+    Supports both llama.cpp server and Ollama backends.
+
+    Args:
+        config: LLM configuration dictionary from config.yaml
+    """
+    backend = config.get("backend", "").lower()
+    server_binary = config.get("server_binary")
+
+    if not server_binary:
+        print("No server_binary specified in config. Cannot start server.")
+        sys.exit(1)
+
+    # Expand user path (e.g. ~/) if present
+    server_binary = os.path.expanduser(server_binary)
+
+    # Check if binary exists
+    if not os.path.isfile(server_binary):
+        print(f"Server binary not found at path: {server_binary}")
+        sys.exit(1)
+
+    # Prepare command based on backend type
+    if backend == "llamaserver":
+        # For llama.cpp server
+        server_args = config.get("server_args", [])
+        # Expand any paths in args
+        server_args = [
+            os.path.expanduser(arg) if isinstance(arg, str) and "~" in arg else arg
+            for arg in server_args
+        ]
+        cmd = [server_binary] + server_args
+
+        print(f"Starting llama.cpp server with command: {' '.join(cmd)}")
+
+    elif backend == "ollama":
+        # For Ollama server
+        cmd = [server_binary]
+        ollama_args = config.get("server_args", [])
+        if ollama_args:
+            cmd.extend(ollama_args)
+
+        print(f"Starting Ollama server with command: {' '.join(cmd)}")
+
+    else:
+        print(f"Unsupported backend for server start: {backend}")
+        print("Supported backends: llamaserver, ollama")
+        sys.exit(1)
+
+    try:
+        # Start the process
+        process = Popen(cmd)
+
+        # Give the server a moment to start or fail
+        time.sleep(2)
+
+        # Check if process is still running
+        if process.poll() is not None:
+            print(f"Server process exited immediately with code {process.returncode}")
+            sys.exit(1)
+
+        print(f"Server started successfully with PID {process.pid}")
+        print("Server is now running in the background. Press Ctrl+C to stop this process.")
+
+        # Keep the process running until interrupted
+        while True:
+            if process.poll() is not None:
+                print(f"Server process terminated unexpectedly with code {process.returncode}")
+                break
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("\nReceived interrupt signal. Stopping server...")
+        try:
+            process.terminate()
+            process.wait(timeout=5)  # Give it 5 seconds to shut down gracefully
+            print("Server stopped gracefully.")
+        except:
+            print("Server did not stop gracefully, forcing termination...")
+            process.kill()
+            print("Server terminated.")
+    except Exception as e:
+        print(f"Error starting server: {e}")
+        sys.exit(1)
 
 
 class OllamaChatLLM:

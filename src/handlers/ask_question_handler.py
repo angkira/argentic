@@ -1,83 +1,192 @@
 import time
-from typing import Any, Dict, Optional
+import json
+import re
+from typing import Any, Dict, Optional, List
 
 from core.messager import Messager, MQTTMessage
 from core.agent import Agent
+from core.protocol.message import AskQuestionMessage, AnswerMessage, InfoMessage
+
+
+def extract_tool_calls(text: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Extract tool calls from JSON in the text.
+    Returns a list of tool calls if found, None otherwise.
+    """
+    # Try to find JSON inside markdown code blocks first
+    if "```" in text:
+        code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+        code_blocks = re.findall(code_block_pattern, text)
+        if code_blocks:
+            text = code_blocks[0].strip()
+
+    # Now try to parse the possibly JSON text
+    try:
+        # Check if the text is valid JSON and contains tool_calls
+        data = json.loads(text)
+        if isinstance(data, dict) and "tool_calls" in data and isinstance(data["tool_calls"], list):
+            return data["tool_calls"]
+    except json.JSONDecodeError:
+        # Try to extract JSON object using regex as fallback
+        json_pattern = r"\{[\s\S]*\}"
+        match = re.search(json_pattern, text)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+                if (
+                    isinstance(data, dict)
+                    and "tool_calls" in data
+                    and isinstance(data["tool_calls"], list)
+                ):
+                    return data["tool_calls"]
+            except json.JSONDecodeError:
+                pass
+    return None
 
 
 def handle_ask_question(
     messager: Messager,
-    agent: Optional[Agent],
-    data: Optional[Dict[str, Any]],
-    msg: MQTTMessage,
-    handler_kwargs: Dict[str, Any],  # Ensure parameter is named handler_kwargs
+    agent: Agent,  # Agent injected by decorator
+    message: AskQuestionMessage,  # Inject the parsed Pydantic message object
+    mqtt_msg: MQTTMessage,  # Inject original MQTT message if needed (e.g., for topic)
+    handler_kwargs: Dict[str, Any],  # Inject decorator kwargs if needed
 ) -> None:
-    """Handles messages on the 'ask_question' topic (core logic)."""
-    topic = msg.topic
-    # Use the standard parameter name to get specific kwargs
-    pub_response_topic = handler_kwargs.get("pub_response_topic")
+    """Handles 'ask_question' requests using the Agent."""
+    topic = mqtt_msg.topic
+    messager.log(
+        f"Handler '{handle_ask_question.__name__}': Received question from {message.source} on {topic}: '{message.question}'"
+    )
 
-    if agent is None:
-        err_msg = f"Agent not available for handle_ask_question on topic {topic}"
-        print(err_msg)
-        messager.log(err_msg, level="error")
-        if pub_response_topic:
-            messager.publish(
-                pub_response_topic, {"error": "Internal configuration error: Agent missing"}
-            )
-        return
+    # Get response topic from handler_kwargs
+    response_topic = handler_kwargs.get("pub_response_topic", "agent/response/answer")
+    status_topic = handler_kwargs.get("pub_status_topic", "agent/status/info")
 
-    if pub_response_topic is None:
-        messager.log(f"Response topic not configured for {topic}", level="error")
-        # Cannot publish response, maybe just log the question processing
-        # return # Or continue processing but without publishing result?
-
-    # Handle potential non-JSON payload
-    if data is None:
-        # Log handled by decorator
-        if pub_response_topic:
-            messager.publish(pub_response_topic, {"error": "Invalid or missing JSON payload"})
-        return
-
-    question: Optional[str] = data.get("question")
-    if question:
-        user_id = data.get("user_id")  # may be None
-        collection_name = data.get("collection")  # Optional collection targeting
-        print(f"\n🤔 Processing Question via MQTT (user={user_id}): {question}")
-        start_time = time.time()
-        # Invoke Agent with question
-        raw_resp = agent.query(question, collection_name=collection_name, user_id=user_id)
-        response_str = str(raw_resp)
-        # Suppress JSON tool_calls from being returned to client (will be processed internally)
-        stripped = response_str.strip()
-        if stripped.startswith("{") and "tool_calls" in stripped:
-            messager.log(
-                f"handle_ask_question: Suppressing tool_calls JSON: {stripped}", level="debug"
-            )
-            return
-        # Final answer to send to client
-        print(f"\n💡 Answer: {response_str}")
-        end_time = time.time()
-
-        # Publish response only if topic is configured
-        if pub_response_topic:
-            if "Sorry, an error occurred" in response_str:
-                messager.publish(
-                    pub_response_topic,
-                    {"user_id": user_id, "question": question, "error": response_str},
-                )
-            else:
-                messager.publish(
-                    pub_response_topic,
-                    {"user_id": user_id, "question": question, "answer": response_str},
-                )
-
-        print(f"(Response time: {end_time - start_time:.2f} seconds)")
-        messager.log(f"Processed question '{question}' in {end_time - start_time:.2f}s.")
-    else:
-        messager.log(
-            f"Received ask_question command on {topic} with missing 'question'.",
-            level="warning",
+    try:
+        # First pass: Get initial response from agent
+        initial_response = agent.query(
+            question=message.question,
+            collection_name=message.collection_name,
+            user_id=message.user_id,
         )
-        if pub_response_topic:
-            messager.publish(pub_response_topic, {"error": "Missing 'question' in payload"})
+
+        # Check if the response contains tool calls
+        tool_calls = extract_tool_calls(initial_response)
+
+        if tool_calls:
+            # Send a status message to client that we're processing with tools
+            status_message = InfoMessage(
+                source=messager.client_id,
+                data={
+                    "status": "processing",
+                    "message": "Using tools to answer your question...",
+                    "question": message.question,
+                },
+                recipient=message.source,
+            )
+            messager.publish(status_topic, status_message.model_dump_json())
+            messager.log(
+                f"Handler: Detected tool calls in response. Processing tools before responding."
+            )
+
+            # Process each tool call
+            tool_results = []
+            for call in tool_calls:
+                tool_id = call.get("tool_id")
+                arguments = call.get("arguments")
+
+                if tool_id and isinstance(arguments, dict):
+                    # Send status update about which tool we're using
+                    status_message = InfoMessage(
+                        source=messager.client_id,
+                        data={
+                            "status": "tool_executing",
+                            "tool_id": tool_id,
+                            "arguments": arguments,
+                            "question": message.question,
+                        },
+                        recipient=message.source,
+                    )
+                    messager.publish(status_topic, status_message.model_dump_json())
+
+                    # Execute the tool
+                    messager.log(f"Handler: Executing tool '{tool_id}' with args: {arguments}")
+                    tool_result = agent.tool_manager.execute_tool(tool_id, arguments)
+
+                    tool_results.append({"tool_id": tool_id, "result": tool_result})
+
+            # If we have tool results, pass them back to the agent for a final answer
+            if tool_results:
+                messager.log(
+                    f"Handler: Got {len(tool_results)} tool results, requesting final answer..."
+                )
+
+                # Format the tool results for the follow-up question
+                tool_results_str = "\n\n".join(
+                    [
+                        f"TOOL RESULT (from {result['tool_id']}):\n{result['result']}"
+                        for result in tool_results
+                    ]
+                )
+
+                follow_up_question = (
+                    f'I\'ve used tools to help answer the question: "{message.question}"\n\n'
+                    f"Here are the tool results:\n\n{tool_results_str}\n\n"
+                    f"Based on these results, please provide a final comprehensive answer to the original question."
+                )
+
+                # Get the final answer from the agent
+                final_answer = agent.query(
+                    question=follow_up_question,
+                    collection_name=message.collection_name,
+                    user_id=message.user_id,
+                )
+
+                # Check the final answer doesn't also contain tool calls
+                if extract_tool_calls(final_answer):
+                    messager.log(
+                        "Handler: Warning - Final answer still contains tool calls. Sending anyway."
+                    )
+
+                # Now send the final answer to the client
+                response_message = AnswerMessage(
+                    source=messager.client_id,
+                    question=message.question,
+                    answer=final_answer,
+                    recipient=message.source,
+                    user_id=message.user_id,
+                )
+                messager.publish(response_topic, response_message.model_dump_json())
+                messager.log(f"Handler: Sent final answer after tool processing.")
+                return
+
+        # If no tool calls or after processing, send the response
+        response_message = AnswerMessage(
+            source=messager.client_id,
+            question=message.question,
+            answer=initial_response,
+            recipient=message.source,
+            user_id=message.user_id,
+        )
+        messager.publish(response_topic, response_message.model_dump_json())
+        messager.log(
+            f"Handler '{handle_ask_question.__name__}': Sent answer for '{message.question[:50]}...' to {response_topic}"
+        )
+
+    except Exception as e:
+        error_msg = f"Error processing question '{message.question[:50]}...': {e}"
+        messager.log(f"Handler '{handle_ask_question.__name__}': {error_msg}", level="error")
+        # Send an error response back
+        try:
+            error_response = AnswerMessage(
+                source=messager.client_id,
+                question=message.question,
+                error=error_msg,
+                recipient=message.source,
+                user_id=message.user_id,
+            )
+            messager.publish(response_topic, error_response.model_dump_json())
+        except Exception as pub_e:
+            messager.log(
+                f"Handler '{handle_ask_question.__name__}': Failed to publish error response: {pub_e}",
+                level="error",
+            )

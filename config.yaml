@@ -21,7 +21,7 @@ llm:
   use_chat: true
 
 embedding:
-  model_name: all-MiniLM-L6-v2
+  model_name: thenlper/gte-small
   device: cuda
   normalize: true
 
@@ -31,6 +31,10 @@ vector_store:
 
 retriever:
   k: 4
+  search_type: mmr
+  n_neighbors: 10
+  distance_metric: cosine
+  fetch_k: 20
 
 mqtt:
   broker_address: localhost
@@ -38,9 +42,8 @@ mqtt:
   client_id: rag_agent_client
   keepalive: 60
   subscriptions:
-    rag/command/add_info: handle_add_info
-    rag/command/ask_question: handle_ask_question
-    rag/status/request: handle_status_request
+    agent/command/ask_question: handle_ask_question
+    agent/status/request: handle_status_request
   publish_topics:
     response: agent/response/answer
     status: agent/status/info

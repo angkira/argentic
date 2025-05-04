@@ -6,29 +6,19 @@ import requests
 import json
 import threading
 import signal
-import functools
-from typing import Callable, Dict, Any, Optional
+from typing import Callable, Dict
 
-import chromadb
 import yaml
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
 
 from core.llm import LLMFactory
 from core.messager import MQTTMessage, Messager
-from core.rag import RAGManager
 from core.agent import Agent
-from core.tool_manager import ToolManager
 from core.decorators import mqtt_handler_decorator
 
-from handlers.add_info_handler import handle_add_info as raw_handle_add_info
 from handlers.ask_question_handler import handle_ask_question as raw_handle_ask_question
-from handlers.forget_info_handler import handle_forget_info as raw_handle_forget_info
 from handlers.status_request_handler import (
     handle_status_request as raw_handle_status_request,
 )
-
-from tools.knowledge_base_tool import KnowledgeBaseTool
 
 CONFIG_PATH = "config.yaml"
 try:
@@ -113,7 +103,7 @@ def monitor_ollama_status(base_url: str, stop_event: threading.Event):
 
 
 def run_rag_agent():
-    print("\n--- RAG Agent Starting ---")
+    print("\n--- AI Agent Starting ---")
 
     monitor_thread = None
     if backend == "ollama":
@@ -137,60 +127,16 @@ def run_rag_agent():
         llm = LLMFactory.create(llm_config, messager=messager)
         print(f"LLM ({backend}:{model_name}) initialized successfully.")
 
-        embedding_function: HuggingFaceEmbeddings
-        print(f"Initializing Embedding Model: {EMBEDDING_MODEL_NAME}...")
-        embedding_function = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL_NAME,
-            model_kwargs={"device": EMBEDDING_DEVICE},
-            encode_kwargs={"normalize_embeddings": EMBEDDING_NORMALIZE},
-        )
-        print("Embedding Model initialized.")
-
-        db_client: chromadb.PersistentClient
-        vectorstore: Chroma
-        print("Initializing ChromaDB Vector Store...")
-        db_client = chromadb.PersistentClient(path=VECTORSTORE_DIR)
-        vectorstore = Chroma(
-            client=db_client,
-            collection_name=COLLECTION_NAME,
-            embedding_function=embedding_function,
-            persist_directory=VECTORSTORE_DIR,
-        )
-        print(f"ChromaDB collection '{COLLECTION_NAME}' loaded/created.")
-
-        rag_manager: RAGManager = RAGManager(
-            db_client=db_client,
-            retriever_k=RETRIEVER_K,
-            messager=messager,
-        )
-
         agent: Agent = Agent(
             llm=llm,
-            rag_manager=rag_manager,
             messager=messager,
         )
-
-        kb_tool = KnowledgeBaseTool(rag_manager=rag_manager, messager=messager)
-        agent.tool_manager.register_tool(kb_tool)
-        print(f"Registered tool '{kb_tool.name}' with Agent's ToolManager.")
-
-        handle_add_info = mqtt_handler_decorator(
-            messager=messager,
-            rag_manager=rag_manager,
-            pub_status_topic=MQTT_PUB_STATUS,
-        )(raw_handle_add_info)
 
         handle_ask_question = mqtt_handler_decorator(
             messager=messager,
             agent=agent,
             pub_response_topic=MQTT_PUB_RESPONSE,
         )(raw_handle_ask_question)
-
-        handle_forget_info = mqtt_handler_decorator(
-            messager=messager,
-            rag_manager=rag_manager,
-            pub_status_topic=MQTT_PUB_STATUS,
-        )(raw_handle_forget_info)
 
         handle_status_request = mqtt_handler_decorator(
             messager=messager,
@@ -203,9 +149,7 @@ def run_rag_agent():
         )(raw_handle_status_request)
 
         topic_handlers: Dict[str, Callable[[MQTTMessage], None]] = {
-            "handle_add_info": handle_add_info,
             "handle_ask_question": handle_ask_question,
-            "handle_forget_info": handle_forget_info,
             "handle_status_request": handle_status_request,
         }
 
@@ -215,18 +159,18 @@ def run_rag_agent():
         agent.tool_manager.initialize_tools()
 
         # Block here to keep the agent running until interrupted by Ctrl+C
-        print("\n--- RAG Agent is running. Press Ctrl+C to exit ---")
+        print("\n--- AI Agent is running. Press Ctrl+C to exit ---")
         while True:
             time.sleep(1)
 
     except KeyboardInterrupt:
-        print("\n\n--- RAG Agent Shutdown Initiated (Ctrl+C) ---")
+        print("\n\n--- AI Agent Shutdown Initiated (Ctrl+C) ---")
         ollama_monitor_stop_event.set()
         if "messager" in locals() and messager.is_connected():
             print("Stopping MQTT client...")
             messager.stop()
     except Exception as e:
-        print(f"\n--- RAG Agent encountered an unhandled error during setup or runtime: {e} ---")
+        print(f"\n--- AI Agent encountered an unhandled error during setup or runtime: {e} ---")
         ollama_monitor_stop_event.set()
         if "messager" in locals() and messager.is_connected():
             print("Attempting to stop MQTT client due to error...")
@@ -235,7 +179,7 @@ def run_rag_agent():
         if monitor_thread and monitor_thread.is_alive():
             print("Waiting for Ollama monitor thread to exit...")
             monitor_thread.join(timeout=2)
-        print("\n--- RAG Agent Shutdown Complete ---")
+        print("\n--- AI Agent Shutdown Complete ---")
 
 
 def signal_handler(sig, frame):
@@ -248,7 +192,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="RAG Agent Service with MQTT Interface")
+    parser = argparse.ArgumentParser(description="AI Agent Service with MQTT Interface")
     parser.add_argument(
         "--start-llm",
         action="store_true",
@@ -273,14 +217,22 @@ if __name__ == "__main__":
             print("\nOllama monitor stopped by user.")
             sys.exit(0)
     elif args.start_llm:
+        # Also make sure start_llm_server function exists
+        if "start_llm_server" not in globals():
+            from core.llm import start_llm_server
+
         if llm_config.get("backend") == "llamaserver" and llm_config.get("server_binary"):
+            start_llm_server(llm_config)
+        # Add support for Ollama backend with server_binary
+        elif llm_config.get("backend") == "ollama" and llm_config.get("server_binary"):
+            print(f"Starting Ollama server with binary: {llm_config.get('server_binary')}")
             start_llm_server(llm_config)
         else:
             print(
-                "LLM server start requested, but backend is not 'llamaserver' or 'server_binary' is not configured."
+                "LLM server start requested, but backend is not supported or 'server_binary' is not configured."
             )
             print(
-                "Please configure config.yaml appropriately if you intend to auto-start the server."
+                "Please configure config.yaml with backend='llamaserver' or backend='ollama' and set server_binary path."
             )
             sys.exit(1)
     elif args.start_agent or not (args.start_llm or args.monitor_ollama_only):
