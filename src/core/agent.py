@@ -1,7 +1,8 @@
 import time
 import re
 import json
-from typing import Any, List, Optional
+import traceback
+from typing import Any, List, Optional, Union
 
 from langchain.prompts import PromptTemplate
 from langchain.docstore.document import Document
@@ -9,20 +10,33 @@ from langchain.docstore.document import Document
 from core.messager import Messager
 from core.llm import LlamaServerLLM
 from core.tool_manager import ToolManager
+from core.logger import get_logger, LogLevel, parse_log_level
 from core.protocol.task_protocol import TaskResultMessage  # Import for type hint
 
 
 class Agent:
     """Manages interaction with LLM and ToolManager."""
 
-    def __init__(self, llm: Any, messager: Messager):
+    def __init__(
+        self, llm: Any, messager: Messager, log_level: Union[str, LogLevel] = LogLevel.INFO
+    ):
         self.llm = llm
         self.messager = messager
+
+        # Set up logger
+        if isinstance(log_level, str):
+            self.log_level = parse_log_level(log_level)
+        else:
+            self.log_level = log_level
+
+        self.logger = get_logger("agent", self.log_level)
+
         # ToolManager now handles MQTT communication for tools
-        self.tool_manager = ToolManager(messager)
+        self.tool_manager = ToolManager(messager, log_level=self.log_level)
         self.prompt_template = self._build_prompt_template()
 
-        print("Agent initialized (uses ToolManager with MQTT tools).")
+        self.logger.info("Agent initialized (uses ToolManager with MQTT tools)")
+        self.messager.mqtt_log("Agent initialized (uses ToolManager with MQTT tools)")
 
     def _build_prompt_template(self) -> PromptTemplate:
         # Updated prompt to explain how tool results are provided
@@ -43,6 +57,28 @@ QUESTION: {question}
 ANSWER:"""
         self.raw_template = template
         return PromptTemplate.from_template(template)
+
+    def set_log_level(self, level: Union[str, LogLevel]) -> None:
+        """
+        Set the logger level
+
+        Args:
+            level: New log level (string or LogLevel enum)
+        """
+        if isinstance(level, str):
+            self.log_level = parse_log_level(level)
+        else:
+            self.log_level = level
+
+        self.logger.setLevel(self.log_level.value)
+        self.logger.info(f"Agent log level changed to {self.log_level.name}")
+
+        # Update handlers
+        for handler in self.logger.handlers:
+            handler.setLevel(self.log_level.value)
+
+        # Update tool manager log level
+        self.tool_manager.set_log_level(self.log_level)
 
     def query(
         self, question: str, collection_name: Optional[str] = None, user_id: Optional[str] = None
@@ -66,7 +102,10 @@ ANSWER:"""
 
             while current_iteration < max_tool_iterations:
                 current_iteration += 1
-                self.messager.log(
+                self.logger.info(
+                    f"Query Iteration: {current_iteration}/{max_tool_iterations}, User: {user_id or 'anonymous'}"
+                )
+                self.messager.mqtt_log(
                     f"Agent Query Iteration: {current_iteration}/{max_tool_iterations}, User: {user_id}"
                 )
 
@@ -84,7 +123,10 @@ ANSWER:"""
 
                 # Record the raw assistant response
                 messages.append({"role": "assistant", "content": response_text})
-                self.messager.log(
+                self.logger.debug(
+                    f"LLM response (Iteration {current_iteration}): {response_text[:100]}..."
+                )
+                self.messager.mqtt_log(
                     f"Agent received LLM response (Iteration {current_iteration}): {response_text[:100]}...",
                     level="debug",
                 )
@@ -102,7 +144,8 @@ ANSWER:"""
                         cleaned = cleaned.replace("```json", "").replace("```", "").strip()
 
                 potential_json = cleaned
-                self.messager.log(
+                self.logger.debug(f"Potential JSON for parsing: {potential_json!r}")
+                self.messager.mqtt_log(
                     f"Agent Debug: potential_json for JSON parsing: {potential_json!r}",
                     level="debug",
                 )
@@ -110,7 +153,8 @@ ANSWER:"""
                 try:
                     # Use extracted JSON for parsing tool_calls, with fallback when fences removal yields bad JSON
                     is_tool_call_json = False
-                    self.messager.log(
+                    self.logger.debug("Attempting JSON load on potential_json...")
+                    self.messager.mqtt_log(
                         "Agent Debug: Attempting JSON load on potential_json...", level="debug"
                     )
                     parsed_data = None
@@ -128,7 +172,10 @@ ANSWER:"""
                             try:
                                 fixed_json = potential_json.strip() + "}"
                                 parsed_data = json.loads(fixed_json)
-                                self.messager.log(
+                                self.logger.debug(
+                                    f"Fixed JSON by adding closing bracket: {fixed_json}"
+                                )
+                                self.messager.mqtt_log(
                                     f"Agent Debug: Fixed JSON by adding closing bracket: {fixed_json}",
                                     level="debug",
                                 )
@@ -140,7 +187,8 @@ ANSWER:"""
                             fallback_match = re.search(r"\{[\s\S]*\}", response_text)
                             if fallback_match:
                                 fallback_str = fallback_match.group(0)
-                                self.messager.log(
+                                self.logger.debug(f"Fallback JSON extracted: {fallback_str}")
+                                self.messager.mqtt_log(
                                     f"Agent Debug: Fallback JSON extracted: {fallback_str}",
                                     level="debug",
                                 )
@@ -154,14 +202,16 @@ ANSWER:"""
                     if parsed_data and isinstance(parsed_data, dict):
                         response_data = parsed_data
                         tool_calls = response_data.get("tool_calls")
-                        self.messager.log(
+                        self.logger.debug(f"Parsed response_data: {response_data}")
+                        self.messager.mqtt_log(
                             f"Agent Debug: Parsed response_data: {response_data}", level="debug"
                         )
 
                         # If LLM requested tool calls, execute them
                         if isinstance(tool_calls, list) and tool_calls:
                             is_tool_call_json = True
-                            self.messager.log(
+                            self.logger.info(f"LLM decided to use tools: {json.dumps(tool_calls)}")
+                            self.messager.mqtt_log(
                                 f"Reasoning: LLM decided to use tools: {json.dumps(tool_calls)}",
                                 level="info",
                             )
@@ -174,14 +224,20 @@ ANSWER:"""
                                 tool_id = call.get("tool_id")
                                 arguments = call.get("arguments")
                                 if tool_id and isinstance(arguments, dict):
-                                    self.messager.log(
+                                    self.logger.info(
+                                        f"Executing tool '{tool_id}' with args: {arguments}"
+                                    )
+                                    self.messager.mqtt_log(
                                         f"Agent: Executing tool '{tool_id}' with args: {arguments}"
                                     )
                                     try:
                                         tool_result = self.tool_manager.execute_tool(
                                             tool_id, arguments
                                         )
-                                        self.messager.log(
+                                        self.logger.info(
+                                            f"Received result from tool '{tool_id}': {str(tool_result)[:100]}..."
+                                        )
+                                        self.messager.mqtt_log(
                                             f"Agent: Received result from tool '{tool_id}': {str(tool_result)[:100]}..."
                                         )
                                         # Tag the message as coming from the tool
@@ -195,7 +251,8 @@ ANSWER:"""
                                     except Exception as e:
                                         has_error = True
                                         error_msg = f"Error executing tool '{tool_id}': {e}"
-                                        self.messager.log(error_msg, level="error")
+                                        self.logger.error(error_msg)
+                                        self.messager.mqtt_log(error_msg, level="error")
                                         # Add error as tool result so LLM knows about the failure
                                         tool_results_for_history.append(
                                             {
@@ -206,7 +263,8 @@ ANSWER:"""
                                         )
                                 else:
                                     has_error = True
-                                    self.messager.log(
+                                    self.logger.warning(f"Invalid tool call structure: {call}")
+                                    self.messager.mqtt_log(
                                         f"Agent: Invalid tool call structure: {call}",
                                         level="warning",
                                     )
@@ -214,7 +272,10 @@ ANSWER:"""
                             # Add tool results to the message history
                             if tool_results_for_history:
                                 messages.extend(tool_results_for_history)
-                                self.messager.log(
+                                self.logger.info(
+                                    f"Appended {len(tool_results_for_history)} tool result(s) to history"
+                                )
+                                self.messager.mqtt_log(
                                     f"Agent: Appended {len(tool_results_for_history)} tool result(s) to history."
                                 )
 
@@ -238,7 +299,10 @@ ANSWER:"""
                         and isinstance(parsed_data, dict)
                         and "tool_calls" in parsed_data
                     ):
-                        self.messager.log(
+                        self.logger.warning(
+                            "Found tool_calls but couldn't process them. Will try another iteration."
+                        )
+                        self.messager.mqtt_log(
                             "Agent: Found tool_calls but couldn't process them. Will try another iteration.",
                             level="warning",
                         )
@@ -252,20 +316,24 @@ ANSWER:"""
                         continue
 
                     # Not a tool call JSON or already processed, treat as final answer
-                    self.messager.log(
+                    self.logger.info("LLM response is not a tool call. Treating as final answer")
+                    self.messager.mqtt_log(
                         "Agent: LLM response is not a tool call. Treating as final answer."
                     )
                     final_answer = response_text
                     break  # Exit the loop, we have the answer
 
                 except json.JSONDecodeError:
-                    self.messager.log(
+                    self.logger.info("LLM response is not valid JSON. Treating as final answer")
+                    self.messager.mqtt_log(
                         "Agent: LLM response is not valid JSON. Treating as final answer."
                     )
                     final_answer = response_text
                     break  # Exit the loop
                 except Exception as e:
-                    self.messager.log(
+                    self.logger.error(f"Error parsing LLM response or executing tool: {e}")
+                    self.logger.debug(traceback.format_exc())
+                    self.messager.mqtt_log(
                         f"Agent: Error parsing LLM response or executing tool: {e}", level="error"
                     )
                     final_answer = f"Error processing response: {e}"
@@ -292,7 +360,10 @@ ANSWER:"""
                     parsed = json.loads(potential_json)
                     if isinstance(parsed, dict) and "tool_calls" in parsed:
                         # It's still a tool call JSON, this shouldn't be our final answer
-                        self.messager.log(
+                        self.logger.warning(
+                            "Final answer is still a tool call JSON. Getting a proper answer."
+                        )
+                        self.messager.mqtt_log(
                             "Agent: Final answer is still a tool call JSON. Getting a proper answer.",
                             level="warning",
                         )
@@ -344,7 +415,10 @@ ANSWER:"""
                             parsed = json.loads(cleaned)
                             if isinstance(parsed, dict) and "tool_calls" in parsed:
                                 is_still_tool_call = True
-                                self.messager.log(
+                                self.logger.error(
+                                    "CRITICAL: Final answer is still a tool call JSON in final safety check!"
+                                )
+                                self.messager.mqtt_log(
                                     "CRITICAL: Final answer is still a tool call JSON in final safety check!",
                                     level="error",
                                 )
@@ -356,7 +430,10 @@ ANSWER:"""
                                 and "tool_calls" in final_result
                             ):
                                 is_still_tool_call = True
-                                self.messager.log(
+                                self.logger.error(
+                                    "CRITICAL: Final answer appears to be a tool call JSON (not parseable but has format)!"
+                                )
+                                self.messager.mqtt_log(
                                     "CRITICAL: Final answer appears to be a tool call JSON (not parseable but has format)!",
                                     level="error",
                                 )
@@ -365,17 +442,16 @@ ANSWER:"""
                         if is_still_tool_call:
                             final_result = "I'm sorry, but I couldn't retrieve the information needed to answer your question properly. Please try asking in a different way or ask another question."
             except Exception as e:
-                self.messager.log(f"Error in final safety check: {e}", level="error")
+                self.logger.error(f"Error in final safety check: {e}")
+                self.messager.mqtt_log(f"Error in final safety check: {e}", level="error")
                 # If anything goes wrong in the safety check, don't change the answer
                 pass
 
             return final_result
 
         except Exception as e:
-            err_msg = f"Agent: Unhandled error processing query for user '{user_id or 'N/A'}': {e}"
-            self.messager.log(err_msg, level="error")
-            print(err_msg)  # Also print to console
-            import traceback
-
-            traceback.print_exc()  # Print traceback to console
+            err_msg = f"Unhandled error processing query for user '{user_id or 'N/A'}': {e}"
+            self.logger.error(err_msg)
+            self.logger.error(traceback.format_exc())  # Log full traceback
+            self.messager.mqtt_log(err_msg, level="error")
             return f"Sorry, an error occurred while processing your question: {e}"

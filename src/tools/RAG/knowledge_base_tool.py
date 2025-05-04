@@ -1,14 +1,15 @@
 import time
-from typing import List, Dict, Any, Optional, Type
+from typing import List, Dict, Any, Optional, Type, Union
 from enum import Enum
 
 from pydantic import BaseModel, Field
 from langchain.docstore.document import Document
 
 # Assuming RAGManager and Messager are accessible or passed during initialization
-from core.rag import RAGManager
+from tools.RAG.rag import RAGManager
 from core.messager import Messager
 from core.tool_base import BaseTool  # Import BaseTool
+from core.logger import get_logger, LogLevel, parse_log_level
 
 
 # --- Argument Schema --- Define actions
@@ -72,7 +73,12 @@ def format_docs_for_tool_output(docs: List[Document]) -> str:
 class KnowledgeBaseTool(BaseTool):
     TOOL_ID = "knowledge_base_tool"  # Class attribute for easy access
 
-    def __init__(self, messager: Messager, rag_manager: Optional[RAGManager] = None):
+    def __init__(
+        self,
+        messager: Messager,
+        rag_manager: Optional[RAGManager] = None,
+        log_level: Union[LogLevel, str] = LogLevel.INFO,
+    ):
         """rag_manager is optional when instantiating in Agent for prompt-only tools."""
         super().__init__(
             tool_id=self.TOOL_ID,
@@ -87,7 +93,30 @@ class KnowledgeBaseTool(BaseTool):
             messager=messager,
         )
         self.rag_manager = rag_manager
-        self.messager.log(f"KnowledgeBaseTool instance created.")
+
+        # Set up logger
+        if isinstance(log_level, str):
+            self.log_level = parse_log_level(log_level)
+        else:
+            self.log_level = log_level
+
+        self.logger = get_logger("kb_tool", self.log_level)
+        self.logger.info("KnowledgeBaseTool instance created")
+        self.messager.mqtt_log(f"KnowledgeBaseTool instance created.")
+
+    def set_log_level(self, level: Union[LogLevel, str]) -> None:
+        """Set the log level for the tool"""
+        if isinstance(level, str):
+            self.log_level = parse_log_level(level)
+        else:
+            self.log_level = level
+
+        self.logger.setLevel(self.log_level.value)
+        self.logger.info(f"Log level changed to {self.log_level.name}")
+
+        # Update handlers
+        for handler in self.logger.handlers:
+            handler.setLevel(self.log_level.value)
 
     def _execute(
         self,
@@ -97,18 +126,34 @@ class KnowledgeBaseTool(BaseTool):
         **kwargs,
     ) -> Any:
         """Executes the requested action on the knowledge base."""
-        self.messager.log(f"KB Tool executing action: {action.value}")
+        self.logger.info(f"Executing action: {action.value}")
+        self.messager.mqtt_log(f"KB Tool executing action: {action.value}")
+
         if action == KBAction.REMIND:
             if not query:
-                raise ValueError("'query' argument is required for the 'remind' action.")
+                error_msg = "'query' argument is required for the 'remind' action."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            self.logger.info(
+                f"Retrieving from collection '{collection_name or 'default'}' with query: '{query[:50]}...'"
+            )
             docs = self.rag_manager.retrieve(query=query, collection_name=collection_name)
             formatted_result = format_docs_for_tool_output(docs)
-            self.messager.log(f"KB Tool 'remind' found {len(docs)} documents.")
+            self.logger.info(f"Found {len(docs)} documents for query")
+            self.messager.mqtt_log(f"KB Tool 'remind' found {len(docs)} documents.")
             return formatted_result
+
         elif action == KBAction.REMEMBER:
             content = kwargs.get("content_to_add")
             if not content:
-                raise ValueError("'content_to_add' argument is required for the 'remember' action.")
+                error_msg = "'content_to_add' argument is required for the 'remember' action."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            self.logger.info(
+                f"Adding content to collection '{collection_name or 'default'}': '{content[:50]}...'"
+            )
             success = self.rag_manager.remember(
                 text=content,
                 collection_name=collection_name,
@@ -117,16 +162,26 @@ class KnowledgeBaseTool(BaseTool):
                 metadata=kwargs.get("metadata"),
             )
             msg = f"Remember action {'succeeded' if success else 'failed'} for collection '{collection_name or 'default'}'."
-            self.messager.log(msg)
+            self.logger.info(msg)
+            self.messager.mqtt_log(msg)
             return msg
+
         elif action == KBAction.FORGET:
             where = kwargs.get("where_filter")
             if not where or not isinstance(where, dict):
-                raise ValueError(
-                    "'where_filter' argument (dict) is required for the 'forget' action."
-                )
+                error_msg = "'where_filter' argument (dict) is required for the 'forget' action."
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            self.logger.info(
+                f"Forgetting entries from collection '{collection_name or 'default'}' with filter: {where}"
+            )
             result = self.rag_manager.forget(where_filter=where, collection_name=collection_name)
-            self.messager.log(f"KB Tool 'forget' result: {result}")
+            self.logger.info(f"Forget action result: {result}")
+            self.messager.mqtt_log(f"KB Tool 'forget' result: {result}")
             return result
+
         else:
-            raise ValueError(f"Unsupported action: {action}")
+            error_msg = f"Unsupported action: {action}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)

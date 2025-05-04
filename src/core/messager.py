@@ -5,6 +5,8 @@ import threading
 import logging  # Import the logging module
 from typing import Dict, Any, Optional, Callable, Union
 
+from core.logger import get_logger, LogLevel, parse_log_level
+
 # Define type aliases for clarity
 MQTTClient = mqtt.Client
 MQTTMessage = mqtt.MQTTMessage
@@ -27,12 +29,21 @@ class Messager:
         client_id: str,
         keepalive: int,
         pub_log_topic: str,
+        log_level: Union[str, LogLevel] = LogLevel.INFO,
     ):
         self.broker_address = broker_address
         self.port = port
         self.client_id = client_id
         self.keepalive = keepalive
         self.pub_log_topic = pub_log_topic
+
+        # Set up logger
+        if isinstance(log_level, str):
+            self.log_level = parse_log_level(log_level)
+        else:
+            self.log_level = log_level
+
+        self.logger = get_logger(f"mqtt.{self.client_id}", self.log_level)
 
         self.client: MQTTClient = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id
@@ -42,8 +53,7 @@ class Messager:
         # Allow larger message flows
         self.client.max_inflight_messages_set(100)
         self.client.max_queued_messages_set(0)  # unlimited
-        # --- Disable detailed Paho logger to prevent spam ---
-        # (client.enable_logger is omitted)
+        # Assign callbacks
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
@@ -53,13 +63,34 @@ class Messager:
         self._is_connected = False
         self._connection_event = threading.Event()  # Event for waiting
 
+        self.logger.debug("Messager instance initialized")
+
+    def set_log_level(self, level: Union[str, LogLevel]) -> None:
+        """
+        Set the log level for this Messager instance
+
+        Args:
+            level: New log level (string or LogLevel enum)
+        """
+        if isinstance(level, str):
+            self.log_level = parse_log_level(level)
+        else:
+            self.log_level = level
+
+        self.logger.setLevel(self.log_level.value)
+        self.logger.info(f"Log level changed to {self.log_level.name}")
+
+        # Update handlers
+        for handler in self.logger.handlers:
+            handler.setLevel(self.log_level.value)
+
     def subscribe(self, topic: str, handler: MessageHandlerWrapper, qos: int = 1) -> None:
         """Subscribes to a topic with a handler."""
-        print(f"Messager: Registered subscription for topic: {topic} (qos={qos})")
+        self.logger.info(f"Registering subscription for topic: {topic} (qos={qos})")
         self._topic_handlers[topic] = handler
         # If already connected, perform the MQTT subscribe now
         if self._is_connected:
-            print(f"Messager: Subscribing to topic: {topic} (qos={qos})")
+            self.logger.info(f"Subscribing to topic: {topic} (qos={qos})")
             self.client.subscribe(topic, qos=qos)
 
     def _on_connect(
@@ -74,53 +105,54 @@ class Messager:
         if rc == 0:
             self._is_connected = True
             self._connection_event.set()  # Signal connection success
-            print(f"Messager: Connected successfully to MQTT Broker: {self.broker_address}")
-            self.log(f"Connected to MQTT Broker: {self.broker_address}")
+            self.logger.info(f"Connected successfully to MQTT Broker: {self.broker_address}")
+            self.mqtt_log(f"Connected to MQTT Broker: {self.broker_address}")
             # Resubscribe to topics upon reconnection (iterate over a static copy of keys)
             for topic in list(self._topic_handlers.keys()):
-                print(f"Messager: Subscribing to topic: {topic} (qos=1)")
+                self.logger.info(f"Subscribing to topic: {topic} (qos=1)")
                 # Subscribe with QoS 1 for reliable delivery
                 self.client.subscribe(topic, qos=1)
         else:
             self._is_connected = False
             self._connection_event.clear()  # Ensure event is clear on failure
-            print(f"Messager: Failed to connect to MQTT Broker, return code {rc}")
-            # Note: log won't work here
+            self.logger.error(f"Failed to connect to MQTT Broker, return code {rc}")
+            # Note: mqtt_log won't work here since we're not connected
 
     def _on_message(self, client: MQTTClient, userdata: Any, msg: MQTTMessage) -> None:
         """Internal callback for received messages."""
         topic = msg.topic
-        # Log receipt of every message
-        print(f"Messager: Received raw message on topic {topic}, payload: {msg.payload}")
-        # Also publish to log topic
+        # Log receipt of every message at debug level to avoid flooding logs
+        self.logger.debug(f"Received raw message on topic {topic}, payload: {msg.payload}")
+        # Also publish to log topic if connected
         try:
-            self.log(
-                f"Received message on topic '{topic}': {msg.payload.decode('utf-8', errors='ignore')}",
-                level="debug",
-            )
+            if self._is_connected:
+                self.mqtt_log(
+                    f"Received message on topic '{topic}': {msg.payload.decode('utf-8', errors='ignore')}",
+                    level="debug",
+                )
         except Exception:
             pass
+
         # Find matching handler, support wildcard subscriptions
         handler = None
         for pattern, h in self._topic_handlers.items():
             if mqtt.topic_matches_sub(pattern, topic):
                 handler = h
                 break
+
         if handler:
             try:
                 # Pass only the message to the simplified handler wrapper
                 handler(msg)
             except Exception as e:
-                err_msg = f"Messager: Unhandled exception in handler for topic '{topic}': {e}"
-                print(err_msg)
+                err_msg = f"Unhandled exception in handler for topic '{topic}': {e}"
+                self.logger.error(err_msg)
                 try:
-                    self.log(err_msg, level="error")
+                    self.mqtt_log(err_msg, level="error")
                 except Exception:  # Avoid errors if publish fails during handler error
-                    print("Messager: Failed to publish handler error log.")
+                    self.logger.error("Failed to publish handler error log.")
         else:
-            print(
-                f"Messager: Warning: No handler registered for received message on topic: {topic}"
-            )
+            self.logger.warning(f"No handler registered for received message on topic: {topic}")
 
     def _on_disconnect(
         self,
@@ -132,7 +164,7 @@ class Messager:
         self._is_connected = False
         self._connection_event.clear()  # Signal disconnection
         # Log disconnection (args may include rc or flags/reason/properties)
-        print("Messager: Disconnected from MQTT Broker.")
+        self.logger.info("Disconnected from MQTT Broker")
 
     def _on_publish(
         self,
@@ -142,35 +174,35 @@ class Messager:
         *args: Any,
     ) -> None:
         """Internal callback when a message is successfully published (optional, supports multiple signatures)."""
-        # Can log publication mid or ignore extra parameters
-        # print(f"Messager: Message Published (MID: {mid})")
+        # Can log publication mid at debug level if needed
+        self.logger.debug(f"Message published (MID: {mid})")
         pass
 
     def register_handler(self, topic: str, handler: MessageHandlerWrapper) -> None:
         """Registers a handler function for a specific topic."""
-        print(f"Messager: Registering handler for topic: {topic}")
+        self.logger.info(f"Registering handler for topic: {topic}")
         self._topic_handlers[topic] = handler
         # If already connected, subscribe to the new topic immediately
         if self._is_connected:
-            print(f"Messager: Subscribing to newly registered topic: {topic} (qos=1)")
+            self.logger.info(f"Subscribing to newly registered topic: {topic} (qos=1)")
             self.client.subscribe(topic, qos=1)
 
     def connect(self, start_loop: bool = True) -> bool:  # Add start_loop parameter
         """Connects to the MQTT broker. Optionally starts background loop."""
         if self._is_connected:
-            print("Messager: Already connected.")
+            self.logger.info("Already connected.")
             return True
         try:
-            print(f"Messager: Connecting to MQTT Broker: {self.broker_address}:{self.port}...")
+            self.logger.info(f"Connecting to MQTT Broker: {self.broker_address}:{self.port}...")
             self._connection_event.clear()
             self.client.connect(self.broker_address, self.port, self.keepalive)
             # Only start background loop if requested (e.g., for client)
             if start_loop:
-                print("Messager: Starting background loop in connect().")
+                self.logger.info("Starting background loop in connect().")
                 self.client.loop_start()
             return True
         except Exception as e:
-            print(f"Messager: Error connecting to MQTT broker: {e}")
+            self.logger.error(f"Error connecting to MQTT broker: {e}")
             self._is_connected = False
             if start_loop:
                 try:
@@ -186,19 +218,44 @@ class Messager:
         try:
             if not isinstance(payload, str):
                 payload = json.dumps(payload)
-            # Log publication of every message
-            print(f"Messager: Publishing to topic {topic}, payload: {payload}")
+            # Log publication of message (at debug level to avoid flooding logs)
+            self.logger.debug(f"Publishing to topic {topic}, payload: {payload}")
             # Publish with QoS 1 to ensure delivery; unlimited queuing is enabled
             self.client.publish(topic, payload, qos=1, retain=retain)
             return True
         except Exception as e:
-            print(f"Messager: Error publishing MQTT message to {topic}: {e}")
+            self.logger.error(f"Error publishing MQTT message to {topic}: {e}")
             return False
 
-    def log(self, message: str, level: str = "info") -> None:
+    def mqtt_log(self, message: str, level: str = "info") -> None:
         """Publishes a log message to the configured log topic."""
         log_payload = {"timestamp": time.time(), "level": level, "message": message}
         self.publish(self.pub_log_topic, log_payload)
+
+    def log(self, message: str, level: str = "info") -> None:
+        """Logs a message both to the internal logger and to MQTT if connected.
+
+        Args:
+            message: The log message
+            level: Log level (debug, info, warning, error)
+        """
+        # Log to internal logger
+        if level == "debug":
+            self.logger.debug(message)
+        elif level == "info":
+            self.logger.info(message)
+        elif level == "warning":
+            self.logger.warning(message)
+        elif level == "error":
+            self.logger.error(message)
+        else:
+            self.logger.info(message)  # Default to info
+
+        # Log to MQTT as well
+        try:
+            self.mqtt_log(message, level)
+        except Exception as e:
+            self.logger.error(f"Error sending log to MQTT: {e}")
 
     def start(
         self,
@@ -209,14 +266,14 @@ class Messager:
     ) -> bool:
         """Registers handlers, connects, optionally waits, and runs the background loop."""
         # 1. Register Handlers
-        print("Messager: Registering handlers...")
+        self.logger.info("Registering handlers...")
         for topic, handler_name in subscriptions.items():
             handler_func = handlers.get(handler_name)
             if handler_func:
                 self.register_handler(topic, handler_func)
             else:
-                print(
-                    f"Messager: Warning: Handler function '{handler_name}' "
+                self.logger.warning(
+                    f"Handler function '{handler_name}' "
                     f"for topic '{topic}' not found in provided handlers."
                 )
 
@@ -226,12 +283,12 @@ class Messager:
 
         # 3. Wait for Connection (Optional)
         if wait_for_connection:
-            print(f"Messager: Waiting for connection (timeout: {timeout}s)...")
+            self.logger.info(f"Waiting for connection (timeout: {timeout}s)...")
             if not self._connection_event.wait(timeout=timeout):
-                print("Messager: Connection timed out.")
+                self.logger.error("Connection timed out.")
                 self.stop()
                 return False
-            print("Messager: Connection established.")
+            self.logger.info("Connection established.")
 
         # Messager is now connected and background loop is running.
         return True
@@ -241,37 +298,37 @@ class Messager:
         # This method is primarily for the CLI client now
         if not self.is_connected():
             # Attempt connection if not connected, starting the loop
-            print("Messager: Not connected, attempting connect and background loop...")
+            self.logger.info("Not connected, attempting connect and background loop...")
             if not self.connect(start_loop=True):  # Connect *and* start loop
-                print("Messager: Connection failed for background loop.")
+                self.logger.error("Connection failed for background loop.")
                 return
             # Wait briefly for connection
             if not self._connection_event.wait(timeout=5.0):
-                print("Messager: Connection timeout for background loop.")
+                self.logger.error("Connection timeout for background loop.")
                 self.disconnect()
                 return
         else:
             # If already connected, ensure loop is started
-            print("Messager: Already connected, ensuring background loop is running...")
+            self.logger.info("Already connected, ensuring background loop is running...")
             self.client.loop_start()  # Safe to call multiple times
 
     def stop_background_loop(self) -> None:
         """Stops the MQTT network loop running in the background thread."""
-        print("Messager: Stopping MQTT background network loop...")
+        self.logger.info("Stopping MQTT background network loop...")
         self.client.loop_stop()
 
     def disconnect(self) -> None:
         """Disconnects from the MQTT broker."""
         if self._is_connected:
-            print("Messager: Disconnecting...")
+            self.logger.info("Disconnecting...")
             self.client.disconnect()
             # _on_disconnect will set self._is_connected = False
         else:
-            print("Messager: Already disconnected.")
+            self.logger.info("Already disconnected.")
 
     def stop(self) -> None:
         """Stops the Messager gracefully (disconnects)."""
-        print("Messager: Stop requested.")
+        self.logger.info("Stop requested.")
         self.disconnect()
 
     def is_connected(self) -> bool:

@@ -1,11 +1,17 @@
 import time
 import json
 import re
+import traceback
 from typing import Any, Dict, Optional, List
 
 from core.messager import Messager, MQTTMessage
 from core.agent import Agent
 from core.protocol.message import AskQuestionMessage, AnswerMessage, InfoMessage
+from core.logger import get_logger, LogLevel
+
+
+# Create a handler-specific logger
+logger = get_logger("ask_handler")
 
 
 def extract_tool_calls(text: str) -> Optional[List[Dict[str, Any]]]:
@@ -53,7 +59,10 @@ def handle_ask_question(
 ) -> None:
     """Handles 'ask_question' requests using the Agent."""
     topic = mqtt_msg.topic
-    messager.log(
+
+    # Use both local logger and MQTT logging
+    logger.info(f"Received question from {message.source} on {topic}: '{message.question}'")
+    messager.mqtt_log(
         f"Handler '{handle_ask_question.__name__}': Received question from {message.source} on {topic}: '{message.question}'"
     )
 
@@ -63,6 +72,7 @@ def handle_ask_question(
 
     try:
         # First pass: Get initial response from agent
+        logger.info(f"Querying agent for question: '{message.question[:50]}...'")
         initial_response = agent.query(
             question=message.question,
             collection_name=message.collection_name,
@@ -84,7 +94,9 @@ def handle_ask_question(
                 recipient=message.source,
             )
             messager.publish(status_topic, status_message.model_dump_json())
-            messager.log(
+
+            logger.info(f"Detected tool calls in response. Processing tools before responding.")
+            messager.mqtt_log(
                 f"Handler: Detected tool calls in response. Processing tools before responding."
             )
 
@@ -109,14 +121,17 @@ def handle_ask_question(
                     messager.publish(status_topic, status_message.model_dump_json())
 
                     # Execute the tool
-                    messager.log(f"Handler: Executing tool '{tool_id}' with args: {arguments}")
+                    logger.info(f"Executing tool '{tool_id}' with args: {arguments}")
+                    messager.mqtt_log(f"Handler: Executing tool '{tool_id}' with args: {arguments}")
                     tool_result = agent.tool_manager.execute_tool(tool_id, arguments)
 
                     tool_results.append({"tool_id": tool_id, "result": tool_result})
+                    logger.debug(f"Tool '{tool_id}' returned result: {str(tool_result)[:100]}...")
 
             # If we have tool results, pass them back to the agent for a final answer
             if tool_results:
-                messager.log(
+                logger.info(f"Got {len(tool_results)} tool results, requesting final answer...")
+                messager.mqtt_log(
                     f"Handler: Got {len(tool_results)} tool results, requesting final answer..."
                 )
 
@@ -135,6 +150,7 @@ def handle_ask_question(
                 )
 
                 # Get the final answer from the agent
+                logger.info("Requesting final answer from agent with tool results")
                 final_answer = agent.query(
                     question=follow_up_question,
                     collection_name=message.collection_name,
@@ -143,8 +159,10 @@ def handle_ask_question(
 
                 # Check the final answer doesn't also contain tool calls
                 if extract_tool_calls(final_answer):
-                    messager.log(
-                        "Handler: Warning - Final answer still contains tool calls. Sending anyway."
+                    logger.warning("Final answer still contains tool calls. Sending anyway.")
+                    messager.mqtt_log(
+                        "Handler: Warning - Final answer still contains tool calls. Sending anyway.",
+                        level="warning",
                     )
 
                 # Now send the final answer to the client
@@ -156,7 +174,9 @@ def handle_ask_question(
                     user_id=message.user_id,
                 )
                 messager.publish(response_topic, response_message.model_dump_json())
-                messager.log(f"Handler: Sent final answer after tool processing.")
+
+                logger.info(f"Sent final answer after tool processing to {response_topic}")
+                messager.mqtt_log(f"Handler: Sent final answer after tool processing.")
                 return
 
         # If no tool calls or after processing, send the response
@@ -168,13 +188,18 @@ def handle_ask_question(
             user_id=message.user_id,
         )
         messager.publish(response_topic, response_message.model_dump_json())
-        messager.log(
+
+        logger.info(f"Sent direct answer for '{message.question[:50]}...' to {response_topic}")
+        messager.mqtt_log(
             f"Handler '{handle_ask_question.__name__}': Sent answer for '{message.question[:50]}...' to {response_topic}"
         )
 
     except Exception as e:
         error_msg = f"Error processing question '{message.question[:50]}...': {e}"
-        messager.log(f"Handler '{handle_ask_question.__name__}': {error_msg}", level="error")
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())  # Log full traceback
+        messager.mqtt_log(f"Handler '{handle_ask_question.__name__}': {error_msg}", level="error")
+
         # Send an error response back
         try:
             error_response = AnswerMessage(
@@ -185,8 +210,11 @@ def handle_ask_question(
                 user_id=message.user_id,
             )
             messager.publish(response_topic, error_response.model_dump_json())
+            logger.info("Sent error response to client")
         except Exception as pub_e:
-            messager.log(
+            logger.error(f"Failed to publish error response: {pub_e}")
+            logger.error(traceback.format_exc())  # Log full traceback
+            messager.mqtt_log(
                 f"Handler '{handle_ask_question.__name__}': Failed to publish error response: {pub_e}",
                 level="error",
             )

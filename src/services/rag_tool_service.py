@@ -1,18 +1,18 @@
 import yaml
 import time
 import signal
-import uuid
 import json
+import traceback
 import threading
 from core.messager import Messager, MQTTMessage
-from core.rag import RAGManager
-from tools.knowledge_base_tool import KnowledgeBaseTool, KnowledgeBaseInput
+from tools.RAG.rag import RAGManager
+from tools.RAG.knowledge_base_tool import KnowledgeBaseTool, KnowledgeBaseInput
+from core.logger import get_logger, LogLevel, parse_log_level
 from core.protocol.message import (
     RegisterToolMessage,
     TaskMessage,
     TaskResultMessage,
     TaskStatus,
-    MessageType,
 )
 import chromadb
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -24,6 +24,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Setup logger
+logger = get_logger("rag_tool_service", LogLevel.INFO)
+
 HG_TOKEN = os.getenv("HG_TOKEN")
 
 # Load configuration
@@ -33,11 +36,18 @@ vec_cfg = config["vector_store"]
 embed_cfg = config["embedding"]
 retr_cfg = config["retriever"]
 
-print("Configuration loaded successfully.")
-print(f"MQTT Broker: {mqtt_cfg['broker_address']}, Port: {mqtt_cfg['port']}")
-print(f"Vector Store Directory: {vec_cfg['directory']}")
-print(f"Embedding Model: {embed_cfg['model_name']}, Device: {embed_cfg['device']}")
-print("Initializing messager and vector store...")
+# Get log level from config or default to INFO
+log_level_str = config.get("logging", {}).get("level", "info")
+log_level = parse_log_level(log_level_str)
+logger.setLevel(log_level.value)
+
+logger.info("Configuration loaded successfully.")
+logger.info(f"MQTT Broker: {mqtt_cfg['broker_address']}, Port: {mqtt_cfg['port']}")
+logger.info(f"Vector Store Directory: {vec_cfg['directory']}")
+logger.info(f"Embedding Model: {embed_cfg['model_name']}, Device: {embed_cfg['device']}")
+logger.info(f"Log level: {log_level.name}")
+logger.info("Initializing messager and vector store...")
+
 # Initialize Messager
 messager = Messager(
     broker_address=mqtt_cfg["broker_address"],
@@ -49,53 +59,69 @@ messager = Messager(
 # Connect and start loop
 messager.connect(start_loop=True)
 messager.start_background_loop()
-print("Messager connected and background loop started.")
+logger.info("Messager connected and background loop started.")
+messager.mqtt_log("RAG Tool Service: Messager connected and background loop started.")
 
 # Initialize vectorstore and embedding
-db_client = chromadb.PersistentClient(path=vec_cfg["directory"])
-print("Chroma client initialized.")
+try:
+    db_client = chromadb.PersistentClient(path=vec_cfg["directory"])
+    logger.info("Chroma client initialized.")
+    messager.mqtt_log("RAG Tool Service: Chroma client initialized.")
 
-print("Initializing embedding model...")
+    logger.info("Initializing embedding model...")
+    messager.mqtt_log("RAG Tool Service: Initializing embedding model...")
 
-# Use model_name from config instead of pre-loading the model
-embedding = HuggingFaceEmbeddings(
-    model_name=embed_cfg["model_name"],  # Use the model_name from config
-    model_kwargs={
-        "device": embed_cfg["device"],
-        "token": HG_TOKEN,
-    },
-    encode_kwargs={"normalize_embeddings": embed_cfg["normalize"]},
-)
-print(f"Embedding model initialized: {embed_cfg['model_name']}")
+    # Use model_name from config instead of pre-loading the model
+    embedding = HuggingFaceEmbeddings(
+        model_name=embed_cfg["model_name"],  # Use the model_name from config
+        model_kwargs={
+            "device": embed_cfg["device"],
+            "token": HG_TOKEN,
+        },
+        encode_kwargs={"normalize_embeddings": embed_cfg["normalize"]},
+    )
+    logger.info(f"Embedding model initialized: {embed_cfg['model_name']}")
+    messager.mqtt_log(f"RAG Tool Service: Embedding model initialized: {embed_cfg['model_name']}")
 
-print("Initializing vector store...")
-vectorstore = Chroma(
-    client=db_client,
-    collection_name=vec_cfg["collection_name"],
-    embedding_function=embedding,
-    persist_directory=vec_cfg["directory"],
-)
-print("Vector store initialized.")
+    logger.info("Initializing vector store...")
+    messager.mqtt_log("RAG Tool Service: Initializing vector store...")
+    vectorstore = Chroma(
+        client=db_client,
+        collection_name=vec_cfg["collection_name"],
+        embedding_function=embedding,
+        persist_directory=vec_cfg["directory"],
+    )
+    logger.info("Vector store initialized.")
+    messager.mqtt_log("RAG Tool Service: Vector store initialized.")
 
-print("Initializing retriever...")
-# Use simpler retriever initialization to avoid potential validation errors
-retriever = vectorstore.as_retriever(
-    search_type=retr_cfg.get("search_type", "mmr"),
-    search_kwargs={
-        "k": retr_cfg["k"],
-        "fetch_k": retr_cfg.get("fetch_k", 20),
-    },
-)
-print("Retriever initialized.")
+    logger.info("Initializing retriever...")
+    messager.mqtt_log("RAG Tool Service: Initializing retriever...")
+    # Use simpler retriever initialization to avoid potential validation errors
+    retriever = vectorstore.as_retriever(
+        search_type=retr_cfg.get("search_type", "mmr"),
+        search_kwargs={
+            "k": retr_cfg["k"],
+            "fetch_k": retr_cfg.get("fetch_k", 20),
+        },
+    )
+    logger.info("Retriever initialized.")
+    messager.mqtt_log("RAG Tool Service: Retriever initialized.")
 
-print("Initializing RAGManager...")
-# Initialize RAGManager
-rag_manager = RAGManager(
-    db_client=db_client,
-    retriever_k=retr_cfg["k"],
-    messager=messager,
-)
-print("RAGManager initialized.")
+    logger.info("Initializing RAGManager...")
+    messager.mqtt_log("RAG Tool Service: Initializing RAGManager...")
+    # Initialize RAGManager
+    rag_manager = RAGManager(
+        db_client=db_client,
+        retriever_k=retr_cfg["k"],
+        messager=messager,
+    )
+    logger.info("RAGManager initialized.")
+    messager.mqtt_log("RAG Tool Service: RAGManager initialized.")
+except Exception as e:
+    logger.error(f"Error initializing components: {e}")
+    logger.error(traceback.format_exc())
+    messager.mqtt_log(f"RAG Tool Service: Error initializing components: {e}", level="error")
+    raise
 
 # Create the Knowledge Base Tool instance (but don't use ToolManager)
 kb_tool = KnowledgeBaseTool(rag_manager=rag_manager, messager=messager)
@@ -116,10 +142,17 @@ def handle_registration_confirmation(message: MQTTMessage):
 
         if confirm_msg.tool_name == kb_tool.name:
             assigned_tool_id = confirm_msg.tool_id
-            messager.log(f"Received tool registration confirmation with ID: {assigned_tool_id}")
+            logger.info(f"Received tool registration confirmation with ID: {assigned_tool_id}")
+            messager.mqtt_log(
+                f"RAG Tool Service: Received tool registration confirmation with ID: {assigned_tool_id}"
+            )
             registration_complete.set()
     except Exception as e:
-        messager.log(f"Error processing registration confirmation: {str(e)}", level="error")
+        logger.error(f"Error processing registration confirmation: {e}")
+        logger.error(traceback.format_exc())
+        messager.mqtt_log(
+            f"RAG Tool Service: Error processing registration confirmation: {e}", level="error"
+        )
 
 
 # Register to receive registration confirmations
@@ -139,12 +172,18 @@ def register_rag_tool():
 
     # Publish to the registration topic
     messager.publish("rag/command/register_tool", reg_msg.model_dump_json())
-    print(f"Sent direct registration for tool '{kb_tool.name}'")
-    print("Waiting for registration confirmation...")
+    logger.info(f"Sent direct registration for tool '{kb_tool.name}'")
+    messager.mqtt_log(f"RAG Tool Service: Sent direct registration for tool '{kb_tool.name}'")
+    logger.info("Waiting for registration confirmation...")
+    messager.mqtt_log("RAG Tool Service: Waiting for registration confirmation...")
 
     # Wait for the registration confirmation (with timeout)
     if not registration_complete.wait(timeout=10.0):
-        print("Warning: Didn't receive registration confirmation within timeout")
+        logger.warning("Didn't receive registration confirmation within timeout")
+        messager.mqtt_log(
+            "RAG Tool Service: Didn't receive registration confirmation within timeout",
+            level="warning",
+        )
         return None
 
     return assigned_tool_id
@@ -157,13 +196,24 @@ def handle_task_message(message: MQTTMessage):
         payload = json.loads(message.payload)
         task = TaskMessage.model_validate(payload)
 
-        messager.log(f"Received task: {task.task_id} for tool: {task.tool_id}")
+        logger.info(f"Received task: {task.task_id} for tool: {task.tool_id}")
+        messager.mqtt_log(
+            f"RAG Tool Service: Received task: {task.task_id} for tool: {task.tool_id}"
+        )
+
+        # Log task details at debug level
+        logger.debug(f"Task arguments: {task.arguments}")
 
         # Parse arguments using the KnowledgeBaseInput schema
         args = KnowledgeBaseInput.model_validate(task.arguments)
 
         # Execute the tool
         try:
+            logger.info(f"Executing action '{args.action}' with query: '{args.query}'")
+            messager.mqtt_log(
+                f"RAG Tool Service: Executing action '{args.action}' with query: '{args.query}'"
+            )
+
             result = kb_tool._execute(
                 action=args.action,
                 query=args.query,
@@ -180,9 +230,15 @@ def handle_task_message(message: MQTTMessage):
                 status=TaskStatus.SUCCESS,
                 result=result,
             )
+            logger.info(f"Task {task.task_id} completed successfully")
+            messager.mqtt_log(f"RAG Tool Service: Task {task.task_id} completed successfully")
         except Exception as e:
             # Create error response
-            messager.log(f"Error executing task {task.task_id}: {str(e)}", level="error")
+            logger.error(f"Error executing task {task.task_id}: {e}")
+            logger.error(traceback.format_exc())
+            messager.mqtt_log(
+                f"RAG Tool Service: Error executing task {task.task_id}: {e}", level="error"
+            )
             response = TaskResultMessage(
                 source=messager.client_id,
                 task_id=task.task_id,
@@ -194,17 +250,22 @@ def handle_task_message(message: MQTTMessage):
         # Publish result to the result topic
         result_topic = f"tool/{task.tool_id}/result"
         messager.publish(result_topic, response.model_dump_json())
-        messager.log(f"Published result for task {task.task_id} to {result_topic}")
+        logger.info(f"Published result for task {task.task_id} to {result_topic}")
+        messager.mqtt_log(
+            f"RAG Tool Service: Published result for task {task.task_id} to {result_topic}"
+        )
 
     except Exception as e:
-        messager.log(f"Error handling task message: {str(e)}", level="error")
+        logger.error(f"Error handling task message: {e}")
+        logger.error(traceback.format_exc())
+        messager.mqtt_log(f"RAG Tool Service: Error handling task message: {e}", level="error")
 
 
 # Create a function to unregister the tool
 def unregister_tool(tool_id, tool_name):
     """Sends an unregistration message for the tool to the Agent"""
     if not tool_id:
-        print("No tool ID to unregister")
+        logger.warning("No tool ID to unregister")
         return False
 
     try:
@@ -218,10 +279,17 @@ def unregister_tool(tool_id, tool_name):
 
         # Publish to the registration topic (same topic as registration)
         messager.publish("rag/command/register_tool", unreg_msg.model_dump_json())
-        print(f"Sent unregistration request for tool '{tool_name}' (ID: {tool_id})")
+        logger.info(f"Sent unregistration request for tool '{tool_name}' (ID: {tool_id})")
+        messager.mqtt_log(
+            f"RAG Tool Service: Sent unregistration request for tool '{tool_name}' (ID: {tool_id})"
+        )
         return True
     except Exception as e:
-        print(f"Error sending tool unregistration: {e}")
+        logger.error(f"Error sending tool unregistration: {e}")
+        logger.error(traceback.format_exc())
+        messager.mqtt_log(
+            f"RAG Tool Service: Error sending tool unregistration: {e}", level="error"
+        )
         return False
 
 
@@ -232,25 +300,36 @@ if assigned_tool_id:
     # Subscribe to the task topic using the assigned ID from the ToolManager
     task_topic = f"tool/{assigned_tool_id}/task"
     messager.subscribe(task_topic, handle_task_message)
-    print(f"Subscribed to task topic: {task_topic}")
+    logger.info(f"Subscribed to task topic: {task_topic}")
+    messager.mqtt_log(f"RAG Tool Service: Subscribed to task topic: {task_topic}")
 else:
-    print("Error: Failed to get assigned tool ID, cannot subscribe to task topic")
+    logger.error("Failed to get assigned tool ID, cannot subscribe to task topic")
+    messager.mqtt_log(
+        "RAG Tool Service: Failed to get assigned tool ID, cannot subscribe to task topic",
+        level="error",
+    )
 
-print("RAG Tool Service is running. Press Ctrl+C to exit.")
+logger.info("RAG Tool Service is running. Press Ctrl+C to exit.")
+messager.mqtt_log("RAG Tool Service is running.")
 
 
 def shutdown(signum, frame):
-    print("Shutting down RAG Tool Service...")
+    logger.info("Shutting down RAG Tool Service...")
+    messager.mqtt_log("RAG Tool Service: Shutting down...")
 
     # Unregister the tool before disconnecting
     if assigned_tool_id:
-        print(f"Unregistering tool {kb_tool.name} (ID: {assigned_tool_id})...")
+        logger.info(f"Unregistering tool {kb_tool.name} (ID: {assigned_tool_id})...")
+        messager.mqtt_log(
+            f"RAG Tool Service: Unregistering tool {kb_tool.name} (ID: {assigned_tool_id})..."
+        )
         unregister_tool(assigned_tool_id, kb_tool.name)
         # Give a moment for the message to be sent
         time.sleep(0.5)
 
     messager.stop()
-    print("RAG Tool Service stopped.")
+    logger.info("RAG Tool Service stopped.")
+    messager.mqtt_log("RAG Tool Service stopped.")
     exit(0)
 
 
