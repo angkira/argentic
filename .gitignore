@@ -1,11 +1,9 @@
-# Environments
 .env
 .venv/
 env/
 venv/
 ENV/
 
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.pyc
 *.pyo
@@ -13,23 +11,19 @@ __pycache__/
 *.cpython-*
 *$py.class
 
-# Distribution / packaging
 build/
 dist/
 sdist/
 *.egg-info/
 *.egg
 
-# Databases - Keep if relevant to your project
 *.sqlite3
 *.db
 *.db-journal
 *_db/
 
-# Logs
 *.log
 
-# Test / Coverage Reports
 .coverage
 .coverage.*
 htmlcov/
@@ -37,13 +31,11 @@ htmlcov/
 nosetests.xml
 coverage.xml
 
-# Type Checking
 .mypy_cache/
 .pytype/
 .dmypy.json
 dmypy.json
 
-# OS generated files
 .DS_Store
 Thumbs.db
 
