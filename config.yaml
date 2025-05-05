@@ -20,26 +20,13 @@ llm:
     - 128
   use_chat: true
 
-embedding:
-  model_name: thenlper/gte-small
-  device: cuda
-  normalize: true
-
-vector_store:
-  directory: ./pc_knowledge_db
-  collection_name: local_info
-
-retriever:
-  k: 4
-  search_type: mmr
-  n_neighbors: 10
-  distance_metric: cosine
-  fetch_k: 20
+# RAG configuration is now in src/tools/RAG/rag_config.yaml
 
 mqtt:
   broker_address: localhost
   port: 1883
-  client_id: rag_agent_client
+  client_id: ai_agent_client
+  tool_client_id: ai_tool_service
   keepalive: 60
   subscriptions:
     agent/command/ask_question: handle_ask_question

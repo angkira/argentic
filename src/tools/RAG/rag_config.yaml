@@ -1,0 +1,43 @@
+# RAG Configuration File
+embedding:
+  model_name: thenlper/gte-small
+  device: cuda
+  normalize: true
+
+# Base configuration for vector stores
+vector_store:
+  base_directory: ./pc_knowledge_db
+  default_collection: local_info
+
+# Collection configurations - each can have its own retriever settings
+collections:
+  local_info:
+    # Collection-specific settings can override defaults
+    retriever:
+      k: 4
+      search_type: mmr
+      fetch_k: 20
+      distance_metric: cosine
+  
+  documentation:
+    # Different retrieval settings for documentation
+    retriever:
+      k: 6
+      search_type: mmr
+      fetch_k: 30
+      distance_metric: cosine
+  
+  code_examples:
+    retriever:
+      k: 5
+      search_type: similarity
+      fetch_k: 20
+      distance_metric: cosine
+
+# Default retriever settings (used if not specified for a collection)
+default_retriever:
+  k: 4
+  search_type: mmr
+  n_neighbors: 10
+  distance_metric: cosine
+  fetch_k: 20

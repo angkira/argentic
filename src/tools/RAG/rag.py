@@ -3,6 +3,7 @@ import time
 from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
 import chromadb
+from langchain.embeddings.base import Embeddings
 
 from core.messager import Messager
 
@@ -17,12 +18,14 @@ class RAGManager:
         db_client: chromadb.Client,
         retriever_k: int,
         messager: Messager,
+        embedding_function: Embeddings,
         default_collection_name: str = DEFAULT_COLLECTION_NAME,
     ):
         self.db_client = db_client
         self.retriever_k = retriever_k
         self.messager = messager
         self.default_collection_name = default_collection_name
+        self.embedding_function = embedding_function
 
         self.vectorstores: Dict[str, Chroma] = {}
         self.retrievers: Dict[str, Any] = {}
@@ -38,6 +41,7 @@ class RAGManager:
             vectorstore = Chroma(
                 client=self.db_client,
                 collection_name=collection_name,
+                embedding_function=self.embedding_function,
             )
             self.vectorstores[collection_name] = vectorstore
             self.retrievers[collection_name] = vectorstore.as_retriever(

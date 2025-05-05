@@ -17,11 +17,12 @@ class KBAction(str, Enum):
     REMIND = "remind"  # Retrieve information
     REMEMBER = "remember"  # Add information to the knowledge base
     FORGET = "forget"  # Remove information from the knowledge base
+    LIST_COLLECTIONS = "list_collections"  # List available collections
 
 
 class KnowledgeBaseInput(BaseModel):
     action: KBAction = Field(
-        description="The action to perform: remind (retrieve info), remember (add info), forget (remove info)."
+        description="The action to perform: remind (retrieve info), remember (add info), forget (remove info), list_collections (get available collections)."
     )
     query: Optional[str] = Field(
         None, description="The specific question or topic to search for when action is 'remind'."
@@ -44,6 +45,7 @@ class KnowledgeBaseInput(BaseModel):
             raise ValueError("'content_to_add' field is required when action is 'remember'")
         elif self.action == KBAction.FORGET and not self.where_filter:
             raise ValueError("'where_filter' field is required when action is 'forget'")
+        # LIST_COLLECTIONS action doesn't require any additional parameters
 
 
 # --- Helper Function --- (Moved from old implementation)
@@ -87,7 +89,8 @@ class KnowledgeBaseTool(BaseTool):
                 "Manages the knowledge base. "
                 "Use 'remind' to search for information relevant to a query. Specify the query and optionally a collection name. "
                 "Use 'remember' to add new information to the knowledge base. Provide content_to_add parameter with the text to store. "
-                "Use 'forget' to remove information from the knowledge base with a where_filter."
+                "Use 'forget' to remove information from the knowledge base with a where_filter. "
+                "Use 'list_collections' to get a list of all available collections."
             ),
             argument_schema=KnowledgeBaseInput,
             messager=messager,
@@ -181,6 +184,34 @@ class KnowledgeBaseTool(BaseTool):
             self.messager.mqtt_log(f"KB Tool 'forget' result: {result}")
             return result
 
+        elif action == KBAction.LIST_COLLECTIONS:
+            self.logger.info("Listing available collections")
+            try:
+                # Get available collections from RAGManager
+                collections = list(self.rag_manager.vectorstores.keys())
+                default_collection = self.rag_manager.default_collection_name
+
+                result = {
+                    "collections": collections,
+                    "default_collection": default_collection,
+                    "count": len(collections),
+                }
+
+                self.logger.info(f"Found {len(collections)} collections")
+                self.messager.mqtt_log(
+                    f"KB Tool 'list_collections' found {len(collections)} collections."
+                )
+                return result
+            except Exception as e:
+                error_msg = f"Error listing collections: {str(e)}"
+                self.logger.error(error_msg)
+                self.messager.mqtt_log(error_msg, level="error")
+                return {
+                    "collections": [],
+                    "default_collection": None,
+                    "error": error_msg,
+                    "count": 0,
+                }
         else:
             error_msg = f"Unsupported action: {action}"
             self.logger.error(error_msg)

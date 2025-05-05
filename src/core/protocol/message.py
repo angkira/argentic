@@ -121,7 +121,7 @@ class TaskMessage(BaseMessage):
     type: Literal[MessageType.TASK] = MessageType.TASK
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tool_id: str
-    arguments: Dict[str, Any]  # Arguments for the tool
+    payload: Any  # Generic payload field that can contain any data without strict validation
 
 
 class TaskResultMessage(BaseMessage):

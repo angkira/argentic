@@ -43,7 +43,7 @@ except yaml.YAMLError as e:
     exit(1)
 
 # Get log level from config or default to INFO
-log_level = parse_log_level(config.get("logging", {}).get("level", "info"))
+log_level = parse_log_level(config.get("logging", {}).get("level", "debug"))
 logger.info(f"Using log level: {log_level.name}")
 set_global_log_level(log_level)
 
@@ -51,15 +51,6 @@ llm_config = config["llm"]
 backend: str = llm_config.get("backend", "ollama")
 model_name: str = llm_config.get("model_name")
 use_chat: bool = llm_config.get("use_chat", False)
-
-EMBEDDING_MODEL_NAME: str = config["embedding"]["model_name"]
-EMBEDDING_DEVICE: str = config["embedding"]["device"]
-EMBEDDING_NORMALIZE: bool = config["embedding"]["normalize"]
-
-VECTORSTORE_DIR: str = config["vector_store"]["directory"]
-COLLECTION_NAME: str = config["vector_store"]["collection_name"]
-
-RETRIEVER_K: int = config["retriever"]["k"]
 
 MQTT_BROKER: str = config["mqtt"]["broker_address"]
 MQTT_PORT: int = config["mqtt"]["port"]
@@ -72,9 +63,6 @@ MQTT_PUB_LOG: str = config["mqtt"]["publish_topics"]["log"]
 MQTT_PUB_ERROR: str = config["mqtt"]["publish_topics"].get("error", "agent/status/error")
 
 OLLAMA_BASE_URL = llm_config.get("base_url", "http://localhost:11434")
-
-os.makedirs(VECTORSTORE_DIR, exist_ok=True)
-logger.info(f"Vector store persistence directory: '{os.path.abspath(VECTORSTORE_DIR)}'")
 
 ollama_monitor_stop_event = threading.Event()
 
@@ -211,8 +199,6 @@ def run_rag_agent():
             agent=agent,
             pub_status_topic=MQTT_PUB_STATUS,
             llm_model=model_name,
-            embedding_model=EMBEDDING_MODEL_NAME,
-            default_collection_name=COLLECTION_NAME,
             mqtt_broker=MQTT_BROKER,
             subscribed_topics=list(MQTT_SUBSCRIPTIONS.keys()),
             start_time=start_time,  # Pass start time for uptime calculation

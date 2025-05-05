@@ -4,6 +4,7 @@ import signal
 import json
 import traceback
 import threading
+import os
 from core.messager import Messager, MQTTMessage
 from tools.RAG.rag import RAGManager
 from tools.RAG.knowledge_base_tool import KnowledgeBaseTool, KnowledgeBaseInput
@@ -13,13 +14,14 @@ from core.protocol.message import (
     TaskMessage,
     TaskResultMessage,
     TaskStatus,
+    ToolRegisteredMessage,
+    MessageType,
 )
 import chromadb
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 
 # Load environment variables
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,21 +31,28 @@ logger = get_logger("rag_tool_service", LogLevel.INFO)
 
 HG_TOKEN = os.getenv("HG_TOKEN")
 
-# Load configuration
+# Load main configuration
 config = yaml.safe_load(open("config.yaml"))
 mqtt_cfg = config["mqtt"]
-vec_cfg = config["vector_store"]
-embed_cfg = config["embedding"]
-retr_cfg = config["retriever"]
+
+# Load dedicated RAG configuration
+rag_config_path = os.path.join("src", "tools", "RAG", "rag_config.yaml")
+rag_config = yaml.safe_load(open(rag_config_path))
+embed_cfg = rag_config["embedding"]
+vec_cfg = rag_config["vector_store"]
+default_retriever_cfg = rag_config["default_retriever"]
+collections_cfg = rag_config.get("collections", {})
 
 # Get log level from config or default to INFO
-log_level_str = config.get("logging", {}).get("level", "info")
+log_level_str = config.get("logging", {}).get("level", "debug")
 log_level = parse_log_level(log_level_str)
 logger.setLevel(log_level.value)
 
 logger.info("Configuration loaded successfully.")
 logger.info(f"MQTT Broker: {mqtt_cfg['broker_address']}, Port: {mqtt_cfg['port']}")
-logger.info(f"Vector Store Directory: {vec_cfg['directory']}")
+logger.info(f"Vector Store Directory: {vec_cfg['base_directory']}")
+logger.info(f"Default Collection: {vec_cfg['default_collection']}")
+logger.info(f"Available Collections: {', '.join(collections_cfg.keys())}")
 logger.info(f"Embedding Model: {embed_cfg['model_name']}, Device: {embed_cfg['device']}")
 logger.info(f"Log level: {log_level.name}")
 logger.info("Initializing messager and vector store...")
@@ -58,13 +67,12 @@ messager = Messager(
 )
 # Connect and start loop
 messager.connect(start_loop=True)
-messager.start_background_loop()
 logger.info("Messager connected and background loop started.")
 messager.mqtt_log("RAG Tool Service: Messager connected and background loop started.")
 
 # Initialize vectorstore and embedding
 try:
-    db_client = chromadb.PersistentClient(path=vec_cfg["directory"])
+    db_client = chromadb.PersistentClient(path=vec_cfg["base_directory"])
     logger.info("Chroma client initialized.")
     messager.mqtt_log("RAG Tool Service: Chroma client initialized.")
 
@@ -83,40 +91,33 @@ try:
     logger.info(f"Embedding model initialized: {embed_cfg['model_name']}")
     messager.mqtt_log(f"RAG Tool Service: Embedding model initialized: {embed_cfg['model_name']}")
 
-    logger.info("Initializing vector store...")
-    messager.mqtt_log("RAG Tool Service: Initializing vector store...")
-    vectorstore = Chroma(
-        client=db_client,
-        collection_name=vec_cfg["collection_name"],
-        embedding_function=embedding,
-        persist_directory=vec_cfg["directory"],
-    )
-    logger.info("Vector store initialized.")
-    messager.mqtt_log("RAG Tool Service: Vector store initialized.")
-
-    logger.info("Initializing retriever...")
-    messager.mqtt_log("RAG Tool Service: Initializing retriever...")
-    # Use simpler retriever initialization to avoid potential validation errors
-    retriever = vectorstore.as_retriever(
-        search_type=retr_cfg.get("search_type", "mmr"),
-        search_kwargs={
-            "k": retr_cfg["k"],
-            "fetch_k": retr_cfg.get("fetch_k", 20),
-        },
-    )
-    logger.info("Retriever initialized.")
-    messager.mqtt_log("RAG Tool Service: Retriever initialized.")
-
     logger.info("Initializing RAGManager...")
     messager.mqtt_log("RAG Tool Service: Initializing RAGManager...")
-    # Initialize RAGManager
+    # Initialize RAGManager with the default collection from config
     rag_manager = RAGManager(
         db_client=db_client,
-        retriever_k=retr_cfg["k"],
+        retriever_k=default_retriever_cfg["k"],
         messager=messager,
+        embedding_function=embedding,
+        default_collection_name=vec_cfg["default_collection"],
     )
-    logger.info("RAGManager initialized.")
-    messager.mqtt_log("RAG Tool Service: RAGManager initialized.")
+
+    # Initialize all collections defined in the config
+    for collection_name, collection_config in collections_cfg.items():
+        logger.info(f"Initializing collection: {collection_name}")
+        messager.mqtt_log(f"RAG Tool Service: Initializing collection: {collection_name}")
+
+        # Get collection-specific retriever settings or use defaults
+        retriever_cfg = collection_config.get("retriever", default_retriever_cfg)
+        retriever_k = retriever_cfg.get("k", default_retriever_cfg["k"])
+
+        # Get or create the collection
+        vectorstore = rag_manager.get_or_create_collection(collection_name)
+        logger.info(f"Collection {collection_name} initialized")
+        messager.mqtt_log(f"RAG Tool Service: Collection {collection_name} initialized")
+
+    logger.info("All RAG collections initialized.")
+    messager.mqtt_log("RAG Tool Service: All RAG collections initialized.")
 except Exception as e:
     logger.error(f"Error initializing components: {e}")
     logger.error(traceback.format_exc())
@@ -135,18 +136,32 @@ registration_complete = threading.Event()
 def handle_registration_confirmation(message: MQTTMessage):
     global assigned_tool_id
     try:
-        from core.protocol.message import ToolRegisteredMessage
-
         payload = json.loads(message.payload)
-        confirm_msg = ToolRegisteredMessage.model_validate(payload)
 
-        if confirm_msg.tool_name == kb_tool.name:
-            assigned_tool_id = confirm_msg.tool_id
-            logger.info(f"Received tool registration confirmation with ID: {assigned_tool_id}")
-            messager.mqtt_log(
-                f"RAG Tool Service: Received tool registration confirmation with ID: {assigned_tool_id}"
-            )
-            registration_complete.set()
+        # Check the message type
+        msg_type = payload.get("type")
+
+        if msg_type == MessageType.TOOL_REGISTERED:
+            # Handle registration confirmation
+            confirm_msg = ToolRegisteredMessage.model_validate(payload)
+
+            if confirm_msg.tool_name == kb_tool.name:
+                assigned_tool_id = confirm_msg.tool_id
+                logger.info(f"Received tool registration confirmation with ID: {assigned_tool_id}")
+                messager.mqtt_log(
+                    f"RAG Tool Service: Received tool registration confirmation with ID: {assigned_tool_id}"
+                )
+                registration_complete.set()
+        elif msg_type == "TOOL_UNREGISTERED":
+            # Handle unregistration confirmation - no validation needed
+            tool_name = payload.get("tool_name")
+            logger.info(f"Tool '{tool_name}' successfully unregistered")
+            messager.mqtt_log(f"RAG Tool Service: Tool '{tool_name}' successfully unregistered")
+            if tool_name == kb_tool.name:
+                assigned_tool_id = None
+        else:
+            logger.debug(f"Ignoring message with type: {msg_type}")
+
     except Exception as e:
         logger.error(f"Error processing registration confirmation: {e}")
         logger.error(traceback.format_exc())
@@ -191,6 +206,7 @@ def register_rag_tool():
 
 def handle_task_message(message: MQTTMessage):
     """Handle incoming task messages directly"""
+    logger.debug(f"Received raw message on task topic {message.topic}: {message.payload[:200]}...")
     try:
         # Parse incoming message
         payload = json.loads(message.payload)
@@ -202,12 +218,11 @@ def handle_task_message(message: MQTTMessage):
         )
 
         # Log task details at debug level
-        logger.debug(f"Task arguments: {task.arguments}")
+        logger.debug(f"Task payload: {task.payload}")
 
         # Parse arguments using the KnowledgeBaseInput schema
-        args = KnowledgeBaseInput.model_validate(task.arguments)
+        args = KnowledgeBaseInput.model_validate(task.payload)
 
-        # Execute the tool
         try:
             logger.info(f"Executing action '{args.action}' with query: '{args.query}'")
             messager.mqtt_log(

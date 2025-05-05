@@ -9,15 +9,15 @@ if [ -z "$1" ]; then
 fi
 
 if [ "$1" == "agent" ]; then
-    python src/main.py --start-agent
+    python src/main.py --start-agent $2
 
 elif [ "$1" == "llm" ]; then
-    python src/main.py --start-llm
+    python src/main.py --start-llm $2
 
 elif [ "$1" == "rag" ]; then
-    python src/services/rag_tool_service.py
+    python src/services/rag_tool_service.py $2
 elif [ "$1" == "cli" ]; then
-    python src/cli_client.py
+    python src/cli_client.py $2
 else
     echo "Unknown command: $1"
     echo "Usage: $0 [agent|llm|rag|cli]"

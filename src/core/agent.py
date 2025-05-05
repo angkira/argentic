@@ -83,7 +83,7 @@ ANSWER:"""
     def query(
         self, question: str, collection_name: Optional[str] = None, user_id: Optional[str] = None
     ) -> str:
-        max_tool_iterations = 3
+        max_tool_iterations = 10
         current_iteration = 0
         messages = []  # History for the LLM chat
         final_answer = None  # Variable to store the potential final answer
@@ -195,7 +195,23 @@ ANSWER:"""
                                 try:
                                     parsed_data = json.loads(fallback_str)
                                     potential_json = fallback_str
-                                except json.JSONDecodeError:
+                                    # *** ADDED LOGGING ***
+                                    self.logger.debug(
+                                        f"Successfully parsed fallback JSON: {parsed_data}"
+                                    )
+                                    self.messager.mqtt_log(
+                                        f"Agent Debug: Successfully parsed fallback JSON: {parsed_data}",
+                                        level="debug",
+                                    )
+                                except json.JSONDecodeError as json_err:
+                                    # *** ADDED LOGGING ***
+                                    self.logger.warning(
+                                        f"Failed to parse fallback JSON string ({fallback_str}): {json_err}"
+                                    )
+                                    self.messager.mqtt_log(
+                                        f"Agent Debug: Failed to parse fallback JSON string ({fallback_str}): {json_err}",
+                                        level="warning",
+                                    )
                                     parsed_data = None
 
                     # Process tool calls if found in JSON
