@@ -5,7 +5,7 @@ import traceback
 from typing import Any, Dict, Optional, List
 
 from core.messager.messager import Messager
-from core.agent import Agent
+from core.agent.agent import Agent
 from core.protocol.message import AskQuestionMessage, AnswerMessage, InfoMessage
 from core.logger import get_logger, LogLevel
 

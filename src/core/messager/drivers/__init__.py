@@ -4,6 +4,7 @@ import importlib
 
 from pydantic import BaseModel, Field
 from core.messager.protocols import MessagerProtocol
+from core.protocol.message import BaseMessage
 
 
 # Configuration for any driver
@@ -13,6 +14,9 @@ class DriverConfig(BaseModel):
     user: Optional[str] = Field(None, description="Username for auth")
     password: Optional[str] = Field(None, description="Password for auth")
     token: Optional[str] = Field(None, description="Token for auth, if applicable")
+
+
+MessageHandler = Callable[[BaseMessage], Coroutine[Any, Any, None]]
 
 
 # Base interface for drivers
@@ -31,12 +35,12 @@ class BaseDriver(ABC):
         ...
 
     @abstractmethod
-    async def publish(self, topic: str, payload: Any, **kwargs) -> None:
+    async def publish(self, topic: str, payload: BaseMessage, **kwargs) -> None:
         """Publish a message"""
         ...
 
     @abstractmethod
-    async def subscribe(self, topic: str, handler: Callable[[Any], Coroutine], **kwargs) -> None:
+    async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
         """Subscribe and assign a handler"""
         ...
 

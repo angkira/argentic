@@ -1,9 +1,7 @@
-from core.messager.drivers import BaseDriver, DriverConfig
+from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
 from core.protocol.message import BaseMessage, from_payload
 
-
-import json
-from typing import Any, Callable, Coroutine, Optional
+from typing import Optional
 import aio_pika
 
 
@@ -22,17 +20,15 @@ class RabbitMQDriver(BaseDriver):
         if self._connection:
             await self._connection.close()
 
-    async def publish(self, topic: str, payload: Any, **kwargs) -> None:
+    async def publish(self, topic: str, payload: BaseMessage, **kwargs) -> None:
         exchange = await self._channel.declare_exchange(topic, aio_pika.ExchangeType.FANOUT)
         # Handle BaseMessage serialization
-        if isinstance(payload, BaseMessage):
-            body = payload.model_dump_json().encode()
-        else:
-            body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        body = payload.model_dump_json().encode()
+
         message = aio_pika.Message(body=body)
         await exchange.publish(message, routing_key="")
 
-    async def subscribe(self, topic: str, handler: Callable[[Any], Coroutine], **kwargs) -> None:
+    async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
         exchange = await self._channel.declare_exchange(topic, aio_pika.ExchangeType.FANOUT)
         queue = await self._channel.declare_queue(exclusive=True)
         await queue.bind(exchange)

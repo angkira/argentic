@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 # Core components
 from core.messager.messager import Messager
-from core.agent import Agent  # Agent might hold status info
+from core.agent.agent import Agent  # Agent might hold status info
 from core.logger import get_logger, LogLevel
 
 # Import the specific Pydantic message types

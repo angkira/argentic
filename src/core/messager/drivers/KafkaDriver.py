@@ -1,11 +1,10 @@
-from core.messager.drivers import BaseDriver, DriverConfig
+from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
 from core.protocol.message import BaseMessage, from_payload
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from typing import Optional
 
 import asyncio
-import json
-from typing import Any, Callable, Coroutine, Dict
+from typing import Dict
 
 
 class KafkaDriver(BaseDriver):
@@ -26,15 +25,13 @@ class KafkaDriver(BaseDriver):
         if self._consumer:
             await self._consumer.stop()
 
-    async def publish(self, topic: str, payload: Any, **kwargs) -> None:
+    async def publish(self, topic: str, payload: BaseMessage, **kwargs) -> None:
         # Handle BaseMessage serialization
-        if isinstance(payload, BaseMessage):
-            data = payload.model_dump_json().encode()
-        else:
-            data = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        data = payload.model_dump_json().encode()
+
         await self._producer.send_and_wait(topic, data)
 
-    async def subscribe(self, topic: str, handler: Callable[[Any], Coroutine], **kwargs) -> None:
+    async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
         servers = f"{self.config.url}:{self.config.port}"
         self._consumer = AIOKafkaConsumer(
             topic, bootstrap_servers=servers, group_id=kwargs.get("group_id")

@@ -1,15 +1,12 @@
 import time
-from typing import Callable, Dict, Optional, Union, Coroutine, Any
+from typing import Dict, Optional, Union, Any
 import ssl
 
-from core.messager.drivers import create_driver, DriverConfig
+from core.messager.drivers import create_driver, DriverConfig, MessageHandler
 
 from core.logger import get_logger, LogLevel, parse_log_level
 from core.messager.protocols import MessagerProtocol
 from core.protocol.message import BaseMessage
-
-# Define MessageHandler type hint
-MessageHandler = Callable[[Any], Coroutine[Any, Any, None]]
 
 
 class Messager:
@@ -94,7 +91,7 @@ class Messager:
         await self._driver.disconnect()
 
     async def publish(
-        self, topic: str, payload: Union[str, bytes, Dict, list], qos: int = 0, retain: bool = False
+        self, topic: str, payload: BaseMessage, qos: int = 0, retain: bool = False
     ) -> None:
         """Publishes a message via driver"""
         await self._driver.publish(topic, payload, qos=qos, retain=retain)
@@ -102,7 +99,7 @@ class Messager:
     async def subscribe(
         self,
         topic: str,
-        handler: Callable[[BaseMessage], Coroutine],
+        handler: MessageHandler,
         qos: int = 0,
         is_reconnect: bool = False,
     ) -> None:
