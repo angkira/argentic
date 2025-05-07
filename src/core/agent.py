@@ -1,21 +1,19 @@
-import time
+import asyncio
 import re
 import json
 import traceback
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, Tuple, Dict
 
 from langchain.prompts import PromptTemplate
-from langchain.docstore.document import Document
 
+# Assuming Messager and ToolManager are updated for asyncio
 from core.messager import Messager
-from core.llm import LlamaServerLLM
 from core.tool_manager import ToolManager
 from core.logger import get_logger, LogLevel, parse_log_level
-from core.protocol.task_protocol import TaskResultMessage  # Import for type hint
 
 
 class Agent:
-    """Manages interaction with LLM and ToolManager."""
+    """Manages interaction with LLM and ToolManager (Async Version)."""
 
     def __init__(
         self, llm: Any, messager: Messager, log_level: Union[str, LogLevel] = LogLevel.INFO
@@ -23,7 +21,6 @@ class Agent:
         self.llm = llm
         self.messager = messager
 
-        # Set up logger
         if isinstance(log_level, str):
             self.log_level = parse_log_level(log_level)
         else:
@@ -31,12 +28,12 @@ class Agent:
 
         self.logger = get_logger("agent", self.log_level)
 
-        # ToolManager now handles MQTT communication for tools
+        # Initialize the async ToolManager
         self.tool_manager = ToolManager(messager, log_level=self.log_level)
         self.prompt_template = self._build_prompt_template()
+        self.max_tool_iterations = 10
 
-        self.logger.info("Agent initialized (uses ToolManager with MQTT tools)")
-        self.messager.mqtt_log("Agent initialized (uses ToolManager with MQTT tools)")
+        self.logger.info("Agent initialized (Async Version)")
 
     def _build_prompt_template(self) -> PromptTemplate:
         # Updated prompt to explain how tool results are provided
@@ -45,6 +42,7 @@ Do not apologize or state that you lack information.
 
 If you need to use tools to answer the question, respond ONLY with a JSON object containing a 'tool_calls' list. Each item must include 'tool_id' and 'arguments'. Example:
 {{"tool_calls": [{{"tool_id": "knowledge_base_tool", "arguments": {{"action": "remind", "query": "user's question here"}}}}]}}
+
 Do not add any other text before or after the JSON.
 
 After requesting a tool call, you will receive the tool's output as subsequent assistant messages (with the tool name). Use these outputs to formulate your final answer. If needed, you may invoke tools multiple times or answer directly based on your knowledge.
@@ -80,394 +78,381 @@ ANSWER:"""
         # Update tool manager log level
         self.tool_manager.set_log_level(self.log_level)
 
-    def query(
+    # --- Methods updated for async logging ---
+
+    async def _clean_and_extract_json_str(self, text: str) -> Optional[str]:  # Made async
+        """Strips markdown fences and extracts the first potential JSON string."""
+        cleaned = text.strip()
+        if "```" in cleaned:
+            code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+            code_blocks = re.findall(code_block_pattern, cleaned)
+            if code_blocks:
+                cleaned = code_blocks[0].strip()
+            else:
+                cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+
+        if not (cleaned.startswith("{") and cleaned.endswith("}")):
+            match = re.search(r"\{[\s\S]*\}", text)
+            if match:
+                cleaned = match.group(0)
+                self.logger.debug(f"Extracted potential JSON using regex fallback: {cleaned}")
+                # Use await for messager.log
+                await self.messager.log(
+                    f"Agent Debug: Extracted potential JSON using regex fallback: {cleaned}",
+                    level="debug",
+                )
+
+        return cleaned
+
+    async def _parse_json_tool_call(self, json_str: str) -> Optional[Dict[str, Any]]:  # Made async
+        """Attempts to parse a string as JSON, specifically looking for tool calls."""
+        try:
+            parsed_data = json.loads(json_str)
+            if isinstance(parsed_data, dict) and "tool_calls" in parsed_data:
+                if isinstance(parsed_data["tool_calls"], list):
+                    return parsed_data
+                else:
+                    self.logger.warning(
+                        f"Parsed JSON has 'tool_calls' but it's not a list: {parsed_data}"
+                    )
+                    # Use await for messager.log
+                    await self.messager.log(
+                        f"Agent Warning: Parsed JSON has 'tool_calls' but it's not a list: {parsed_data}",
+                        level="warning",
+                    )
+                    return None
+            return None
+        except json.JSONDecodeError:
+            fixed_json_str = None
+            stripped_json = json_str.strip()
+
+            if '"tool_calls": [' in stripped_json and not stripped_json.endswith("]}"):
+                if stripped_json.endswith("}"):
+                    try:
+                        fixed_json_str = stripped_json + "]}"
+                        parsed_data = json.loads(fixed_json_str)
+                        if (
+                            isinstance(parsed_data, dict)
+                            and "tool_calls" in parsed_data
+                            and isinstance(parsed_data["tool_calls"], list)
+                        ):
+                            self.logger.debug(
+                                f"Fixed and parsed JSON by adding closing '}}]': {fixed_json_str}"
+                            )
+                            # Use await for messager.log
+                            await self.messager.log(
+                                f"Agent Debug: Fixed and parsed JSON by adding closing '}}]': {fixed_json_str}",
+                                level="debug",
+                            )
+                            return parsed_data
+                    except json.JSONDecodeError:
+                        fixed_json_str = None
+
+            if (
+                fixed_json_str is None
+                and stripped_json.startswith("{")
+                and not stripped_json.endswith("}")
+            ):
+                try:
+                    fixed_json_str = stripped_json + "}"
+                    parsed_data = json.loads(fixed_json_str)
+                    if (
+                        isinstance(parsed_data, dict)
+                        and "tool_calls" in parsed_data
+                        and isinstance(parsed_data["tool_calls"], list)
+                    ):
+                        self.logger.debug(
+                            f"Fixed and parsed JSON by adding closing bracket: {fixed_json_str}"
+                        )
+                        # Use await for messager.log
+                        await self.messager.log(
+                            f"Agent Debug: Fixed and parsed JSON by adding closing bracket: {fixed_json_str}",
+                            level="debug",
+                        )
+                        return parsed_data
+                except json.JSONDecodeError:
+                    pass
+
+            self.logger.debug(
+                f"Could not parse JSON string even after attempting fixes: {json_str[:100]}..."
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error parsing JSON string '{json_str[:100]}...': {e}")
+            # Use await for messager.log
+            await self.messager.log(
+                f"Agent Error: Unexpected error parsing JSON string '{json_str[:100]}...': {e}",
+                level="error",
+            )
+            return None
+
+    async def _call_llm(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Calls the appropriate LLM method (Potentially Async)."""
+        # This method already handles async/sync LLM calls correctly
+        if hasattr(self.llm, "achat"):
+            self.logger.debug("Using async LLM chat method")
+            # Assuming achat returns a string or object convertible to string
+            result = await self.llm.achat(messages, **kwargs)
+            return str(result)
+        elif hasattr(self.llm, "chat"):
+            self.logger.debug("Using sync LLM chat method in executor")
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, self.llm.chat, messages, **kwargs)
+            return str(result)
+        elif hasattr(self.llm, "ainvoke"):
+            self.logger.debug("Using async LLM invoke method")
+            prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages])
+            result = await self.llm.ainvoke(prompt, **kwargs)
+            return str(result)
+        else:
+            self.logger.debug("Using sync LLM call method in executor")
+            combined_prompt = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in messages])
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, self.llm, combined_prompt, **kwargs)
+            return str(result)
+
+    async def _execute_tool_calls(
+        self, tool_calls: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, str]], bool]:
+        """Executes tool calls concurrently and returns results (Async Version)."""
+        # This method already uses asyncio.gather correctly
+        tool_results_for_history = []
+        tasks = []
+        call_info = []
+
+        for call in tool_calls:
+            tool_name = call.get("tool_name") or call.get("tool_id")
+            arguments = call.get("arguments")
+
+            if tool_name and isinstance(arguments, dict):
+                self.logger.info(f"Scheduling tool '{tool_name}' with args: {arguments}")
+                tasks.append(
+                    asyncio.create_task(self.tool_manager.execute_tool(tool_name, arguments))
+                )
+                call_info.append({"name": tool_name})
+            else:
+                self.logger.warning(f"Invalid tool call structure: {call}")
+                tool_results_for_history.append(
+                    {
+                        "role": "tool",
+                        "name": "invalid_call",
+                        "content": f"ERROR: Invalid tool call format received: {call}",
+                    }
+                )
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            has_error = False
+            for i, result in enumerate(results):
+                tool_name = call_info[i]["name"]
+                if isinstance(result, Exception):
+                    has_error = True
+                    error_msg = f"Error executing tool '{tool_name}': {result}"
+                    self.logger.error(error_msg)
+                    tool_results_for_history.append(
+                        {"role": "tool", "name": tool_name, "content": f"ERROR: {error_msg}"}
+                    )
+                elif isinstance(result, dict) and result.get("status") == "timeout":
+                    has_error = True
+                    error_msg = result.get("error", f"Tool '{tool_name}' timed out.")
+                    self.logger.warning(f"Tool '{tool_name}' timed out.")
+                    tool_results_for_history.append(
+                        {"role": "tool", "name": tool_name, "content": f"TIMEOUT: {error_msg}"}
+                    )
+                elif isinstance(result, dict) and "error" in result:
+                    has_error = True
+                    error_msg = result.get("error", f"Unknown error in tool '{tool_name}'.")
+                    self.logger.error(f"Error result from tool '{tool_name}': {error_msg}")
+                    tool_results_for_history.append(
+                        {"role": "tool", "name": tool_name, "content": f"ERROR: {error_msg}"}
+                    )
+                else:
+                    result_str = json.dumps(result)
+                    self.logger.info(
+                        f"Received result from tool '{tool_name}': {result_str[:100]}..."
+                    )
+                    tool_results_for_history.append(
+                        {"role": "tool", "name": tool_name, "content": result_str}
+                    )
+        else:
+            has_error = bool(tool_results_for_history)
+
+        return tool_results_for_history, has_error
+
+    async def _is_tool_call_response(self, text: str) -> bool:  # Made async
+        """Checks if the text is likely a tool call JSON, even if not perfectly parsable."""
+        # Use await for calls to async methods
+        json_str = await self._clean_and_extract_json_str(text)
+        if json_str:
+            parsed = await self._parse_json_tool_call(json_str)
+            if parsed is not None:
+                return True
+
+            if "tool_calls" in json_str and ("arguments" in json_str or "tool_id" in json_str):
+                if json_str.strip().startswith("{") and json_str.strip().endswith("}"):
+                    self.logger.warning("Response looks like a tool call JSON but failed parsing.")
+                    # Use await for messager.log
+                    await self.messager.log(
+                        "Agent Warning: Response looks like a tool call JSON but failed parsing.",
+                        level="warning",
+                    )
+                    return True
+        return False
+
+    async def query(
         self, question: str, collection_name: Optional[str] = None, user_id: Optional[str] = None
     ) -> str:
-        max_tool_iterations = 10
+        """Processes a user query, potentially using tools via async execution."""
         current_iteration = 0
-        messages = []  # History for the LLM chat
-        final_answer = None  # Variable to store the potential final answer
+        messages = []
+        final_answer = None
 
         try:
-            # Get tool descriptions in the new format
             tool_descriptions = self.tool_manager.generate_tool_descriptions_for_prompt()
-
-            # Grammar generation might need adjustment for the new tool structure
-            grammar = None
-
             initial_prompt_text = self.raw_template.format(
                 tool_descriptions=tool_descriptions, question=question
             )
             messages = [{"role": "user", "content": initial_prompt_text}]
 
-            while current_iteration < max_tool_iterations:
+            while current_iteration < self.max_tool_iterations:
                 current_iteration += 1
                 self.logger.info(
-                    f"Query Iteration: {current_iteration}/{max_tool_iterations}, User: {user_id or 'anonymous'}"
-                )
-                self.messager.mqtt_log(
-                    f"Agent Query Iteration: {current_iteration}/{max_tool_iterations}, User: {user_id}"
+                    f"Query Iteration: {current_iteration}/{self.max_tool_iterations}..."
                 )
 
+                grammar = None
                 llm_kwargs = {}
                 if grammar:
                     llm_kwargs["grammar"] = grammar
 
-                if hasattr(self.llm, "chat"):
-                    response_text = self.llm.chat(messages, **llm_kwargs)
-                else:
-                    combined_prompt = "\n".join(
-                        [f"{m['role'].upper()}: {m['content']}" for m in messages]
-                    )
-                    response_text = self.llm(combined_prompt, **llm_kwargs)
-
-                # Record the raw assistant response
+                response_text = await self._call_llm(messages, **llm_kwargs)
                 messages.append({"role": "assistant", "content": response_text})
                 self.logger.debug(
-                    f"LLM response (Iteration {current_iteration}): {response_text[:100]}..."
-                )
-                self.messager.mqtt_log(
-                    f"Agent received LLM response (Iteration {current_iteration}): {response_text[:100]}...",
-                    level="debug",
+                    f"LLM response (Iter {current_iteration}): {response_text[:100]}..."
                 )
 
-                # Extract JSON block by stripping markdown code fences if present
-                cleaned = response_text.strip()
-                if "```" in cleaned:
-                    code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
-                    code_blocks = re.findall(code_block_pattern, cleaned)
-                    if code_blocks:
-                        # Take the first JSON code block
-                        cleaned = code_blocks[0].strip()
-                    else:
-                        # Fallback: basic replace if regex didn't match
-                        cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+                # Use await for calls to async methods
+                potential_json_str = await self._clean_and_extract_json_str(response_text)
+                parsed_tool_call = None
+                if potential_json_str:
+                    parsed_tool_call = await self._parse_json_tool_call(potential_json_str)
 
-                potential_json = cleaned
-                self.logger.debug(f"Potential JSON for parsing: {potential_json!r}")
-                self.messager.mqtt_log(
-                    f"Agent Debug: potential_json for JSON parsing: {potential_json!r}",
-                    level="debug",
-                )
+                if parsed_tool_call:
+                    tool_calls = parsed_tool_call.get("tool_calls")
+                    if tool_calls:
+                        self.logger.info(f"LLM decided to use tools: {json.dumps(tool_calls)}")
+                        tool_results, has_error = await self._execute_tool_calls(tool_calls)
 
-                try:
-                    # Use extracted JSON for parsing tool_calls, with fallback when fences removal yields bad JSON
-                    is_tool_call_json = False
-                    self.logger.debug("Attempting JSON load on potential_json...")
-                    self.messager.mqtt_log(
-                        "Agent Debug: Attempting JSON load on potential_json...", level="debug"
-                    )
-                    parsed_data = None
-
-                    # First, try direct load
-                    try:
-                        parsed_data = json.loads(potential_json)
-                    except json.JSONDecodeError:
-                        # Fallback 1: Fix common JSON issues like missing closing brackets
-                        fixed_json = None
-                        if potential_json.strip().startswith(
-                            "{"
-                        ) and not potential_json.strip().endswith("}"):
-                            # Try adding the missing closing bracket
-                            try:
-                                fixed_json = potential_json.strip() + "}"
-                                parsed_data = json.loads(fixed_json)
-                                self.logger.debug(
-                                    f"Fixed JSON by adding closing bracket: {fixed_json}"
-                                )
-                                self.messager.mqtt_log(
-                                    f"Agent Debug: Fixed JSON by adding closing bracket: {fixed_json}",
-                                    level="debug",
-                                )
-                            except json.JSONDecodeError:
-                                fixed_json = None
-
-                        # Fallback 2: extract first JSON object in original response_text
-                        if fixed_json is None:
-                            fallback_match = re.search(r"\{[\s\S]*\}", response_text)
-                            if fallback_match:
-                                fallback_str = fallback_match.group(0)
-                                self.logger.debug(f"Fallback JSON extracted: {fallback_str}")
-                                self.messager.mqtt_log(
-                                    f"Agent Debug: Fallback JSON extracted: {fallback_str}",
-                                    level="debug",
-                                )
-                                try:
-                                    parsed_data = json.loads(fallback_str)
-                                    potential_json = fallback_str
-                                    # *** ADDED LOGGING ***
-                                    self.logger.debug(
-                                        f"Successfully parsed fallback JSON: {parsed_data}"
-                                    )
-                                    self.messager.mqtt_log(
-                                        f"Agent Debug: Successfully parsed fallback JSON: {parsed_data}",
-                                        level="debug",
-                                    )
-                                except json.JSONDecodeError as json_err:
-                                    # *** ADDED LOGGING ***
-                                    self.logger.warning(
-                                        f"Failed to parse fallback JSON string ({fallback_str}): {json_err}"
-                                    )
-                                    self.messager.mqtt_log(
-                                        f"Agent Debug: Failed to parse fallback JSON string ({fallback_str}): {json_err}",
-                                        level="warning",
-                                    )
-                                    parsed_data = None
-
-                    # Process tool calls if found in JSON
-                    if parsed_data and isinstance(parsed_data, dict):
-                        response_data = parsed_data
-                        tool_calls = response_data.get("tool_calls")
-                        self.logger.debug(f"Parsed response_data: {response_data}")
-                        self.messager.mqtt_log(
-                            f"Agent Debug: Parsed response_data: {response_data}", level="debug"
-                        )
-
-                        # If LLM requested tool calls, execute them
-                        if isinstance(tool_calls, list) and tool_calls:
-                            is_tool_call_json = True
-                            self.logger.info(f"LLM decided to use tools: {json.dumps(tool_calls)}")
-                            self.messager.mqtt_log(
-                                f"Reasoning: LLM decided to use tools: {json.dumps(tool_calls)}",
-                                level="info",
+                        if tool_results:
+                            messages.extend(tool_results)
+                            self.logger.info(
+                                f"Appended {len(tool_results)} tool result(s) to history"
                             )
 
-                            # Execute each tool call and collect results
-                            tool_results_for_history = []
-                            has_error = False
-
-                            for call in tool_calls:
-                                tool_id = call.get("tool_id")
-                                arguments = call.get("arguments")
-                                if tool_id and isinstance(arguments, dict):
-                                    self.logger.info(
-                                        f"Executing tool '{tool_id}' with args: {arguments}"
-                                    )
-                                    self.messager.mqtt_log(
-                                        f"Agent: Executing tool '{tool_id}' with args: {arguments}"
-                                    )
-                                    try:
-                                        tool_result = self.tool_manager.execute_tool(
-                                            tool_id, arguments
-                                        )
-                                        self.logger.info(
-                                            f"Received result from tool '{tool_id}': {str(tool_result)[:100]}..."
-                                        )
-                                        self.messager.mqtt_log(
-                                            f"Agent: Received result from tool '{tool_id}': {str(tool_result)[:100]}..."
-                                        )
-                                        # Tag the message as coming from the tool
-                                        tool_results_for_history.append(
-                                            {
-                                                "role": "tool",
-                                                "name": tool_id,
-                                                "content": str(tool_result),
-                                            }
-                                        )
-                                    except Exception as e:
-                                        has_error = True
-                                        error_msg = f"Error executing tool '{tool_id}': {e}"
-                                        self.logger.error(error_msg)
-                                        self.messager.mqtt_log(error_msg, level="error")
-                                        # Add error as tool result so LLM knows about the failure
-                                        tool_results_for_history.append(
-                                            {
-                                                "role": "tool",
-                                                "name": tool_id,
-                                                "content": f"ERROR: {error_msg}",
-                                            }
-                                        )
-                                else:
-                                    has_error = True
-                                    self.logger.warning(f"Invalid tool call structure: {call}")
-                                    self.messager.mqtt_log(
-                                        f"Agent: Invalid tool call structure: {call}",
-                                        level="warning",
-                                    )
-
-                            # Add tool results to the message history
-                            if tool_results_for_history:
-                                messages.extend(tool_results_for_history)
-                                self.logger.info(
-                                    f"Appended {len(tool_results_for_history)} tool result(s) to history"
-                                )
-                                self.messager.mqtt_log(
-                                    f"Agent: Appended {len(tool_results_for_history)} tool result(s) to history."
-                                )
-
-                                # If we had errors, add a message to help guide the LLM
-                                if has_error:
-                                    messages.append(
-                                        {
-                                            "role": "user",
-                                            "content": "Some tools encountered errors. Please provide the best answer you can based on any successful results and your own knowledge.",
-                                        }
-                                    )
-
-                                # Continue the loop to let the LLM process the tool results
-                                continue
-
-                    # If we reach here, either no tool calls were found or they weren't processed
-                    # Check if the response is a tool call JSON (without valid tool info)
-                    # This handles the case where the format is correct but tool details are wrong
-                    if (
-                        parsed_data
-                        and isinstance(parsed_data, dict)
-                        and "tool_calls" in parsed_data
-                    ):
+                        if has_error:
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": "Some tools encountered errors, timed out, or were invalid. Please provide the best answer you can based on any successful results and your own knowledge.",
+                                }
+                            )
+                        continue
+                    else:
                         self.logger.warning(
-                            "Found tool_calls but couldn't process them. Will try another iteration."
+                            "Parsed JSON had 'tool_calls' key but content was invalid/empty."
                         )
-                        self.messager.mqtt_log(
-                            "Agent: Found tool_calls but couldn't process them. Will try another iteration.",
-                            level="warning",
-                        )
-                        # Add a clarification message for the LLM
                         messages.append(
                             {
                                 "role": "user",
-                                "content": "I couldn't process the tool calls. Please provide a complete answer to the original question without using tools.",
+                                "content": "The tool call format was unclear. Please provide a complete answer to the original question without using tools, or try formatting the tool call correctly.",
                             }
                         )
                         continue
-
-                    # Not a tool call JSON or already processed, treat as final answer
-                    self.logger.info("LLM response is not a tool call. Treating as final answer")
-                    self.messager.mqtt_log(
-                        "Agent: LLM response is not a tool call. Treating as final answer."
+                else:
+                    self.logger.info(
+                        "LLM response is not a valid tool call JSON. Treating as final answer."
                     )
                     final_answer = response_text
-                    break  # Exit the loop, we have the answer
+                    break
 
-                except json.JSONDecodeError:
-                    self.logger.info("LLM response is not valid JSON. Treating as final answer")
-                    self.messager.mqtt_log(
-                        "Agent: LLM response is not valid JSON. Treating as final answer."
+            if final_answer is None and current_iteration >= self.max_tool_iterations:
+                self.logger.warning(
+                    f"Reached max iterations ({self.max_tool_iterations}). Asking LLM for final summary."
+                )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Please provide the best possible answer based on our conversation so far.",
+                    }
+                )
+                final_answer = await self._call_llm(messages)
+
+            # Use await for call to async method
+            if final_answer and await self._is_tool_call_response(final_answer):
+                self.logger.warning(
+                    "Final answer candidate is still a tool call. Getting a proper answer."
+                )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Please provide a complete answer to the original question based on your knowledge and any tool results, not another tool call.",
+                    }
+                )
+                final_answer = await self._call_llm(messages)
+
+                # Use await for call to async method
+                if await self._is_tool_call_response(final_answer):
+                    self.logger.error(
+                        "CRITICAL: Final answer is STILL a tool call after explicit request!"
                     )
-                    final_answer = response_text
-                    break  # Exit the loop
-                except Exception as e:
-                    self.logger.error(f"Error parsing LLM response or executing tool: {e}")
-                    self.logger.debug(traceback.format_exc())
-                    self.messager.mqtt_log(
-                        f"Agent: Error parsing LLM response or executing tool: {e}", level="error"
+                    # Use await for messager.log
+                    await self.messager.log(
+                        "Agent CRITICAL: Final answer is STILL a tool call after explicit request!",
+                        level="critical",
                     )
-                    final_answer = f"Error processing response: {e}"
-                    break  # Exit the loop on error
+                    return "I apologize, but I encountered difficulty in formulating a final response. Please try rephrasing your question."
 
-            # --- Loop finished (either by break or max iterations) ---
-
-            if final_answer is not None:
-                # Cleanup the final answer, ensuring it's not a raw tool call JSON
-                # Check if what we have is still a tool call message
-                try:
-                    potential_json = final_answer.strip()
-                    if "```" in potential_json:
-                        # Handle ```json blocks
-                        code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
-                        code_blocks = re.findall(code_block_pattern, potential_json)
-                        if code_blocks:
-                            potential_json = code_blocks[0].strip()
-                        else:
-                            potential_json = (
-                                potential_json.replace("```json", "").replace("```", "").strip()
-                            )
-
-                    parsed = json.loads(potential_json)
-                    if isinstance(parsed, dict) and "tool_calls" in parsed:
-                        # It's still a tool call JSON, this shouldn't be our final answer
-                        self.logger.warning(
-                            "Final answer is still a tool call JSON. Getting a proper answer."
-                        )
-                        self.messager.mqtt_log(
-                            "Agent: Final answer is still a tool call JSON. Getting a proper answer.",
-                            level="warning",
-                        )
-                        # Add one more message asking for a proper answer
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": "Please provide a complete answer to the original question based on your knowledge and any tool results, not another tool call.",
-                            }
-                        )
-
-                        # Get one more response
-                        if hasattr(self.llm, "chat"):
-                            final_answer = self.llm.chat(messages)
-                        else:
-                            combined_prompt = "\n".join(
-                                [f"{m['role'].upper()}: {m['content']}" for m in messages]
-                            )
-                            final_answer = self.llm(combined_prompt)
-                except (json.JSONDecodeError, Exception):
-                    # Not JSON or error parsing, which is fine
-                    pass
-
-            # Final safety check - NEVER return a tool call JSON to the user
-            final_result = final_answer
-            try:
-                # Check if the final answer still looks like a tool call
-                if isinstance(final_result, str):
-                    # Try to identify tool call JSON in the final result
-                    if "tool_calls" in final_result and (
-                        "arguments" in final_result or "tool_id" in final_result
-                    ):
-                        is_still_tool_call = False
-
-                        # Try to parse as JSON first
-                        try:
-                            # Clean up any markdown formatting
-                            cleaned = final_result.strip()
-                            if "```" in cleaned:
-                                code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
-                                code_blocks = re.findall(code_block_pattern, cleaned)
-                                if code_blocks:
-                                    cleaned = code_blocks[0].strip()
-                                else:
-                                    cleaned = (
-                                        cleaned.replace("```json", "").replace("```", "").strip()
-                                    )
-
-                            parsed = json.loads(cleaned)
-                            if isinstance(parsed, dict) and "tool_calls" in parsed:
-                                is_still_tool_call = True
-                                self.logger.error(
-                                    "CRITICAL: Final answer is still a tool call JSON in final safety check!"
-                                )
-                                self.messager.mqtt_log(
-                                    "CRITICAL: Final answer is still a tool call JSON in final safety check!",
-                                    level="error",
-                                )
-                        except Exception:
-                            # If we can't parse as JSON but has the keywords, be cautious
-                            if (
-                                final_result.strip().startswith("{")
-                                and final_result.strip().endswith("}")
-                                and "tool_calls" in final_result
-                            ):
-                                is_still_tool_call = True
-                                self.logger.error(
-                                    "CRITICAL: Final answer appears to be a tool call JSON (not parseable but has format)!"
-                                )
-                                self.messager.mqtt_log(
-                                    "CRITICAL: Final answer appears to be a tool call JSON (not parseable but has format)!",
-                                    level="error",
-                                )
-
-                        # If it still looks like a tool call, return a safe fallback instead
-                        if is_still_tool_call:
-                            final_result = "I'm sorry, but I couldn't retrieve the information needed to answer your question properly. Please try asking in a different way or ask another question."
-            except Exception as e:
-                self.logger.error(f"Error in final safety check: {e}")
-                self.messager.mqtt_log(f"Error in final safety check: {e}", level="error")
-                # If anything goes wrong in the safety check, don't change the answer
-                pass
-
-            return final_result
+            return final_answer if final_answer is not None else "I could not determine an answer."
 
         except Exception as e:
             err_msg = f"Unhandled error processing query for user '{user_id or 'N/A'}': {e}"
             self.logger.error(err_msg)
-            self.logger.error(traceback.format_exc())  # Log full traceback
-            self.messager.mqtt_log(err_msg, level="error")
+            self.logger.error(traceback.format_exc())
+            # Use await for messager.log
+            await self.messager.log(f"Agent Error: {err_msg}", level="error")
             return f"Sorry, an error occurred while processing your question: {e}"
+
+    async def handle_ask_question(self, message):
+        """
+        MQTT handler for incoming questions.
+        - message: the parsed AskQuestionMessage or dict
+        """
+        try:
+            # Support both dict and Pydantic model
+            if hasattr(message, "question"):
+                question = message.question
+                user_id = getattr(message, "user_id", None)
+                source = getattr(message, "source", None)
+            elif isinstance(message, dict):
+                question = message.get("question")
+                user_id = message.get("user_id")
+                source = message.get("source")
+            else:
+                self.logger.error(f"Unknown message type: {type(message)}")
+                return
+
+            if not question:
+                self.logger.error("Received ask_question message without a question field.")
+                return
+
+            self.logger.info(f"Received question from {user_id or source}: {question}")
+
+            answer = await self.query(question, user_id=user_id)
+            from core.protocol.message import AnswerMessage
+
+            answer_msg = AnswerMessage(answer=answer, user_id=user_id, source="agent")
+            await self.messager.publish(self.answer_topic, answer_msg.model_dump_json())
+            self.logger.info(f"Published answer to {self.answer_topic}")
+
+        except Exception as e:
+            self.logger.error(f"Error handling ask_question: {e}")

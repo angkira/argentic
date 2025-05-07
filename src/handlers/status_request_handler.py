@@ -3,7 +3,7 @@ import traceback
 from typing import Any, Dict, Optional
 
 # Core components
-from core.messager import Messager, MQTTMessage
+from core.messager import Messager
 from core.agent import Agent  # Agent might hold status info
 from core.logger import get_logger, LogLevel
 
@@ -19,7 +19,7 @@ def handle_status_request(
     messager: Messager,
     agent: Agent,  # Inject Agent
     message: StatusRequestMessage,  # Inject the parsed Pydantic message object
-    mqtt_msg: MQTTMessage,
+    mqtt_msg: Any,
     handler_kwargs: Dict[str, Any],
 ) -> None:
     """Handles requests for system status information."""
@@ -27,7 +27,7 @@ def handle_status_request(
 
     # Use both local logger and MQTT logging
     logger.info(f"Received status request on {topic} from {message.source}")
-    messager.mqtt_log(
+    messager.log(
         f"Handler '{handle_status_request.__name__}': Received status request on {topic} from {message.source}"
     )
 
@@ -72,7 +72,7 @@ def handle_status_request(
         messager.publish(response_topic, response_message.model_dump_json())
 
         logger.info(f"Sent status response to {message.source}")
-        messager.mqtt_log(
+        messager.log(
             f"Handler '{handle_status_request.__name__}': Sent status response to {message.source}"
         )
 
@@ -80,7 +80,7 @@ def handle_status_request(
         error_msg = f"Error processing status request from {message.source}: {e}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())  # Log full traceback
-        messager.mqtt_log(f"Handler '{handle_status_request.__name__}': {error_msg}", level="error")
+        messager.log(f"Handler '{handle_status_request.__name__}': {error_msg}", level="error")
 
         # Optional: Send an error status message back
         error_topic = handler_kwargs.get("pub_error_topic", "agent/status/error")

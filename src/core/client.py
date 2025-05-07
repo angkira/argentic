@@ -1,10 +1,9 @@
 import uuid
-from typing import Dict, Any, Callable, Optional
-import logging
+from typing import Dict, Callable, Optional
 
-from core.messager import Messager, MQTTMessage
+from core.messager import Messager
 from core.decorators import mqtt_handler_decorator
-from core.protocol.message import AskQuestionMessage, AnswerMessage, from_mqtt_message, AnyMessage
+from core.protocol.message import AskQuestionMessage
 from core.logger import get_logger, LogLevel
 
 
@@ -38,40 +37,32 @@ class Client:
         self._handlers = handlers or {}
         self.logger = get_logger(f"client.{self.__class__.__name__}", log_level)
 
-    def connect(self) -> bool:
-        """
-        Connect to the MQTT broker
-
-        Returns:
-            bool: True if connection successful or already connected
-        """
+    async def connect(self) -> bool:
+        """Connect to the MQTT broker. Returns True if successful."""
         self.logger.info(f"Connecting to MQTT broker as {self.client_id}...")
-        if self.messager.is_connected():
-            self.logger.info("Already connected to MQTT broker")
+
+        try:
+            connect_result = await self.messager.connect()
+
+            if not connect_result:
+                self.logger.error("Connection failed or timed out after 10 seconds")
+                return False
+
+            self.logger.info("Connected to MQTT broker")
             return True
-
-        connected = self.messager.connect()
-        if not connected:
-            self.logger.error("Failed to connect to MQTT broker")
+        except Exception as e:
+            self.logger.error(f"Error connecting to MQTT: {e}")
             return False
 
-        # Wait for connection confirmation
-        if not self.messager._connection_event.wait(timeout=10.0):
-            self.logger.error("Connection timeout")
-            self.messager.disconnect()
-            return False
-
-        self.logger.info(
-            f"Connected to MQTT broker at {self.messager.broker_address}:{self.messager.port}"
-        )
-        return True
-
-    def disconnect(self) -> None:
-        """Disconnect from the MQTT broker"""
+    async def disconnect(self) -> None:
+        """Disconnect from the MQTT broker."""
         self.logger.info("Disconnecting from MQTT broker")
-        self.messager.stop()
+        try:
+            await self.messager.stop()
+        except Exception as e:
+            self.logger.error(f"Error disconnecting: {e}")
 
-    def register_handlers(self) -> None:
+    async def register_handlers(self) -> None:
         """Register all handlers for subscribed topics"""
         self.logger.info("Registering handlers...")
         for topic, handler_name in self._subscriptions.items():
@@ -79,41 +70,31 @@ class Client:
             if raw_handler_func:
                 # Apply the decorator manually here
                 decorated_handler = mqtt_handler_decorator(messager=self.messager)(raw_handler_func)
-                self.messager.register_handler(topic, decorated_handler)
+                # Use subscribe method instead of register_handler
+                await self.messager.subscribe(topic, decorated_handler)
                 self.logger.info(f"Registered handler for topic: {topic}")
             else:
                 self.logger.warning(f"Handler function '{handler_name}' not found")
 
-    def start(self) -> bool:
-        """
-        Start the client - connect and register handlers
-
-        Returns:
-            bool: True if startup successful
-        """
-        if not self.connect():
+    async def start(self) -> bool:
+        """Start the client - connect and register handlers"""
+        if not await self.connect():
             return False
 
-        self.register_handlers()
-        self.messager.start_background_loop()
+        await self.register_handlers()
         return True
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop the client - disconnect from MQTT broker"""
-        self.disconnect()
+        await self.disconnect()
 
-    def ask_question(self, question: str, topic: str) -> None:
-        """
-        Ask a question to the agent
-
-        Args:
-            question: The question text
-            topic: The topic to publish the question to
-        """
+    async def ask_question(self, question: str, topic: str) -> None:
+        """Ask a question to the agent"""
         self.logger.info(f"Asking question: {question}")
         ask_message = AskQuestionMessage(
             question=question,
             user_id=self.user_id,
             source=self.client_id,
         )
-        self.messager.publish(topic, ask_message.model_dump_json())
+        # Properly await the publish call
+        await self.messager.publish(topic, ask_message.model_dump_json())

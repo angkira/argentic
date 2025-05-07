@@ -7,8 +7,9 @@ import uuid
 
 from pydantic import BaseModel, ValidationError
 
-# Assuming Messager and task_protocol are in core
-from .messager import Messager, MQTTMessage
+# Modified import - import aiomqtt.Message directly
+import aiomqtt
+from .messager import Messager
 
 # Import specific message types and helper
 from .protocol.message import (
@@ -54,7 +55,7 @@ class BaseTool(ABC):
                 f"Tool '{self.name}' ({self.tool_id}): Already initialized.", level="warning"
             )
 
-    def _handle_task_message(self, message: MQTTMessage):
+    def _handle_task_message(self, message: aiomqtt.Message):
         """Handles incoming task messages from MQTT using Pydantic."""
         self.messager.log(
             f"Tool '{self.name}' ({self.tool_id}): Received task message on {message.topic}",

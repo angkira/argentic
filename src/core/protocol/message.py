@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Literal, Optional, Union
-from paho.mqtt.client import MQTTMessage as PahoMQTTMessage  # Rename to avoid conflict
+from paho.mqtt.client import (
+    MQTTMessage as PahoMQTTMessage,
+    topic_matches_sub,
+)  # Rename to avoid conflict
 from pydantic import BaseModel, Field, ValidationError, RootModel, field_validator
 import json
 import uuid
@@ -183,21 +186,106 @@ def to_mqtt_message(message: BaseMessage) -> PahoMQTTMessage:
     return msg
 
 
-def from_mqtt_message(mqtt_msg: PahoMQTTMessage) -> AnyMessage:
-    """Creates a specific Pydantic Message instance from a Paho MQTT message."""
+def from_mqtt_message(mqtt_message: PahoMQTTMessage) -> AnyMessage:
+    """
+    Convert an MQTT message to a typed message object.
+
+    Args:
+        mqtt_message: The MQTT message to parse
+
+    Returns:
+        A properly typed message object (TaskMessage, TaskResultMessage, etc.)
+
+    Raises:
+        ValueError: If the message payload cannot be parsed as JSON
+        ValidationError: If the message payload doesn't match any known schema
+    """
     try:
-        payload_str = mqtt_msg.payload.decode("utf-8")
-        # Use the MessageContainer to parse and validate the correct subclass
-        container = MessageContainer.model_validate_json(payload_str)
-        return container.root  # Return the actual message object
-    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as e:
-        # Log the problematic payload and error for debugging
-        payload_preview = mqtt_msg.payload[:100].decode("utf-8", errors="replace")
-        print(f"Error decoding MQTT message payload: '{payload_preview}...'. Error: {e}")
-        raise ValueError("Invalid MQTT message format or content") from e
-    except Exception as e:  # Catch any other unexpected errors
-        payload_preview = mqtt_msg.payload[:100].decode("utf-8", errors="replace")
-        print(
-            f"Unexpected error processing MQTT message payload: '{payload_preview}...'. Error: {e}"
+        # Get payload bytes and convert to string
+        payload_str = mqtt_message.payload.decode("utf-8")
+
+        # Parse JSON
+        payload_data = json.loads(payload_str)
+
+        # Try to parse into known message types
+        # First check if there's a "message_type" field that explicitly tells us the type
+        if isinstance(payload_data, dict) and "message_type" in payload_data:
+            message_type = payload_data["message_type"]
+            if message_type == "task":
+                return TaskMessage.model_validate(payload_data)
+            elif message_type == "task_result":
+                return TaskResultMessage.model_validate(payload_data)
+            # Add other message types as needed
+
+        # If no explicit type, try each message type in order of likelihood
+        try:
+            return TaskMessage.model_validate(payload_data)
+        except ValidationError:
+            pass
+
+        try:
+            return TaskResultMessage.model_validate(payload_data)
+        except ValidationError:
+            pass
+
+        # Add additional message types here
+
+        # If we get here, we couldn't parse the message as any known type
+        raise ValidationError(
+            f"Message doesn't match any known schema. Payload: {payload_str[:100]}...",
+            model=AnyMessage,
         )
-        raise ValueError("Unexpected error processing MQTT message") from e
+
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse message payload as JSON: {e}")
+
+
+# Mapping from topic patterns/prefixes to message types
+# Adjust patterns as needed for your topic structure
+TOPIC_TYPE_MAP = {
+    "agent/tools/register": RegisterToolMessage,
+    "agent/tools/unregister": UnregisterToolMessage,  # Assuming this topic exists
+    "tool/+/task": TaskMessage,  # '+' is a single-level wildcard
+    "tool/+/result": TaskResultMessage,
+    "agent/status/info": ToolRegisteredMessage,  # Or a more general StatusInfo message
+    "agent/command": None,  # Example command topic
+    "agent/status": StatusMessage,  # Example status topic
+    # Add more mappings
+}
+
+
+def from_payload(topic: str, payload: bytes) -> AnyMessage:
+    """
+    Parses payload bytes into a Pydantic message model based on the topic.
+
+    Args:
+        topic: The MQTT topic the message was received on.
+        payload: The raw message payload as bytes.
+
+    Returns:
+        An instance of the appropriate Pydantic message model.
+
+    Raises:
+        ValueError: If the topic doesn't match any known message type
+                    or if the payload is not valid JSON.
+        ValidationError: If the payload JSON doesn't match the expected model schema.
+    """
+    matched_type = None
+    # Find the corresponding message type based on the topic
+    for pattern, msg_type in TOPIC_TYPE_MAP.items():
+        # Use paho-mqtt's topic matching
+        if topic_matches_sub(pattern, topic):
+            matched_type = msg_type
+            break
+
+    if matched_type is None:
+        raise ValueError(f"No message type registered for topic: {topic}")
+
+    try:
+        # Assume payload is JSON, decode and validate
+        # Add specific handling if some payloads aren't JSON
+        message_instance = matched_type.model_validate_json(payload)
+        return message_instance
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Payload is not valid JSON: {e}") from e
+    # ValidationError is raised automatically by model_validate_json

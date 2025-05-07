@@ -105,7 +105,6 @@ class KnowledgeBaseTool(BaseTool):
 
         self.logger = get_logger("kb_tool", self.log_level)
         self.logger.info("KnowledgeBaseTool instance created")
-        self.messager.mqtt_log(f"KnowledgeBaseTool instance created.")
 
     def set_log_level(self, level: Union[LogLevel, str]) -> None:
         """Set the log level for the tool"""
@@ -130,7 +129,6 @@ class KnowledgeBaseTool(BaseTool):
     ) -> Any:
         """Executes the requested action on the knowledge base."""
         self.logger.info(f"Executing action: {action.value}")
-        self.messager.mqtt_log(f"KB Tool executing action: {action.value}")
 
         if action == KBAction.REMIND:
             if not query:
@@ -144,7 +142,7 @@ class KnowledgeBaseTool(BaseTool):
             docs = self.rag_manager.retrieve(query=query, collection_name=collection_name)
             formatted_result = format_docs_for_tool_output(docs)
             self.logger.info(f"Found {len(docs)} documents for query")
-            self.messager.mqtt_log(f"KB Tool 'remind' found {len(docs)} documents.")
+
             return formatted_result
 
         elif action == KBAction.REMEMBER:
@@ -166,7 +164,7 @@ class KnowledgeBaseTool(BaseTool):
             )
             msg = f"Remember action {'succeeded' if success else 'failed'} for collection '{collection_name or 'default'}'."
             self.logger.info(msg)
-            self.messager.mqtt_log(msg)
+
             return msg
 
         elif action == KBAction.FORGET:
@@ -181,7 +179,7 @@ class KnowledgeBaseTool(BaseTool):
             )
             result = self.rag_manager.forget(where_filter=where, collection_name=collection_name)
             self.logger.info(f"Forget action result: {result}")
-            self.messager.mqtt_log(f"KB Tool 'forget' result: {result}")
+
             return result
 
         elif action == KBAction.LIST_COLLECTIONS:
@@ -198,14 +196,12 @@ class KnowledgeBaseTool(BaseTool):
                 }
 
                 self.logger.info(f"Found {len(collections)} collections")
-                self.messager.mqtt_log(
-                    f"KB Tool 'list_collections' found {len(collections)} collections."
-                )
+
                 return result
             except Exception as e:
                 error_msg = f"Error listing collections: {str(e)}"
                 self.logger.error(error_msg)
-                self.messager.mqtt_log(error_msg, level="error")
+
                 return {
                     "collections": [],
                     "default_collection": None,
@@ -215,4 +211,5 @@ class KnowledgeBaseTool(BaseTool):
         else:
             error_msg = f"Unsupported action: {action}"
             self.logger.error(error_msg)
+
             raise ValueError(error_msg)

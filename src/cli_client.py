@@ -1,13 +1,12 @@
+import asyncio
 import sys
+import traceback
 import yaml
 import uuid
-import json
-from typing import Any, Dict, Optional
 
 from core.client import Client
 from core.messager import Messager, MQTTMessage
-from core.decorators import mqtt_handler_decorator
-from core.protocol.message import AskQuestionMessage, AnswerMessage, from_mqtt_message, AnyMessage
+from core.protocol.message import AnswerMessage
 from core.logger import LogLevel
 
 CONFIG_PATH = "config.yaml"
@@ -42,8 +41,8 @@ if ASK_TOPIC is None:
 MQTT_TOPIC_ASK = ASK_TOPIC
 
 # Get other relevant topics
-MQTT_TOPIC_ANSWER = config["mqtt"]["publish_topics"]["response"]
-MQTT_PUB_LOG = config["mqtt"]["publish_topics"]["log"]  # For messager internal logging
+MQTT_TOPIC_ANSWER = config["mqtt"]["topics"]["responses"]["answer"]
+MQTT_PUB_LOG = config["mqtt"]["topics"]["log"]  # For messager internal logging
 
 
 class CliClient(Client):
@@ -113,56 +112,61 @@ class CliClient(Client):
         # Re-display prompt for next input
         print("> ", end="", flush=True)
 
-    def run_interactive(self):
-        """Run the CLI client in interactive mode"""
+    async def handle_agent_answer(self, message: MQTTMessage):
+        """Handle answers from the agent"""
         try:
-            print(f"CLI: Using session user_id={self.user_id}")
+            payload = message.payload.decode("utf-8")
+            answer = AnswerMessage.model_validate_json(payload)
+            print(f"\n{answer.answer}\n")
+        except Exception as e:
+            print(f"\nError parsing answer: {e}\n")
 
-            if not self.start():
-                print("CLI Error: Failed to start client. Exiting.")
-                return
+    async def run_interactive(self):
+        """Run the interactive CLI client."""
+        try:
+            # Connect and register handlers directly instead of calling start()
+            if not await self.connect():
+                print("CLI Error: Failed to connect. Check logs for details.")
+                return False
 
-            print("\n--- Agent CLI Client ---")
+            await self.register_handlers()
+
+            print("--- Agent CLI Client ---")
             print("Type your question and press Enter.")
             print("Type 'quit' or 'exit' to leave.")
 
-            # --- Input Loop ---
             while True:
-                # Check connection status before prompting
-                if not self.messager.is_connected():
-                    print("\nCLI Error: Disconnected from MQTT broker. Please restart the client.")
-                    break
-
-                try:
-                    user_input = input("> ")
-                except EOFError:  # Handle Ctrl+D
-                    print("\nCLI: EOF received, exiting...")
-                    break
-
+                user_input = input("> ")
                 if user_input.lower() in ["quit", "exit"]:
                     break
 
-                if not user_input.strip():  # Ignore empty input
-                    continue
+                if user_input.strip():
+                    await self.ask_question(user_input, self.ask_topic)
 
-                # Ask question using the base Client method
-                self.ask_question(user_input, self.ask_topic)
-                # Response handled asynchronously by handle_answer
+            return True
 
-        except KeyboardInterrupt:
-            print("\nCLI: Ctrl+C received, exiting...")
         except Exception as e:
-            print(f"\nCLI Error: An unexpected error occurred: {e}")
-            import traceback
-
-            traceback.print_exc()  # Print stack trace for debugging
+            print(f"CLI Error: An unexpected error occurred: {e}")
+            traceback.print_exc()
+            return False
         finally:
             print("CLI: Shutting down...")
-            self.stop()  # Use the base Client's stop method
+            # Use the existing stop method instead of undefined shutdown
+            await self.stop()
             print("CLI: Shutdown complete.")
+
+    def start(self):
+        """Synchronous entry point - this is the only place that should call asyncio.run()"""
+        try:
+            asyncio.run(self.run_interactive())
+            return True
+        except Exception as e:
+            print(f"CLI Error: An unexpected error occurred: {e}")
+            traceback.print_exc()
+            return False
 
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
     cli_client = CliClient()
-    cli_client.run_interactive()
+    cli_client.start()
