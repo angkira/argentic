@@ -6,7 +6,7 @@ import os
 import chromadb
 from typing import Optional
 
-from core.messager import Messager
+from core.messager.messager import Messager
 from tools.RAG.rag import RAGManager
 from tools.RAG.knowledge_base_tool import KnowledgeBaseTool
 from core.logger import get_logger, LogLevel, parse_log_level

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 # Modified import - import aiomqtt.Message directly
 import aiomqtt
-from .messager import Messager
+from .messager.messager import Messager
 
 # Import specific message types and helper
 from .protocol.message import (

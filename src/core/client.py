@@ -1,7 +1,7 @@
 import uuid
 from typing import Dict, Callable, Optional
 
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.decorators import mqtt_handler_decorator
 from core.protocol.message import AskQuestionMessage
 from core.logger import get_logger, LogLevel

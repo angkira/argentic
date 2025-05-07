@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Union, Tuple, Dict
 from langchain.prompts import PromptTemplate
 
 # Assuming Messager and ToolManager are updated for asyncio
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.tool_manager import ToolManager
 from core.logger import get_logger, LogLevel, parse_log_level
 

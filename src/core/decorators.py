@@ -8,7 +8,7 @@ import aiomqtt  # Import aiomqtt for message type hint
 from pydantic import ValidationError
 
 # Local application imports
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.agent import Agent  # Keep if Agent injection is needed
 
 # Assuming from_mqtt_message is updated or replaced to handle aiomqtt.Message

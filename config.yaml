@@ -24,35 +24,35 @@ mqtt:
   broker_address: localhost
   port: 1883
   keepalive: 60
-  
+
   # Client IDs
   client_id: ai_agent_client
   tool_client_id: ai_tool_service
   cli_client_id: cli_client
 
-  # Topic structure
-  topics:
-    # Agent command topics
-    commands:
-      ask_question: agent/command/ask_question
-      status_request: agent/status/request
-    
-    # Agent response topics
-    responses:
-      answer: agent/response/answer
-      status: agent/status/info
-    
-    # Logging
-    log: agent/log
-    
-    # Tool communication
-    tools:
-      register: agent/tools/register
-      call: agent/tools/call
-      response_base: agent/tools/response
-  
+# Topic structure
+topics:
+  # Agent command topics
+  commands:
+    ask_question: agent/command/ask_question
+    status_request: agent/status/request
+
+  # Agent response topics
+  responses:
+    answer: agent/response/answer
+    status: agent/status/info
+
+  # Logging
+  log: agent/log
+
+  # Tool communication
+  tools:
+    register: agent/tools/register
+    call: agent/tools/call
+    response_base: agent/tools/response
+
   # Subscription mapping
   subscriptions:
     agent/command/ask_question: handle_ask_question
     agent/status/request: handle_status_request
-    agent/response/answer: handle_agent_answer  # Add this for CLI client
+    agent/response/answer: handle_agent_answer # Add this for CLI client

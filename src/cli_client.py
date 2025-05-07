@@ -5,7 +5,7 @@ import yaml
 import uuid
 
 from core.client import Client
-from core.messager import Messager, MQTTMessage
+from core.messager.messager import Messager, MQTTMessage
 from core.protocol.message import AnswerMessage
 from core.logger import LogLevel
 
@@ -41,8 +41,8 @@ if ASK_TOPIC is None:
 MQTT_TOPIC_ASK = ASK_TOPIC
 
 # Get other relevant topics
-MQTT_TOPIC_ANSWER = config["mqtt"]["topics"]["responses"]["answer"]
-MQTT_PUB_LOG = config["mqtt"]["topics"]["log"]  # For messager internal logging
+MQTT_TOPIC_ANSWER = config["topics"]["responses"]["answer"]
+MQTT_PUB_LOG = config["topics"]["log"]  # For messager internal logging
 
 
 class CliClient(Client):

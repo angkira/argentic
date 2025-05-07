@@ -3,7 +3,7 @@ import traceback
 from typing import Any, Dict, Optional
 
 # Core components
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.agent import Agent  # Agent might hold status info
 from core.logger import get_logger, LogLevel
 

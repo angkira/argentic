@@ -7,7 +7,7 @@ from langchain.docstore.document import Document
 
 # Assuming RAGManager and Messager are accessible or passed during initialization
 from tools.RAG.rag import RAGManager
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.tool_base import BaseTool  # Import BaseTool
 from core.logger import get_logger, LogLevel, parse_log_level
 

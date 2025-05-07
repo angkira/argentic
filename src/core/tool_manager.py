@@ -17,7 +17,7 @@ from core.protocol.message import (
     TaskStatus,
     AnyMessage,
 )
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.logger import get_logger, LogLevel, parse_log_level
 
 

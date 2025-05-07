@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 
 # Core components (assuming they are updated)
-from core.messager import Messager
+from core.messager.messager import Messager
 from core.agent import Agent
 from core.tool_manager import ToolManager
 from core.logger import get_logger, LogLevel, parse_log_level
@@ -16,7 +16,6 @@ from core.protocol.message import (
     StatusMessage,
 )  # Import necessary message types
 from pydantic import ValidationError
-import aiomqtt  # Import aiomqtt for type hint
 
 # LLM Integration (Example using Ollama)
 from langchain_community.chat_models import ChatOllama
@@ -98,7 +97,7 @@ async def main():
         username=mqtt_cfg.get("username"),
         password=mqtt_cfg.get("password"),
         keepalive=mqtt_cfg.get("keepalive", 60),
-        pub_log_topic=mqtt_cfg["topics"]["log"],
+        pub_log_topic=config["topics"]["log"],
         log_level=log_level,
     )
 

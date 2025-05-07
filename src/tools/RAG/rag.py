@@ -1,14 +1,36 @@
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 import time
 import chromadb
 from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
 from langchain.embeddings.base import Embeddings
+from pydantic import field_validator
+from core.protocol.message import BaseMessage
 
-from core.messager import Messager
+from core.messager.messager import Messager
 
 DEFAULT_COLLECTION_NAME = "default_rag_collection"
+
+
+class AddInfoMessage(BaseMessage[None]):
+    type: Literal["ADD_INFO"] = "ADD_INFO"
+    text: str
+    collection_name: Optional[str] = None
+    source_info: Optional[str] = "mqtt_add_info"
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class ForgetMessage(BaseMessage[None]):
+    type: Literal["FORGET_INFO"] = "FORGET_INFO"
+    where_filter: Dict[str, Any]
+    collection_name: Optional[str] = None
+
+    @field_validator("where_filter")
+    def check_where_filter_not_empty(cls, v):
+        if not v:
+            raise ValueError("'where_filter' cannot be empty for safety.")
+        return v
 
 
 class RAGManager:
@@ -31,19 +53,13 @@ class RAGManager:
         self.vectorstores: Dict[str, Chroma] = {}
         self.retrievers: Dict[str, Any] = {}
 
-        print(
-            f"RAGManager initialized synchronously. Default collection: '{self.default_collection_name}'. Call async_init() next."
-        )
+        asyncio.run(self.async_init())
 
     async def async_init(self):
-        """Asynchronously initializes the default collection."""
-        await self.messager.log(
-            f"RAGManager async_init started. Getting/creating default collection: '{self.default_collection_name}'"
-        )
         try:
             await self.get_or_create_collection(self.default_collection_name)
             await self.messager.log(
-                f"RAGManager async_init complete. Default collection '{self.default_collection_name}' ready."
+                f"RAGManager init complete. Default collection '{self.default_collection_name}' ready."
             )
         except Exception as e:
             await self.messager.log(f"Error during RAGManager async_init: {e}", level="error")
