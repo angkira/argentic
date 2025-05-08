@@ -1,4 +1,5 @@
 import time
+import asyncio  # for scheduling async message handlers
 from typing import Dict, Optional, Union, Any
 import ssl
 
@@ -108,7 +109,8 @@ class Messager:
             """Adapts the payload to the expected message class"""
             try:
                 message = message_cls.model_validate_json(payload.decode("utf-8"))
-                handler(message)
+                # schedule async handler
+                asyncio.create_task(handler(message))
             except Exception as e:
                 self.logger.error(f"Failed to handle message: {e}", exc_info=True)
                 self.logger.debug(f"Payload: {payload.decode('utf-8')}", exc_info=True)

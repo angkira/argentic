@@ -55,6 +55,7 @@ class BaseTool(ABC):
 
     async def register(self, registration_topic: str):
         registration_message = RegisterToolMessage(
+            source=self.messager.client_id,
             tool_name=self.name,
             tool_manual=self.manual,
             tool_api=self.api,

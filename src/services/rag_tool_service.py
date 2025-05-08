@@ -102,16 +102,32 @@ async def main():
         logger.info("Messager connected.")
 
         logger.info("Initializing embeddings...")
-        embeddings: Embeddings = HuggingFaceEmbeddings(
-            model_name=embed_cfg["model_name"],
-            model_kwargs={"device": embed_cfg["device"]},
-            encode_kwargs={"normalize_embeddings": embed_cfg["normalize"]},
-        )
-        logger.info("Embeddings initialized.")
+        try:
+            embeddings: Embeddings = HuggingFaceEmbeddings(
+                model_name=embed_cfg["model_name"],
+                model_kwargs={"device": embed_cfg["device"]},
+                encode_kwargs={"normalize_embeddings": embed_cfg["normalize"]},
+            )
+
+            logger.info("Embeddings initialized.")
+        except Exception as e:
+            logger.critical(f"Failed to initialize embeddings: {e}", exc_info=True)
+            await messager.log(
+                f"RAG Tool Service: Embeddings initialization failed: {e}", level="critical"
+            )
+            return
 
         logger.info("Initializing ChromaDB client...")
-        db_client = chromadb.PersistentClient(path=vec_cfg["base_directory"])
-        logger.info(f"ChromaDB client initialized with path: {vec_cfg['base_directory']}")
+        try:
+            db_client = chromadb.PersistentClient(path=vec_cfg["base_directory"])
+
+            logger.info(f"ChromaDB client initialized with path: {vec_cfg['base_directory']}")
+        except Exception as e:
+            logger.critical(f"Failed to initialize ChromaDB client: {e}", exc_info=True)
+            await messager.log(
+                f"RAG Tool Service: ChromaDB client initialization failed: {e}", level="critical"
+            )
+            return
 
         retriever_k = default_retriever_cfg.get("k", 3)
         default_collection = vec_cfg.get("default_collection", "default_rag_collection")
