@@ -1,5 +1,5 @@
 from core.protocol.message import BaseMessage
-from typing import Literal
+from typing import Literal, Optional
 
 
 class RegisterToolMessage(BaseMessage):
@@ -15,7 +15,19 @@ class ToolRegisteredMessage(BaseMessage):
     tool_name: str
 
 
+class ToolUnregisteredMessage(BaseMessage):
+    type: Literal["TOOL_UNREGISTERED"] = "TOOL_UNREGISTERED"
+    tool_id: str
+
+
+class ToolRegistrationErrorMessage(BaseMessage):
+    type: Literal["TOOL_REGISTRATION_ERROR"] = "TOOL_REGISTRATION_ERROR"
+    error: str
+    traceback: Optional[str] = None
+    tool_id: Optional[str] = None
+    tool_name: Optional[str] = None
+
+
 class UnregisterToolMessage(BaseMessage):
     type: Literal["UNREGISTER_TOOL"] = "UNREGISTER_TOOL"
     tool_id: str
-    tool_name: str

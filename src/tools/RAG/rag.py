@@ -53,7 +53,7 @@ class RAGManager:
         self.vectorstores: Dict[str, Chroma] = {}
         self.retrievers: Dict[str, Any] = {}
 
-        asyncio.run(self.async_init())
+        # Initialization moved to caller via async_init() to avoid nested event loops
 
     async def async_init(self):
         try:

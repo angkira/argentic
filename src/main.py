@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Core components (assuming they are updated)
 from core.messager.messager import Messager
 from core.agent.agent import Agent
-from core.tool_manager import ToolManager
+from core.tools.tool_manager import ToolManager
 from core.logger import get_logger, LogLevel, parse_log_level
 from core.protocol.message import (
     from_payload,

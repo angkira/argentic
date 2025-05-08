@@ -1,7 +1,6 @@
 import asyncio
 import yaml
 import signal
-import json
 import os
 import chromadb
 from typing import Optional
@@ -10,13 +9,6 @@ from core.messager.messager import Messager
 from tools.RAG.rag import RAGManager
 from tools.RAG.knowledge_base_tool import KnowledgeBaseTool
 from core.logger import get_logger, LogLevel, parse_log_level
-from core.protocol.message import (
-    RegisterToolMessage,
-    TaskMessage,
-    TaskResultMessage,
-    TaskStatus,
-    ToolRegisteredMessage,
-)
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.embeddings.base import Embeddings
@@ -32,6 +24,7 @@ HG_TOKEN = os.getenv("HG_TOKEN")
 # --- Configuration Loading ---
 config = yaml.safe_load(open("config.yaml"))
 mqtt_cfg = config["mqtt"]
+topic_cfg = config["topics"]
 
 rag_config_path = os.path.join("src", "tools", "RAG", "rag_config.yaml")
 rag_config = yaml.safe_load(open(rag_config_path))
@@ -58,113 +51,6 @@ kb_tool: Optional[KnowledgeBaseTool] = None
 rag_manager: Optional[RAGManager] = None
 assigned_tool_id: Optional[str] = None
 stop_event = asyncio.Event()
-
-
-# --- Async Handlers ---
-async def handle_registration_confirmation(message: ToolRegisteredMessage):
-    """Handles confirmation that the tool was registered by the agent."""
-    global assigned_tool_id
-    try:
-        logger.info(f"Received registration confirmation: {message}")
-
-        if kb_tool and assigned_tool_id is None and message.tool_name == kb_tool.name:
-            assigned_tool_id = message.tool_id
-            logger.info(
-                f"Tool '{kb_tool.name}' successfully registered with ID: {assigned_tool_id}"
-            )
-            task_topic = f"tool/{assigned_tool_id}/task"
-            await messager.subscribe(task_topic, handle_task_message)
-            logger.info(f"Subscribed to task topic: {task_topic}")
-        else:
-            logger.debug(
-                f"Received confirmation for unrelated tool, uninitialized tool, or already assigned: {message.tool_name}"
-            )
-
-    except Exception as e:
-        logger.error(f"Error handling registration confirmation: {e}", exc_info=True)
-
-
-async def handle_task_message(message: TaskMessage):
-    """Handles incoming task execution requests for the RAG tool."""
-    if not kb_tool:
-        logger.error("KnowledgeBaseTool not initialized, cannot handle task.")
-        return
-
-    try:
-        logger.info(f"Received task message: {message}")
-
-        status = TaskStatus.ERROR
-        result_payload = {}
-
-        if message.tool_id != assigned_tool_id:
-            logger.warning(
-                f"Received task for incorrect tool ID {message.tool_id}, expected {assigned_tool_id}. Ignoring."
-            )
-            return
-
-        # message.payload should be the input for the tool
-        result = await kb_tool.run(message.payload)
-        result_payload = result
-        status = TaskStatus.SUCCESS
-        logger.info(f"Task {message.task_id} completed successfully.")
-
-    except Exception as e:
-        logger.error(
-            f"Error executing RAG tool task {getattr(message, 'task_id', 'N/A')}: {e}",
-            exc_info=True,
-        )
-        result_payload = {"error": f"Internal server error: {e}"}
-        status = TaskStatus.ERROR
-
-    # Always send a result if we have a valid message
-    result_topic = f"tool/{message.tool_id}/result"
-    result_message = TaskResultMessage(
-        source=messager.client_id,
-        task_id=message.task_id,
-        status=status,
-        result=result_payload,
-    )
-    try:
-        await messager.publish(result_topic, result_message.model_dump_json())
-        logger.debug(f"Sent result for task {message.task_id} to {result_topic}")
-    except Exception as e:
-        logger.error(f"Failed to publish result for task {message.task_id}: {e}")
-
-
-async def register_rag_tool():
-    """Registers the RAG tool with the agent/tool manager."""
-    if not kb_tool or not messager:
-        logger.error("Cannot register tool: Messager or KB Tool not initialized.")
-        return
-
-    logger.info(f"Attempting to register tool: {kb_tool.name}")
-    try:
-        # Check attribute name for schema in KnowledgeBaseTool
-        schema_attr = getattr(kb_tool, "args_schema", getattr(kb_tool, "argument_schema", None))
-        if schema_attr is None:
-            logger.error(
-                "Could not find schema attribute (args_schema or argument_schema) on KnowledgeBaseTool."
-            )
-            return
-        # Get the schema as a dictionary
-        api_schema_dict = schema_attr.model_json_schema()
-        # Convert the dictionary to a JSON string
-        api_schema_str = json.dumps(api_schema_dict)
-
-        registration_msg = RegisterToolMessage(
-            source=messager.client_id,
-            tool_name=kb_tool.name,
-            tool_manual=kb_tool.description,
-            tool_api=api_schema_str,  # Pass the JSON string
-        )
-        # Use correct topic from config for registration
-        register_topic = mqtt_cfg["subscriptions"].get("tool_register", "agent/tools/register")
-        await messager.publish(register_topic, registration_msg.model_dump_json())
-        logger.info(f"Sent registration message for '{kb_tool.name}' to topic '{register_topic}'")
-    except AttributeError as ae:
-        logger.error(f"Error getting tool attributes for registration: {ae}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Failed to send registration message: {e}", exc_info=True)
 
 
 async def shutdown_handler():
@@ -203,7 +89,7 @@ async def main():
         port=mqtt_cfg["port"],
         client_id=mqtt_cfg.get("tool_client_id", "rag_tool_service"),
         keepalive=mqtt_cfg["keepalive"],
-        pub_log_topic=mqtt_cfg["topics"]["log"],
+        pub_log_topic=topic_cfg["log"],
         log_level=log_level,
     )
 
@@ -241,14 +127,14 @@ async def main():
         await rag_manager.async_init()
         logger.info("RAGManager initialized asynchronously.")
 
-        kb_tool = KnowledgeBaseTool(rag_manager=rag_manager, messager=messager)
+        kb_tool = KnowledgeBaseTool(messager=messager, rag_manager=rag_manager)
         logger.info(f"KnowledgeBaseTool instance created: {kb_tool.name}")
 
-        status_topic = "agent/status/info"
-        await messager.subscribe(status_topic, handle_registration_confirmation)
-        logger.info(f"Subscribed to registration confirmation topic: {status_topic}")
-
-        await register_rag_tool()
+        # Register the tool and let BaseTool handle task subscriptions
+        register_topic = mqtt_cfg.get("subscriptions", {}).get(
+            "tool_register", "agent/tools/register"
+        )
+        await kb_tool.register(register_topic)
 
         logger.info("RAG Tool Service running... Press Ctrl+C to exit.")
         await stop_event.wait()

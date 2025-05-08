@@ -1,11 +1,11 @@
 import asyncio
+from logging import Logger
 import uuid
 import json
 import traceback
 from typing import Dict, Any, Optional, Union
 from datetime import datetime, timezone
 
-import aiomqtt  # Import aiomqtt for type hint
 from pydantic import ValidationError
 
 from core.protocol.message import (
@@ -15,16 +15,30 @@ from core.protocol.message import (
     TaskMessage,
     TaskResultMessage,
     TaskStatus,
-    AnyMessage,
 )
 from core.messager.messager import Messager
 from core.logger import get_logger, LogLevel, parse_log_level
 
 
 class ToolManager:
-    """Manages tool registration, execution via MQTT, and description generation (Async Version)."""
+    """Manages tool registration, execution, and description generation (Async Version)."""
 
-    def __init__(self, messager: Messager, log_level: Union[LogLevel, str] = LogLevel.INFO):
+    tools_by_id: Dict[str, Dict[str, Any]]
+    tools_by_name: Dict[str, Dict[str, Any]]
+    _pending_tasks: Dict[str, asyncio.Future]
+    _result_lock: asyncio.Lock
+    _default_timeout: int
+    register_topic: str
+    messager: Messager
+    log_level: LogLevel
+    logger: Logger
+
+    def __init__(
+        self,
+        messager: Messager,
+        log_level: Union[LogLevel, str] = LogLevel.INFO,
+        register_topic: str = "agent/tools/register",
+    ):
         self.messager = messager
 
         if isinstance(log_level, str):
@@ -34,25 +48,28 @@ class ToolManager:
 
         self.logger = get_logger("tool_manager", level=self.log_level)
 
-        self.tools: Dict[str, Dict[str, Any]] = {}
+        # Stores for tools: by ID and by name
+        self.tools_by_id: Dict[str, Dict[str, Any]] = {}
+        self.tools_by_name: Dict[str, Dict[str, Any]] = {}
         self._pending_tasks: Dict[str, asyncio.Future] = {}
-        self._task_results: Dict[str, TaskResultMessage] = {}
-        self._late_results_cache: Dict[str, tuple[float, TaskResultMessage]] = {}
-        self._pending_late_results: Dict[str, Dict[str, Any]] = {}
         self._result_lock = asyncio.Lock()
-        self._subscribed_result_topics = set()
-        self._late_results_ttl = 60  # seconds
         self._default_timeout = 30  # seconds
 
-        self.register_topic = "agent/tools/register"
-        self.call_topic = "agent/tools/call"
-        self.response_topic_base = "agent/tools/response"
+        self.register_topic = register_topic
 
-        self.logger.info("ToolManager initialized (Async Version)")
+        # connect and subscribe to tool registration messages
+        asyncio.run(self.messager.connect())
+        asyncio.run(
+            self.messager.subscribe(
+                self.register_topic, self._handle_tool_message, message_cls=RegisterToolMessage
+            )
+        )
+        asyncio.run(
+            self.messager.subscribe(
+                self.register_topic, self._handle_tool_message, message_cls=UnregisterToolMessage
+            )
+        )
 
-    async def async_init(self):
-        """Perform any async initialization needed after MQTT connection."""
-        self.logger.info("Running ToolManager async initialization...")
         self.logger.info("ToolManager async initialization complete.")
 
     def set_log_level(self, level: Union[LogLevel, str]) -> None:
@@ -68,7 +85,7 @@ class ToolManager:
         for handler in self.logger.handlers:
             handler.setLevel(self.log_level.value)
 
-    async def _handle_tool_message(self, msg: AnyMessage):
+    async def _handle_tool_message(self, msg: Union[RegisterToolMessage, UnregisterToolMessage]):
         """Handles tool registration and unregistration messages (protocol message only)."""
         self.logger.debug(f"Received tool message: {msg}")
         try:
@@ -96,22 +113,8 @@ class ToolManager:
                 future = self._pending_tasks.get(task_id)
                 if future and not future.done():
                     self.logger.info(f"Received expected result for task {task_id}")
-                    self._task_results[task_id] = msg
                     future.set_result(msg)
-                elif task_id in self._pending_late_results:
-                    self.logger.info(f"Received late result for task {task_id}. Caching.")
-                    late_info = self._pending_late_results.get(task_id)
-                    if late_info:
-                        cache_key = f"{late_info['tool_name']}_{json.dumps(late_info['arguments'], sort_keys=True)}"
-                        self._late_results_cache[cache_key] = (
-                            datetime.now(timezone.utc).timestamp(),
-                            msg,
-                        )
-                        del self._pending_late_results[task_id]
-                    else:
-                        self.logger.warning(
-                            f"Could not cache late result for {task_id}, pending info missing."
-                        )
+                    self.logger.info(f"Set result for task {task_id} in future.")
                 else:
                     self.logger.warning(
                         f"Received result for unknown or already timed-out task {task_id}. Discarding."
@@ -137,9 +140,15 @@ class ToolManager:
         }
 
         async with self._result_lock:
-            self.tools[tool_id] = tool_info
-            await self.messager.subscribe(tool_info["result_topic"], self._handle_result_message)
-            self._subscribed_result_topics.add(tool_info["result_topic"])
+            # store in both maps
+            self.tools_by_id[tool_id] = tool_info
+            self.tools_by_name[reg_msg.tool_name] = tool_info
+            # subscribe for results
+            await self.messager.subscribe(
+                tool_info["result_topic"],
+                self._handle_result_message,
+                message_cls=TaskResultMessage,
+            )
 
         self.logger.info(
             f"Registered tool '{tool_info['name']}' ({tool_id}). Subscribed to {tool_info['result_topic']} for results."
@@ -151,8 +160,11 @@ class ToolManager:
             tool_name=reg_msg.tool_name,
             recipient=reg_msg.source,
         )
+
         status_topic = "agent/status/info"
-        await self.messager.publish(status_topic, confirmation.model_dump_json())
+
+        await self.messager.publish(status_topic, confirmation)
+
         self.logger.info(
             f"Sent registration confirmation for '{reg_msg.tool_name}' to {reg_msg.source} via {status_topic}"
         )
@@ -167,11 +179,11 @@ class ToolManager:
         )
 
         async with self._result_lock:
-            if tool_id not in self.tools:
+            if tool_id not in self.tools_by_id:
                 self.logger.warning(f"Cannot unregister unknown tool ID '{tool_id}'. Ignoring.")
                 return
 
-            tool_info = self.tools[tool_id]
+            tool_info = self.tools_by_id[tool_id]
 
             registered_source = tool_info.get("source_service_id")
             if registered_source != unreg_msg.source:
@@ -181,22 +193,23 @@ class ToolManager:
                 return
 
             result_topic = tool_info.get("result_topic")
-            if result_topic and result_topic in self._subscribed_result_topics:
+            if result_topic:
                 try:
                     await self.messager.unsubscribe(result_topic)
-                    self._subscribed_result_topics.remove(result_topic)
                     self.logger.info(f"Unsubscribed from result topic: {result_topic}")
                 except Exception as e:
                     self.logger.error(f"Error unsubscribing from result topic {result_topic}: {e}")
 
-            del self.tools[tool_id]
+            # remove from both stores
+            del self.tools_by_id[tool_id]
+            self.tools_by_name.pop(tool_info["name"], None)
             self.logger.info(f"Successfully unregistered tool '{tool_name}' (ID: {tool_id})")
 
     async def execute_tool(
         self, tool_name: str, arguments: Dict[str, Any], timeout: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        Execute a tool with timeout (Async Version).
+        Execute a tool with timeout.
 
         Args:
             tool_name (str): The name of the tool to execute.
@@ -206,22 +219,9 @@ class ToolManager:
         Returns:
             Dict[str, Any]: The result parameters from TaskResultMessage or an error dictionary.
         """
-        async with self._result_lock:
-            self._clean_expired_cache_entries()
-            cached_result = self._check_late_results_cache(tool_name, arguments)
 
-        if cached_result is not None:
-            self.logger.info(
-                f"Using cached late result for tool '{tool_name}' with args {arguments}"
-            )
-            return cached_result.params
-
-        tool: Optional[Dict[str, Any]] = None
-        async with self._result_lock:
-            for t_id, t_info in self.tools.items():
-                if isinstance(t_info, dict) and t_info.get("name") == tool_name:
-                    tool = t_info
-                    break
+        # lookup by tool name
+        tool = self.tools_by_name.get(tool_name)
 
         if not tool:
             err_msg = f"Tool '{tool_name}' not found or not registered."
@@ -266,10 +266,7 @@ class ToolManager:
                     f"Tool '{tool_name}' executed successfully in {execution_time:.2f}s (task_id: {task_id})"
                 )
                 async with self._result_lock:
-                    if task_id in self._pending_tasks:
-                        del self._pending_tasks[task_id]
-                    if task_id in self._task_results:
-                        del self._task_results[task_id]
+                    self._pending_tasks.pop(task_id, None)
 
                 if result_message.status == TaskStatus.SUCCESS:
                     return result_message.params
@@ -288,16 +285,10 @@ class ToolManager:
 
             except asyncio.TimeoutError:
                 self.logger.warning(
-                    f"Tool '{tool_name}' timed out after {effective_timeout}s (task_id: {task_id}). "
-                    f"Will cache any late responses."
+                    f"Tool '{tool_name}' timed out after {effective_timeout}s (task_id: {task_id})."
                 )
                 async with self._result_lock:
-                    if task_id in self._pending_tasks:
-                        del self._pending_tasks[task_id]
-                    self._pending_late_results[task_id] = {
-                        "tool_name": tool_name,
-                        "arguments": arguments,
-                    }
+                    self._pending_tasks.pop(task_id, None)
                 return {
                     "error": f"Tool execution timed out after {effective_timeout}s",
                     "status": TaskStatus.TIMEOUT,
@@ -320,58 +311,22 @@ class ToolManager:
                 "task_id": task_id,
             }
 
-    def _find_tool(self, tool_name: str) -> Optional[Dict[str, Any]]:
-        """Finds a registered tool by name. Assumes lock is held or not needed."""
-        for tool_id, tool_info in self.tools.items():
-            if isinstance(tool_info, dict) and tool_info.get("name") == tool_name:
-                return tool_info
-        return None
-
-    def _check_late_results_cache(
-        self, tool_name: str, arguments: Dict[str, Any]
-    ) -> Optional[TaskResultMessage]:
-        """Checks for cached late results. Assumes lock is held."""
-        cache_key = f"{tool_name}_{json.dumps(arguments, sort_keys=True)}"
-        if cache_key in self._late_results_cache:
-            timestamp, result = self._late_results_cache[cache_key]
-            if datetime.now(timezone.utc).timestamp() - timestamp <= self._late_results_ttl:
-                self.logger.debug(f"Using valid late result cache entry for key: {cache_key}")
-                del self._late_results_cache[cache_key]
-                return result
-            else:
-                self.logger.debug(f"Found expired late result cache entry, removing: {cache_key}")
-                del self._late_results_cache[cache_key]
-        return None
-
-    def _clean_expired_cache_entries(self):
-        """Removes expired entries from the late results cache. Assumes lock is held."""
-        now = datetime.now(timezone.utc).timestamp()
-        expired_keys = [
-            key
-            for key, (timestamp, _) in self._late_results_cache.items()
-            if now - timestamp > self._late_results_ttl
-        ]
-        if expired_keys:
-            self.logger.debug(f"Cleaning {len(expired_keys)} expired late result cache entries.")
-            for key in expired_keys:
-                del self._late_results_cache[key]
-
     def generate_tool_descriptions_for_prompt(self) -> str:
         """Generates a JSON string describing available tools for the LLM prompt."""
-        if not self.tools:
+        if not self.tools_by_name:
             return "[]"
 
         tool_defs = []
-        for tool_id, tool_info in list(self.tools.items()):
+        for tool_info in self.tools_by_name.values():
             if not isinstance(tool_info, dict):
                 self.logger.warning(
-                    f"Skipping tool {tool_id} in description generation: Invalid format {type(tool_info)}"
+                    f"Skipping tool in description generation: Invalid format {type(tool_info)}"
                 )
                 continue
             try:
                 if not all(k in tool_info for k in ["name", "description", "api_schema"]):
                     self.logger.warning(
-                        f"Skipping tool {tool_id} ('{tool_info.get('name', 'N/A')}') in description generation: Missing required fields (name, description, api_schema)."
+                        f"Skipping tool '{tool_info.get('name', 'N/A')}' in description generation: Missing required fields."
                     )
                     continue
 
@@ -386,7 +341,7 @@ class ToolManager:
                 tool_defs.append(tool_def)
             except (KeyError, TypeError, json.JSONDecodeError) as e:
                 self.logger.error(
-                    f"Error generating definition for tool {tool_id} ('{tool_info.get('name', 'N/A')}'): {e}"
+                    f"Error generating definition for tool '{tool_info.get('name', 'N/A')}': {e}"
                 )
 
         if not tool_defs:

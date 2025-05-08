@@ -1,5 +1,6 @@
 import time
-from typing import List, Dict, Any, Optional, Type, Union
+import json
+from typing import List, Dict, Any, Optional, Union
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -8,7 +9,7 @@ from langchain.docstore.document import Document
 # Assuming RAGManager and Messager are accessible or passed during initialization
 from tools.RAG.rag import RAGManager
 from core.messager.messager import Messager
-from core.tool_base import BaseTool  # Import BaseTool
+from core.tools.tool_base import BaseTool  # Import BaseTool
 from core.logger import get_logger, LogLevel, parse_log_level
 
 
@@ -55,7 +56,7 @@ def format_docs_for_tool_output(docs: List[Document]) -> str:
         return "No relevant information found in the knowledge base for the query."
 
     formatted_docs = []
-    for i, doc in enumerate(docs):
+    for _, doc in enumerate(docs):
         ts_unix = doc.metadata.get("timestamp", 0)
         ts_str = "N/A"
         if ts_unix:
@@ -73,8 +74,6 @@ def format_docs_for_tool_output(docs: List[Document]) -> str:
 
 # --- Tool Implementation --- Inherit from BaseTool
 class KnowledgeBaseTool(BaseTool):
-    TOOL_ID = "knowledge_base_tool"  # Class attribute for easy access
-
     def __init__(
         self,
         messager: Messager,
@@ -82,16 +81,18 @@ class KnowledgeBaseTool(BaseTool):
         log_level: Union[LogLevel, str] = LogLevel.INFO,
     ):
         """rag_manager is optional when instantiating in Agent for prompt-only tools."""
+        # Build JSON API schema for tool registration
+        api_schema = KnowledgeBaseInput.model_json_schema()
         super().__init__(
-            tool_id=self.TOOL_ID,
-            name="Knowledge Base Tool",
-            description=(
+            name="knowledge_base_tool",
+            manual=(
                 "Manages the knowledge base. "
                 "Use 'remind' to search for information relevant to a query. Specify the query and optionally a collection name. "
                 "Use 'remember' to add new information to the knowledge base. Provide content_to_add parameter with the text to store. "
                 "Use 'forget' to remove information from the knowledge base with a where_filter. "
                 "Use 'list_collections' to get a list of all available collections."
             ),
+            api=json.dumps(api_schema),
             argument_schema=KnowledgeBaseInput,
             messager=messager,
         )
@@ -120,7 +121,7 @@ class KnowledgeBaseTool(BaseTool):
         for handler in self.logger.handlers:
             handler.setLevel(self.log_level.value)
 
-    def _execute(
+    async def _execute(
         self,
         action: KBAction,
         query: Optional[str] = None,
@@ -139,7 +140,7 @@ class KnowledgeBaseTool(BaseTool):
             self.logger.info(
                 f"Retrieving from collection '{collection_name or 'default'}' with query: '{query[:50]}...'"
             )
-            docs = self.rag_manager.retrieve(query=query, collection_name=collection_name)
+            docs = await self.rag_manager.retrieve(query=query, collection_name=collection_name)
             formatted_result = format_docs_for_tool_output(docs)
             self.logger.info(f"Found {len(docs)} documents for query")
 
@@ -155,7 +156,7 @@ class KnowledgeBaseTool(BaseTool):
             self.logger.info(
                 f"Adding content to collection '{collection_name or 'default'}': '{content[:50]}...'"
             )
-            success = self.rag_manager.remember(
+            success = await self.rag_manager.remember(
                 text=content,
                 collection_name=collection_name,
                 source=kwargs.get("source", "tool_remember"),
@@ -177,7 +178,9 @@ class KnowledgeBaseTool(BaseTool):
             self.logger.info(
                 f"Forgetting entries from collection '{collection_name or 'default'}' with filter: {where}"
             )
-            result = self.rag_manager.forget(where_filter=where, collection_name=collection_name)
+            result = await self.rag_manager.forget(
+                where_filter=where, collection_name=collection_name
+            )
             self.logger.info(f"Forget action result: {result}")
 
             return result

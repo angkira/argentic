@@ -100,11 +100,20 @@ class Messager:
         self,
         topic: str,
         handler: MessageHandler,
-        qos: int = 0,
-        is_reconnect: bool = False,
+        message_cls: BaseMessage = BaseMessage,
     ) -> None:
         """Delegate subscription to driver"""
-        await self._driver.subscribe(topic, handler, qos=qos)
+
+        def handler_adapter(payload: bytes) -> None:
+            """Adapts the payload to the expected message class"""
+            try:
+                message = message_cls.model_validate_json(payload.decode("utf-8"))
+                handler(message)
+            except Exception as e:
+                self.logger.error(f"Failed to handle message: {e}", exc_info=True)
+                self.logger.debug(f"Payload: {payload.decode('utf-8')}", exc_info=True)
+
+        await self._driver.subscribe(topic, handler_adapter)
 
     async def unsubscribe(self, topic: str) -> None:
         """Delegate unsubscribe to driver if supported"""
