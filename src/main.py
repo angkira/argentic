@@ -2,20 +2,13 @@ import asyncio
 import signal
 from typing import Optional
 import yaml
-import os
 from dotenv import load_dotenv
 
 # Core components (assuming they are updated)
 from core.messager.messager import Messager
 from core.agent.agent import Agent
-from core.tools.tool_manager import ToolManager
-from core.logger import get_logger, LogLevel, parse_log_level
-from core.protocol.message import (
-    from_payload,
-    AnyMessage,
-    StatusMessage,
-)  # Import necessary message types
-from pydantic import ValidationError
+from core.logger import get_logger, parse_log_level
+from core.protocol.message import AskQuestionMessage  # For parsing incoming questions
 
 # LLM Integration (Example using Ollama)
 from langchain_community.chat_models import ChatOllama
@@ -24,39 +17,8 @@ from langchain_community.chat_models import ChatOllama
 stop_event = asyncio.Event()
 messager: Optional[Messager] = None
 agent: Optional[Agent] = None
-tool_manager: Optional[ToolManager] = None
-
 logger = get_logger("main")  # Global logger for the main module
 load_dotenv()  # Load environment variables from .env file
-
-
-# --- Example Handlers (ensure signatures match aiomqtt.Message) ---
-async def handle_agent_status(msg: aiomqtt.Message):
-    """Example handler for agent status messages."""
-    topic = msg.topic.value
-    payload = msg.payload
-    logger.info(f"Received status message on topic: {topic}")
-    try:
-        # Use from_payload or specific model validation
-        status_msg: AnyMessage = from_payload(topic, payload)
-        if isinstance(status_msg, StatusMessage):
-            logger.info(f"Agent Status Update: {status_msg.status} - {status_msg.detail}")
-            # Update internal state or UI based on status
-        else:
-            logger.warning(
-                f"Received non-StatusMessage on status topic: {type(status_msg).__name__}"
-            )
-
-    except (ValidationError, ValueError) as e:
-        payload_preview = payload[:100].decode("utf-8", errors="replace")
-        logger.error(
-            f"Failed to parse status message on {topic}: {e}. Payload: '{payload_preview}...'"
-        )
-    except Exception as e:
-        logger.error(f"Error handling status message on {topic}: {e}", exc_info=True)
-
-
-# Add other handlers like handle_command if needed, ensuring they take aiomqtt.Message
 
 
 async def shutdown_handler(sig):
@@ -70,9 +32,11 @@ async def shutdown_handler(sig):
             logger.info("Messager stopped.")
         except Exception as e:
             logger.error(f"Error stopping messager: {e}")
-    # Cancel remaining tasks (excluding self) - This might be handled by asyncio.run cleanup
-    # tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    # ... task cancellation logic ...
+    # Cancel all remaining tasks
+    remaining = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for task in remaining:
+        task.cancel()
+    await asyncio.gather(*remaining, return_exceptions=True)
 
 
 async def main():
@@ -82,6 +46,7 @@ async def main():
     config = yaml.safe_load(open("config.yaml"))
     mqtt_cfg = config["mqtt"]
     llm_cfg = config["llm"]
+    topic_cfg = config["topics"]
     log_cfg = config.get("logging", {})
     log_level = parse_log_level(log_cfg.get("level", "info"))
     logger.setLevel(log_level.value)
@@ -105,13 +70,18 @@ async def main():
     llm = ChatOllama(model=llm_cfg["model_name"])
     logger.info(f"LLM initialized: {llm_cfg['model_name']}")
 
-    # Initialize Agent (passes messager)
-    agent = Agent(llm=llm, messager=messager, log_level=log_level)
-    agent.answer_topic = mqtt_cfg["topics"]["responses"]["answer"]
+    # Initialize Agent with topics from config (passes messager)
+    tools_cfg = topic_cfg.get("tools", {})
+    register_topic = tools_cfg.get("register", "agent/tools/register")
+    agent = Agent(
+        llm=llm,
+        messager=messager,
+        log_level=log_level,
+        register_topic=register_topic,
+    )
 
-    # ToolManager is initialized inside Agent now, access it via agent.tool_manager
-    tool_manager = agent.tool_manager
-    logger.info("Agent and ToolManager initialized.")
+    agent.answer_topic = topic_cfg["responses"]["answer"]
+    logger.info("Agent initialized; will initialize ToolManager after connecting.")
 
     # --- Setup Signal Handling ---
     loop = asyncio.get_running_loop()
@@ -124,29 +94,24 @@ async def main():
         if not await messager.connect():
             logger.critical("Messager connection failed. Exiting.")
             return
+
+        # Now that Messager is connected, initialize ToolManager subscriptions
+        await agent.async_init()
+        logger.info("Agent and ToolManager async_init complete after connection.")
+
         await messager.log("AI Agent: Messager connected.")
         logger.info("Messager connected.")
 
         # --- Subscribe to ask_question topic from config ---
-        ask_topic = mqtt_cfg["topics"]["commands"]["ask_question"]
-        await messager.subscribe(ask_topic, agent.handle_ask_question)
+        ask_topic = topic_cfg["commands"]["ask_question"]
+        await messager.subscribe(
+            ask_topic,
+            agent.handle_ask_question,
+            message_cls=AskQuestionMessage,
+        )
         logger.info(f"Subscribed to ask topic: {ask_topic}")
 
-        # Define handlers and topics
-        topic_handlers = {
-            # mqtt_cfg["subscriptions"]["agent_status"]: handle_agent_status,
-            tool_manager.register_topic: tool_manager._handle_tool_message,
-            tool_manager.response_topic_base + "/#": tool_manager._handle_result_message,
-        }
-
-        # Subscribe to other topics individually
-        logger.info("Subscribing to topics...")
-        for topic, handler in topic_handlers.items():
-            try:
-                await messager.subscribe(topic, handler)
-                logger.info(f"Subscribed to topic: {topic}")
-            except Exception as e:
-                logger.error(f"Failed to subscribe to topic {topic}: {e}")
+        # Other tool registrations and result subscriptions are handled internally by ToolManager
 
         # --- Main Loop / Wait ---
         logger.info("AI Agent running... Press Ctrl+C to exit.")

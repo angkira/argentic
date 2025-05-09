@@ -1,10 +1,9 @@
 from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
-from core.protocol.message import BaseMessage, from_payload
+from core.protocol.message import BaseMessage
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from typing import Optional
+from typing import Optional, Dict, List
 
 import asyncio
-from typing import Dict
 
 
 class KafkaDriver(BaseDriver):
@@ -12,7 +11,10 @@ class KafkaDriver(BaseDriver):
         super().__init__(config)
         self._producer: Optional[AIOKafkaProducer] = None
         self._consumer: Optional[AIOKafkaConsumer] = None
-        self._tasks: Dict[str, asyncio.Task] = {}
+        # topic to list of handlers
+        self._listeners: Dict[str, List[MessageHandler]] = {}
+        # task reading from all subscribed topics
+        self._reader_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> None:
         servers = f"{self.config.url}:{self.config.port}"
@@ -32,20 +34,32 @@ class KafkaDriver(BaseDriver):
         await self._producer.send_and_wait(topic, data)
 
     async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
-        servers = f"{self.config.url}:{self.config.port}"
-        self._consumer = AIOKafkaConsumer(
-            topic, bootstrap_servers=servers, group_id=kwargs.get("group_id")
-        )
-        await self._consumer.start()
+        # register handler and (re)subscribe consumer
+        if topic not in self._listeners:
+            self._listeners[topic] = []
+            # initialize consumer on first subscribe
+            if self._consumer is None:
+                servers = f"{self.config.url}:{self.config.port}"
+                self._consumer = AIOKafkaConsumer(
+                    bootstrap_servers=servers,
+                    group_id=kwargs.get("group_id"),
+                )
+                # subscribe to first topic
+                await self._consumer.start()
+                await self._consumer.subscribe([topic])
+                # start reader task
+                self._reader_task = asyncio.create_task(self._reader())
+            else:
+                # add new topic subscription
+                current = list(self._listeners.keys()) + [topic]
+                await self._consumer.subscribe(current)
+        self._listeners[topic].append(handler)
 
-        async def _reader() -> None:
-            async for msg in self._consumer:
-                # Map raw Kafka message to BaseMessage
-                protocol_msg = from_payload(topic, msg.value)
-                await handler(protocol_msg)
-
-        task = asyncio.create_task(_reader())
-        self._tasks[topic] = task
+    async def _reader(self) -> None:
+        # single reader for all subscribed topics
+        async for msg in self._consumer:
+            for h in self._listeners.get(msg.topic, []):
+                await h(msg.value)
 
     def is_connected(self) -> bool:
         return bool(self._producer and not getattr(self._producer, "_closed", True))

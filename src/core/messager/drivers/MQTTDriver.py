@@ -8,7 +8,7 @@ import aiomqtt
 import asyncio
 import contextlib
 import json
-from typing import Any, Callable, Coroutine, Dict, Optional
+from typing import Any, Callable, Coroutine, Dict, Optional, List
 
 
 class MQTTDriver(BaseDriver):
@@ -21,7 +21,7 @@ class MQTTDriver(BaseDriver):
             password=config.password,
             tls_params=None,
         )
-        self._listeners: Dict[str, Callable[[BaseMessage], Coroutine]] = {}
+        self._listeners: Dict[str, List[Callable[[BaseMessage], Coroutine]]] = {}
         self._listen_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> None:
@@ -31,10 +31,10 @@ class MQTTDriver(BaseDriver):
 
     async def _listen(self) -> None:
         async for msg in self._client.messages:
-            for pattern, handler in self._listeners.items():
+            for pattern, handlers in self._listeners.items():
                 if topic_matches_sub(pattern, msg.topic.value):
-                    protocol_msg = BaseMessage(**msg.payload)
-                    asyncio.create_task(handler(protocol_msg))
+                    for handler in handlers:
+                        asyncio.create_task(handler(msg.payload))
 
     async def disconnect(self) -> None:
         if self._listen_task:
@@ -54,8 +54,11 @@ class MQTTDriver(BaseDriver):
     async def subscribe(
         self, topic: str, handler: Callable[[BaseMessage], Coroutine], qos: int = 0
     ) -> None:
-        self._listeners[topic] = handler
-        await self._client.subscribe(topic, qos=qos)
+        # register handler and subscribe once per topic
+        if topic not in self._listeners:
+            self._listeners[topic] = []
+            await self._client.subscribe(topic, qos=qos)
+        self._listeners[topic].append(handler)
 
     def is_connected(self) -> bool:
         return bool(self._client and getattr(self._client, "_connected", False))

@@ -16,7 +16,8 @@ class Agent:
     """Manages interaction with LLM and ToolManager (Async Version)."""
 
     def __init__(
-        self, llm: Any, messager: Messager, log_level: Union[str, LogLevel] = LogLevel.INFO
+        self, llm: Any, messager: Messager, log_level: Union[str, LogLevel] = LogLevel.INFO,
+        register_topic: str = "agent/tools/register"
     ):
         self.llm = llm
         self.messager = messager
@@ -28,12 +29,20 @@ class Agent:
 
         self.logger = get_logger("agent", self.log_level)
 
-        # Initialize the async ToolManager
-        self.tool_manager = ToolManager(messager, log_level=self.log_level)
+        # Initialize the async ToolManager (private)
+        self._tool_manager = ToolManager(
+            messager, log_level=self.log_level, register_topic=register_topic
+        )
         self.prompt_template = self._build_prompt_template()
         self.max_tool_iterations = 10
 
         self.logger.info("Agent initialized (Async Version)")
+
+    async def async_init(self):
+        """Async initialization for Agent, including tool manager subscriptions."""
+        # Subscribe tool manager to registration topics
+        await self._tool_manager.async_init()
+        self.logger.info("Agent: ToolManager initialized via async_init")
 
     def _build_prompt_template(self) -> PromptTemplate:
         # Updated prompt to explain how tool results are provided
@@ -76,7 +85,7 @@ ANSWER:"""
             handler.setLevel(self.log_level.value)
 
         # Update tool manager log level
-        self.tool_manager.set_log_level(self.log_level)
+        self._tool_manager.set_log_level(self.log_level)
 
     # --- Methods updated for async logging ---
 
@@ -227,7 +236,7 @@ ANSWER:"""
             if tool_name and isinstance(arguments, dict):
                 self.logger.info(f"Scheduling tool '{tool_name}' with args: {arguments}")
                 tasks.append(
-                    asyncio.create_task(self.tool_manager.execute_tool(tool_name, arguments))
+                    asyncio.create_task(self._tool_manager.execute_tool(tool_name, arguments))
                 )
                 call_info.append({"name": tool_name})
             else:
@@ -308,7 +317,7 @@ ANSWER:"""
         final_answer = None
 
         try:
-            tool_descriptions = self.tool_manager.generate_tool_descriptions_for_prompt()
+            tool_descriptions = self._tool_manager.generate_tool_descriptions_for_prompt()
             initial_prompt_text = self.raw_template.format(
                 tool_descriptions=tool_descriptions, question=question
             )
@@ -450,7 +459,13 @@ ANSWER:"""
             answer = await self.query(question, user_id=user_id)
             from core.protocol.message import AnswerMessage
 
-            answer_msg = AnswerMessage(answer=answer, user_id=user_id, source="agent")
+            # Include required question field and correct source
+            answer_msg = AnswerMessage(
+                source=self.messager.client_id,
+                question=question,
+                answer=answer,
+                user_id=user_id,
+            )
             await self.messager.publish(self.answer_topic, answer_msg.model_dump_json())
             self.logger.info(f"Published answer to {self.answer_topic}")
 

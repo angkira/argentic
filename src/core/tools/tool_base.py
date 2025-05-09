@@ -36,7 +36,7 @@ class BaseTool(ABC):
         self.api = api
         # task_topic and result_topic will be set after registration (when self.id is available)
 
-    async def initialize(self):
+    async def _initialize(self):
         """Subscribes the tool to its task topic."""
         if self._initialized:
             await self.messager.log(
@@ -53,26 +53,26 @@ class BaseTool(ABC):
         )
         self._initialized = True
 
-    async def register(self, registration_topic: str):
-        registration_message = RegisterToolMessage(
-            source=self.messager.client_id,
-            tool_name=self.name,
-            tool_manual=self.manual,
-            tool_api=self.api,
-        )
-
-        await self.messager.publish(
-            registration_topic,
-            registration_message,
-        )
+    async def register(
+        self,
+        registration_topic: str,
+        status_topic: str,
+        call_topic_base: str,
+        response_topic_base: str,
+    ):
+        """Publishes RegisterToolMessage and listens on status_topic for confirmation."""
+        # store topic bases
+        self.registration_topic = registration_topic
+        self.call_topic_base = call_topic_base
+        self.response_topic_base = response_topic_base
 
         async def registration_handler(
             message: Union[ToolRegisteredMessage, ToolRegistrationErrorMessage],
         ):
-            # assign tool ID and set topics
+            # assign tool ID and set task/result topics
             self.id = message.tool_id
-            self.task_topic = f"tool/{self.id}/task"
-            self.result_topic = f"tool/{self.id}/result"
+            self.task_topic = f"{self.call_topic_base}/{self.id}"
+            self.result_topic = f"{self.response_topic_base}/{self.id}"
 
             if isinstance(message, ToolRegistrationErrorMessage):
                 await self.messager.log(
@@ -81,33 +81,44 @@ class BaseTool(ABC):
                 )
                 return
 
+            # on successful registration
             await self.messager.log(
                 f"Tool '{self.name}': Registered successfully with ID: {self.id}",
                 level="info",
             )
+            # subscribe to incoming task messages now that id is set
+            await self._initialize()
 
-            # subscribe to task messages now that topics are available
-            await self.initialize()
-
-        # subscribe to both registration success and error responses
+        # subscribe to confirmation messages on status_topic before publishing
         await self.messager.subscribe(
-            registration_topic,
+            status_topic,
             registration_handler,
             message_cls=ToolRegisteredMessage,
         )
-        await self.messager.subscribe(
-            registration_topic,
-            registration_handler,
-            message_cls=ToolRegistrationErrorMessage,
+
+        self.logger.info(
+            f"Tool '{self.name}': Subscribed to status topic '{status_topic}' for registration confirmation."
         )
 
-    async def unregister(self, registration_topic: str):
+        self.logger.info(
+            f"Tool '{self.name}': Publishing registration message to topic '{registration_topic}'."
+        )
+        # send registration request after subscriptions in place
+        registration_message = RegisterToolMessage(
+            source=self.messager.client_id,
+            tool_name=self.name,
+            tool_manual=self.manual,
+            tool_api=self.api,
+        )
+        await self.messager.publish(registration_topic, registration_message)
+
+    async def unregister(self):
         unregister_message = UnregisterToolMessage(
             tool_id=self.id,
         )
 
         await self.messager.publish(
-            registration_topic,
+            self.registration_topic,
             unregister_message,
         )
 

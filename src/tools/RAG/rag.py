@@ -1,4 +1,3 @@
-import asyncio
 from typing import List, Dict, Any, Optional, Literal
 import time
 import chromadb

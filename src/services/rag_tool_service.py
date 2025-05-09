@@ -8,7 +8,7 @@ from typing import Optional
 from core.messager.messager import Messager
 from tools.RAG.rag import RAGManager
 from tools.RAG.knowledge_base_tool import KnowledgeBaseTool
-from core.logger import get_logger, LogLevel, parse_log_level
+from core.logger import get_logger, parse_log_level
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.embeddings.base import Embeddings
@@ -17,14 +17,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-logger = get_logger("rag_tool_service", LogLevel.INFO)
-
-HG_TOKEN = os.getenv("HG_TOKEN")
-
 # --- Configuration Loading ---
 config = yaml.safe_load(open("config.yaml"))
 mqtt_cfg = config["mqtt"]
-topic_cfg = config["topics"]
+topic_cfg = config.get("topics", {})
 
 rag_config_path = os.path.join("src", "tools", "RAG", "rag_config.yaml")
 rag_config = yaml.safe_load(open(rag_config_path))
@@ -35,7 +31,7 @@ collections_cfg = rag_config.get("collections", {})
 
 log_level_str = config.get("logging", {}).get("level", "debug")
 log_level = parse_log_level(log_level_str)
-logger.setLevel(log_level.value)
+logger = get_logger("rag_tool_service", log_level)
 
 logger.info("Configuration loaded successfully.")
 logger.info(f"MQTT Broker: {mqtt_cfg['broker_address']}, Port: {mqtt_cfg['port']}")
@@ -49,13 +45,15 @@ logger.info("Initializing messager and RAG components...")
 messager: Optional[Messager] = None
 kb_tool: Optional[KnowledgeBaseTool] = None
 rag_manager: Optional[RAGManager] = None
-assigned_tool_id: Optional[str] = None
 stop_event = asyncio.Event()
 
 
 async def shutdown_handler():
     """Graceful shutdown handler."""
     logger.info("Shutdown initiated...")
+
+    await kb_tool.unregister()
+    logger.info("KnowledgeBaseTool unregistered.")
     stop_event.set()
     if messager and messager.is_connected():
         logger.info("Stopping messager...")
@@ -144,13 +142,17 @@ async def main():
         logger.info("RAGManager initialized asynchronously.")
 
         kb_tool = KnowledgeBaseTool(messager=messager, rag_manager=rag_manager)
+
         logger.info(f"KnowledgeBaseTool instance created: {kb_tool.name}")
 
-        # Register the tool and let BaseTool handle task subscriptions
-        register_topic = mqtt_cfg.get("subscriptions", {}).get(
-            "tool_register", "agent/tools/register"
-        )
-        await kb_tool.register(register_topic)
+        # Register the tool: publish on register_topic and listen on Agent's status topic
+        tools_topics = topic_cfg.get("tools", {})
+        register_topic = tools_topics.get("register", "agent/tools/register")
+        call_topic_base = tools_topics.get("call", "agent/tools/call")
+        response_topic_base = tools_topics.get("response_base", "agent/tools/response")
+        # Agent publishes confirmations on responses.status (e.g. 'agent/status/info')
+        status_topic = topic_cfg.get("responses", {}).get("status", "agent/status/info")
+        await kb_tool.register(register_topic, status_topic, call_topic_base, response_topic_base)
 
         logger.info("RAG Tool Service running... Press Ctrl+C to exit.")
         await stop_event.wait()

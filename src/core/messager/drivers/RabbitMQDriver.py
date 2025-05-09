@@ -1,7 +1,7 @@
 from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
-from core.protocol.message import BaseMessage, from_payload
+from core.protocol.message import BaseMessage
 
-from typing import Optional
+from typing import Optional, List, Dict
 import aio_pika
 
 
@@ -10,6 +10,10 @@ class RabbitMQDriver(BaseDriver):
         super().__init__(config)
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None
+        # topic to list of handlers
+        self._listeners: Dict[str, List[MessageHandler]] = {}
+        # track queues per topic
+        self._queues: Dict[str, aio_pika.Queue] = {}
 
     async def connect(self) -> None:
         url = f"amqp://{self.config.user}:{self.config.password}@{self.config.url}:{self.config.port}/"
@@ -29,17 +33,23 @@ class RabbitMQDriver(BaseDriver):
         await exchange.publish(message, routing_key="")
 
     async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
-        exchange = await self._channel.declare_exchange(topic, aio_pika.ExchangeType.FANOUT)
-        queue = await self._channel.declare_queue(exclusive=True)
-        await queue.bind(exchange)
+        # register handler and setup consumer on first subscribe per topic
+        if topic not in self._listeners:
+            self._listeners[topic] = []
+            # declare exchange and queue
+            exchange = await self._channel.declare_exchange(topic, aio_pika.ExchangeType.FANOUT)
+            queue = await self._channel.declare_queue(exclusive=True)
+            await queue.bind(exchange)
+            self._queues[topic] = queue
 
-        async def _reader(message: aio_pika.IncomingMessage) -> None:
-            async with message.process():
-                # Map raw RabbitMQ message to BaseMessage
-                protocol_msg = from_payload(topic, message.body)
-                await handler(protocol_msg)
+            # single reader for this topic
+            async def _reader(message: aio_pika.IncomingMessage) -> None:
+                async with message.process():
+                    for h in self._listeners.get(topic, []):
+                        await h(message.body)
 
-        await queue.consume(_reader)
+            await queue.consume(_reader)
+        self._listeners[topic].append(handler)
 
     def is_connected(self) -> bool:
         return bool(self._connection and not getattr(self._connection, "is_closed", True))

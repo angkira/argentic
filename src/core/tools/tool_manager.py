@@ -1,23 +1,23 @@
 import asyncio
-from logging import Logger
-import uuid
 import json
 import traceback
-from typing import Dict, Any, Optional, Union
+import uuid
 from datetime import datetime, timezone
+from logging import Logger
+from typing import Any, Dict, Optional, Union
 
-from pydantic import ValidationError
-
-from core.protocol.message import (
-    RegisterToolMessage,
-    UnregisterToolMessage,
-    ToolRegisteredMessage,
+from core.logger import LogLevel, get_logger, parse_log_level
+from core.messager.messager import Messager
+from core.protocol.task import (
     TaskMessage,
     TaskResultMessage,
     TaskStatus,
 )
-from core.messager.messager import Messager
-from core.logger import get_logger, LogLevel, parse_log_level
+from core.protocol.tool import (
+    RegisterToolMessage,
+    ToolRegisteredMessage,
+    UnregisterToolMessage,
+)
 
 
 class ToolManager:
@@ -29,6 +29,7 @@ class ToolManager:
     _result_lock: asyncio.Lock
     _default_timeout: int
     register_topic: str
+    status_topic: str
     messager: Messager
     log_level: LogLevel
     logger: Logger
@@ -38,6 +39,7 @@ class ToolManager:
         messager: Messager,
         log_level: Union[LogLevel, str] = LogLevel.INFO,
         register_topic: str = "agent/tools/register",
+        status_topic: str = "agent/status/info",
     ):
         self.messager = messager
 
@@ -56,21 +58,28 @@ class ToolManager:
         self._default_timeout = 30  # seconds
 
         self.register_topic = register_topic
+        self.status_topic = status_topic
 
-        # connect and subscribe to tool registration messages
-        asyncio.run(self.messager.connect())
-        asyncio.run(
-            self.messager.subscribe(
-                self.register_topic, self._handle_tool_message, message_cls=RegisterToolMessage
-            )
-        )
-        asyncio.run(
-            self.messager.subscribe(
-                self.register_topic, self._handle_tool_message, message_cls=UnregisterToolMessage
-            )
-        )
+        # Subscriptions moved to async_init()
 
         self.logger.info("ToolManager async initialization complete.")
+
+    async def async_init(self) -> None:
+        """Asynchronously subscribe to registration and unregistration message types."""
+        # Subscribe separately to each tool message type
+        await self.messager.subscribe(
+            self.register_topic,
+            self._handle_register_tool,
+            message_cls=RegisterToolMessage,
+        )
+        await self.messager.subscribe(
+            self.register_topic,
+            self._handle_unregister_tool,
+            message_cls=UnregisterToolMessage,
+        )
+        self.logger.info(
+            f"ToolManager subscribed to tool registration and unregistration on: {self.register_topic}"
+        )
 
     def set_log_level(self, level: Union[LogLevel, str]) -> None:
         """Set logging level for the ToolManager"""
@@ -84,24 +93,6 @@ class ToolManager:
 
         for handler in self.logger.handlers:
             handler.setLevel(self.log_level.value)
-
-    async def _handle_tool_message(self, msg: Union[RegisterToolMessage, UnregisterToolMessage]):
-        """Handles tool registration and unregistration messages (protocol message only)."""
-        self.logger.debug(f"Received tool message: {msg}")
-        try:
-            if isinstance(msg, RegisterToolMessage):
-                await self._handle_register_tool(msg)
-            elif isinstance(msg, UnregisterToolMessage):
-                await self._handle_unregister_tool(msg)
-            else:
-                self.logger.warning(
-                    f"Received unexpected message type {type(msg).__name__} on tool message topic. Ignoring."
-                )
-        except (ValueError, ValidationError) as e:
-            self.logger.error(f"Failed to parse/validate tool message: {e}. Message: '{msg}'")
-        except Exception as e:
-            self.logger.error(f"Failed to handle tool message: {e}")
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
 
     async def _handle_result_message(self, msg: TaskResultMessage):
         """Handles incoming task result messages (protocol message only)."""
@@ -161,12 +152,11 @@ class ToolManager:
             recipient=reg_msg.source,
         )
 
-        status_topic = "agent/status/info"
-
-        await self.messager.publish(status_topic, confirmation)
+        # publish confirmation on configured status topic
+        await self.messager.publish(self.status_topic, confirmation)
 
         self.logger.info(
-            f"Sent registration confirmation for '{reg_msg.tool_name}' to {reg_msg.source} via {status_topic}"
+            f"Sent registration confirmation for '{reg_msg.tool_name}' to {reg_msg.source} via {self.status_topic}"
         )
 
     async def _handle_unregister_tool(self, unreg_msg: UnregisterToolMessage):
