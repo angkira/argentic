@@ -1,7 +1,7 @@
 # RAG Configuration File
 embedding:
   model_name: thenlper/gte-small
-  device: cuda
+  device: cpu
   normalize: true
 
 # Base configuration for vector stores
@@ -18,7 +18,7 @@ collections:
       search_type: mmr
       fetch_k: 20
       distance_metric: cosine
-  
+
   documentation:
     # Different retrieval settings for documentation
     retriever:
@@ -26,7 +26,7 @@ collections:
       search_type: mmr
       fetch_k: 30
       distance_metric: cosine
-  
+
   code_examples:
     retriever:
       k: 5

@@ -1,37 +1,71 @@
-# filepath: /mnt/c/Users/angkira/Project/services/rag/config.yaml
 llm:
-  backend: ollama
-  model_name: gemma3:12b-it-qat
-  server_binary: ~/llama.cpp/build/bin/llama-server
-  server_args:
+  # provider: ollama # Renamed from backend
+  # Ollama specific settings
+  ollama_model_name: gemma3:12b-it-qat # Example: if provider is ollama
+  ollama_use_chat_model: true # To distinguish between OllamaLLM and ChatOllama
+
+  # Llama.cpp Server specific settings
+  llama_cpp_server_binary: ~/llama.cpp/build/bin/llama-server
+  llama_cpp_server_args:
     - --host
     - 127.0.0.1
     - --port
     - 5000
     - -m
     - ~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf
-  server_host: 127.0.0.1
-  server_port: 5000
-  llama_cpp_binary: ~/llama.cpp/build/bin/llama-gemma3-cli
-  llama_cpp_args:
+  llama_cpp_server_host: 127.0.0.1
+  llama_cpp_server_port: 5000
+  llama_cpp_server_auto_start: false
+
+  # Llama.cpp CLI specific settings
+  llama_cpp_cli_binary: ~/llama.cpp/build/bin/llama-gemma3-cli
+  llama_cpp_cli_model_path: ~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf # Added for clarity
+  llama_cpp_cli_args:
     - --temp
     - 0.7
-    - --n
+    - --n-predict # llama.cpp uses --n-predict, not --n
     - 128
-  use_chat: true
 
-# RAG configuration is now in src/tools/RAG/rag_config.yaml
+  # Google Gemini specific settings
+  provider: google_gemini
+  google_gemini_api_key: "YOUR_GEMINI_API_KEY" # Store securely, e.g., via environment variable
+  google_gemini_model_name: "gemini-2.0-flash" # Updated to match official example
 
-mqtt:
+messaging:
+  # Connection settings
+  protocol: mqtt
   broker_address: localhost
   port: 1883
+  keepalive: 60
+
+  # Client IDs
   client_id: ai_agent_client
   tool_client_id: ai_tool_service
-  keepalive: 60
+  cli_client_id: cli_client
+
+# Topic structure
+topics:
+  # Agent command topics
+  commands:
+    ask_question: agent/command/ask_question
+    status_request: agent/status/request
+
+  # Agent response topics
+  responses:
+    answer: agent/response/answer
+    status: agent/status/info
+
+  # Logging
+  log: agent/log
+
+  # Tool communication
+  tools:
+    register: agent/tools/register
+    call: agent/tools/call
+    response_base: agent/tools/response
+
+  # Subscription mapping
   subscriptions:
     agent/command/ask_question: handle_ask_question
     agent/status/request: handle_status_request
-  publish_topics:
-    response: agent/response/answer
-    status: agent/status/info
-    log: agent/log
+    agent/response/answer: handle_agent_answer # Add this for CLI client

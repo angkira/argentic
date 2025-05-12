@@ -1,5 +1,6 @@
 import time
-from typing import List, Dict, Any, Optional, Type, Union
+import json
+from typing import List, Dict, Any, Optional, Union
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -7,8 +8,8 @@ from langchain.docstore.document import Document
 
 # Assuming RAGManager and Messager are accessible or passed during initialization
 from tools.RAG.rag import RAGManager
-from core.messager import Messager
-from core.tool_base import BaseTool  # Import BaseTool
+from core.messager.messager import Messager
+from core.tools.tool_base import BaseTool  # Import BaseTool
 from core.logger import get_logger, LogLevel, parse_log_level
 
 
@@ -55,7 +56,7 @@ def format_docs_for_tool_output(docs: List[Document]) -> str:
         return "No relevant information found in the knowledge base for the query."
 
     formatted_docs = []
-    for i, doc in enumerate(docs):
+    for _, doc in enumerate(docs):
         ts_unix = doc.metadata.get("timestamp", 0)
         ts_str = "N/A"
         if ts_unix:
@@ -73,7 +74,7 @@ def format_docs_for_tool_output(docs: List[Document]) -> str:
 
 # --- Tool Implementation --- Inherit from BaseTool
 class KnowledgeBaseTool(BaseTool):
-    TOOL_ID = "knowledge_base_tool"  # Class attribute for easy access
+    id: str = None
 
     def __init__(
         self,
@@ -82,16 +83,18 @@ class KnowledgeBaseTool(BaseTool):
         log_level: Union[LogLevel, str] = LogLevel.INFO,
     ):
         """rag_manager is optional when instantiating in Agent for prompt-only tools."""
+        # Build JSON API schema for tool registration
+        api_schema = KnowledgeBaseInput.model_json_schema()
         super().__init__(
-            tool_id=self.TOOL_ID,
-            name="Knowledge Base Tool",
-            description=(
-                "Manages the knowledge base. "
+            name="knowledge_base_tool",
+            manual=(
+                "Manages the knowledge base. Use it only when you need some specific information, local context, user preferences, etc."
                 "Use 'remind' to search for information relevant to a query. Specify the query and optionally a collection name. "
                 "Use 'remember' to add new information to the knowledge base. Provide content_to_add parameter with the text to store. "
                 "Use 'forget' to remove information from the knowledge base with a where_filter. "
                 "Use 'list_collections' to get a list of all available collections."
             ),
+            api=json.dumps(api_schema),
             argument_schema=KnowledgeBaseInput,
             messager=messager,
         )
@@ -105,7 +108,6 @@ class KnowledgeBaseTool(BaseTool):
 
         self.logger = get_logger("kb_tool", self.log_level)
         self.logger.info("KnowledgeBaseTool instance created")
-        self.messager.mqtt_log(f"KnowledgeBaseTool instance created.")
 
     def set_log_level(self, level: Union[LogLevel, str]) -> None:
         """Set the log level for the tool"""
@@ -121,7 +123,7 @@ class KnowledgeBaseTool(BaseTool):
         for handler in self.logger.handlers:
             handler.setLevel(self.log_level.value)
 
-    def _execute(
+    async def _execute(
         self,
         action: KBAction,
         query: Optional[str] = None,
@@ -130,7 +132,6 @@ class KnowledgeBaseTool(BaseTool):
     ) -> Any:
         """Executes the requested action on the knowledge base."""
         self.logger.info(f"Executing action: {action.value}")
-        self.messager.mqtt_log(f"KB Tool executing action: {action.value}")
 
         if action == KBAction.REMIND:
             if not query:
@@ -141,10 +142,10 @@ class KnowledgeBaseTool(BaseTool):
             self.logger.info(
                 f"Retrieving from collection '{collection_name or 'default'}' with query: '{query[:50]}...'"
             )
-            docs = self.rag_manager.retrieve(query=query, collection_name=collection_name)
+            docs = await self.rag_manager.retrieve(query=query, collection_name=collection_name)
             formatted_result = format_docs_for_tool_output(docs)
             self.logger.info(f"Found {len(docs)} documents for query")
-            self.messager.mqtt_log(f"KB Tool 'remind' found {len(docs)} documents.")
+
             return formatted_result
 
         elif action == KBAction.REMEMBER:
@@ -157,7 +158,7 @@ class KnowledgeBaseTool(BaseTool):
             self.logger.info(
                 f"Adding content to collection '{collection_name or 'default'}': '{content[:50]}...'"
             )
-            success = self.rag_manager.remember(
+            success = await self.rag_manager.remember(
                 text=content,
                 collection_name=collection_name,
                 source=kwargs.get("source", "tool_remember"),
@@ -166,7 +167,7 @@ class KnowledgeBaseTool(BaseTool):
             )
             msg = f"Remember action {'succeeded' if success else 'failed'} for collection '{collection_name or 'default'}'."
             self.logger.info(msg)
-            self.messager.mqtt_log(msg)
+
             return msg
 
         elif action == KBAction.FORGET:
@@ -179,9 +180,11 @@ class KnowledgeBaseTool(BaseTool):
             self.logger.info(
                 f"Forgetting entries from collection '{collection_name or 'default'}' with filter: {where}"
             )
-            result = self.rag_manager.forget(where_filter=where, collection_name=collection_name)
+            result = await self.rag_manager.forget(
+                where_filter=where, collection_name=collection_name
+            )
             self.logger.info(f"Forget action result: {result}")
-            self.messager.mqtt_log(f"KB Tool 'forget' result: {result}")
+
             return result
 
         elif action == KBAction.LIST_COLLECTIONS:
@@ -198,14 +201,12 @@ class KnowledgeBaseTool(BaseTool):
                 }
 
                 self.logger.info(f"Found {len(collections)} collections")
-                self.messager.mqtt_log(
-                    f"KB Tool 'list_collections' found {len(collections)} collections."
-                )
+
                 return result
             except Exception as e:
                 error_msg = f"Error listing collections: {str(e)}"
                 self.logger.error(error_msg)
-                self.messager.mqtt_log(error_msg, level="error")
+
                 return {
                     "collections": [],
                     "default_collection": None,
@@ -215,4 +216,5 @@ class KnowledgeBaseTool(BaseTool):
         else:
             error_msg = f"Unsupported action: {action}"
             self.logger.error(error_msg)
+
             raise ValueError(error_msg)
