@@ -83,6 +83,7 @@ async def main():
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown_handler()))
 
     messager = Messager(
+        protocol=messaging_cfg["protocol"],
         broker_address=messaging_cfg["broker_address"],
         port=messaging_cfg["port"],
         client_id=messaging_cfg.get("tool_client_id", "rag_tool_service"),

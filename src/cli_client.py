@@ -51,6 +51,7 @@ class CliClient(Client):
     async def initialize(self):
         """Initialize the client in async context"""
         self.messager = Messager(
+            protocol=messaging_config["protocol"],
             broker_address=MESSAGING_BROKER,
             port=MESSAGING_PORT,
             client_id=self.client_id,

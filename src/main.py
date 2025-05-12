@@ -104,7 +104,7 @@ async def main():
 
     # Initialize Messager
     messager = Messager(
-        protocol=config["protocol"],
+        protocol=messaging_cfg["protocol"],
         broker_address=messaging_cfg["broker_address"],
         port=messaging_cfg["port"],
         client_id=messaging_cfg.get("client_id", "ai_agent_client"),  # Use client_id from config
