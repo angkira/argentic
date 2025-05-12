@@ -1,5 +1,5 @@
 [project]
-name = "Argentic"
+name = "argentic"
 version = "0.3.0"
 description = ""
 authors = [{ name = "Iurii", email = "angkira0@gmail.com" }]
@@ -33,6 +33,7 @@ dependencies = [
     "requests>=2.31.0,<3",
     "aiomqtt>=2.4.0",
     "langchain-google-genai>=2.1.4",
+    "python-dotenv",
 ]
 
 [dependency-groups]
@@ -47,6 +48,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.hatch.build]
+packages = ["src"]
+package-name = "argentic"
 
 [tool.black]
 line-length = 100
