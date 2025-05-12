@@ -74,6 +74,8 @@ def format_docs_for_tool_output(docs: List[Document]) -> str:
 
 # --- Tool Implementation --- Inherit from BaseTool
 class KnowledgeBaseTool(BaseTool):
+    id: str = None
+
     def __init__(
         self,
         messager: Messager,
@@ -86,7 +88,7 @@ class KnowledgeBaseTool(BaseTool):
         super().__init__(
             name="knowledge_base_tool",
             manual=(
-                "Manages the knowledge base. "
+                "Manages the knowledge base. Use it only when you need some specific information, local context, user preferences, etc."
                 "Use 'remind' to search for information relevant to a query. Specify the query and optionally a collection name. "
                 "Use 'remember' to add new information to the knowledge base. Provide content_to_add parameter with the text to store. "
                 "Use 'forget' to remove information from the knowledge base with a where_filter. "

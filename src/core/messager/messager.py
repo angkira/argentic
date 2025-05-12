@@ -111,33 +111,27 @@ class Messager:
             f"Subscribing to topic: {topic} with handler: {handler.__name__}, message_cls: {message_cls.__name__}"
         )
 
-        # Handler adapter: parse to BaseMessage, filter by type, then parse to specific model
-        def handler_adapter(payload: bytes) -> None:
+        # Make handler_adapter async and handle task creation properly
+        async def handler_adapter(payload: bytes) -> None:
             try:
-                self.logger.info(
-                    f"Parsing message to specific class: [{message_cls["type"]}] or {message_cls.__annotations__['type']}"
-                )
                 # parse raw payload into BaseMessage
                 base_msg = BaseMessage.model_validate_json(payload.decode("utf-8"))
             except Exception as e:
                 self.logger.error(f"Failed to parse BaseMessage: {e}", exc_info=True)
                 return
 
-            # self.logger.info(
-            #     f"Expected class: {message_cls.__name__}; Parsed BaseMessage: {base_msg.model_dump_json()}, {message_cls is not BaseMessage}"
-            # )
-
             if message_cls is not BaseMessage:
-
                 # Check if the message is of the expected type
                 try:
                     specific = message_cls.model_validate_json(payload.decode("utf-8"))
-                    return asyncio.create_task(handler(specific))
+                    # Create and forget task - don't return it
+                    asyncio.create_task(handler(specific))
+                    return
                 except ValidationError as e:
                     # extract error fields and ignore if only 'type' field is invalid
                     errors = e.errors()
-                    fields = {err.get('loc', (None,))[0] for err in errors}
-                    if fields != {'type'}:
+                    fields = {err.get("loc", (None,))[0] for err in errors}
+                    if fields != {"type"}:
                         self.logger.error(
                             f"Failed to parse message to {message_cls.__name__}: {e}", exc_info=True
                         )
@@ -147,8 +141,10 @@ class Messager:
                         f"Failed to parse message to {message_cls.__name__}: {e}", exc_info=True
                     )
                     return
-                # generic subscription
-            return asyncio.create_task(handler(base_msg))
+
+            # Create and forget task for generic subscription
+            asyncio.create_task(handler(base_msg))
+            # Don't return the task
 
         await self._driver.subscribe(topic, handler_adapter)
 

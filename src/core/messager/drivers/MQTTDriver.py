@@ -44,12 +44,19 @@ class MQTTDriver(BaseDriver):
         await self._client.__aexit__(None, None, None)
 
     async def publish(self, topic: str, payload: Any, qos: int = 0, retain: bool = False) -> None:
-        # Handle BaseMessage serialization
+        """Publish a message to the MQTT broker with a longer timeout"""
         if isinstance(payload, BaseMessage):
-            data = payload.model_dump_json().encode()
+            # If payload is a Pydantic model, convert it to JSON
+            data = payload.model_dump_json().encode("utf-8")
+        elif isinstance(payload, str):
+            data = payload.encode("utf-8")
+        elif isinstance(payload, bytes):
+            data = payload
         else:
-            data = payload if isinstance(payload, (bytes, str)) else json.dumps(payload).encode()
-        await self._client.publish(topic, payload=data, qos=qos, retain=retain)
+            data = json.dumps(payload).encode("utf-8")
+
+        # Increase timeout to 30 seconds and set QoS to 1 for better reliability
+        await self._client.publish(topic, payload=data, qos=qos, retain=retain, timeout=30.0)
 
     async def subscribe(
         self, topic: str, handler: Callable[[BaseMessage], Coroutine], qos: int = 0

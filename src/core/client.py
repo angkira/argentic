@@ -1,9 +1,9 @@
 import uuid
-from typing import Dict, Callable, Optional
+import asyncio
+from typing import Optional
 
 from core.messager.messager import Messager
-from core.decorators import mqtt_handler_decorator
-from core.protocol.message import AskQuestionMessage
+from core.protocol.message import AskQuestionMessage, AnswerMessage, BaseMessage
 from core.logger import get_logger, LogLevel
 
 
@@ -15,8 +15,6 @@ class Client:
         messager: Messager,
         user_id: Optional[str] = None,
         client_id: Optional[str] = None,
-        subscriptions: Optional[Dict[str, str]] = None,
-        handlers: Optional[Dict[str, Callable]] = None,
         log_level: LogLevel = LogLevel.INFO,
     ):
         """
@@ -26,16 +24,18 @@ class Client:
             messager: The Messager instance to use for communication
             user_id: Unique identifier for the user (defaults to UUID if not provided)
             client_id: Identifier for this client instance (defaults to class name + UUID)
-            subscriptions: Dict mapping topics to handler names
-            handlers: Dict mapping handler names to handler functions
             log_level: The logging level for this client
         """
         self.messager = messager
         self.user_id = user_id or str(uuid.uuid4())
         self.client_id = client_id or f"{self.__class__.__name__}_{uuid.uuid4()}"
-        self._subscriptions = subscriptions or {}
-        self._handlers = handlers or {}
         self.logger = get_logger(f"client.{self.__class__.__name__}", log_level)
+
+        # Track subscribed topics
+        self._subscribed_topics = set()
+
+        # Configure standard topics
+        self.answer_topic = None  # Will be set during registration
 
     async def connect(self) -> bool:
         """Connect to the MQTT broker. Returns True if successful."""
@@ -43,9 +43,8 @@ class Client:
 
         try:
             connect_result = await self.messager.connect()
-
             if not connect_result:
-                self.logger.error("Connection failed or timed out after 10 seconds")
+                self.logger.error("Connection failed or timed out")
                 return False
 
             self.logger.info("Connected to MQTT broker")
@@ -62,39 +61,58 @@ class Client:
         except Exception as e:
             self.logger.error(f"Error disconnecting: {e}")
 
-    async def register_handlers(self) -> None:
-        """Register all handlers for subscribed topics"""
-        self.logger.info("Registering handlers...")
-        for topic, handler_name in self._subscriptions.items():
-            raw_handler_func = self._handlers.get(handler_name)
-            if raw_handler_func:
-                # Apply the decorator manually here
-                decorated_handler = mqtt_handler_decorator(messager=self.messager)(raw_handler_func)
-                # Use subscribe method instead of register_handler
-                await self.messager.subscribe(topic, decorated_handler)
-                self.logger.info(f"Registered handler for topic: {topic}")
-            else:
-                self.logger.warning(f"Handler function '{handler_name}' not found")
+    async def register_handlers(self, answer_topic: str) -> None:
+        """
+        Register standard message handlers
 
-    async def start(self) -> bool:
-        """Start the client - connect and register handlers"""
-        if not await self.connect():
-            return False
+        Args:
+            answer_topic: Topic to subscribe for answers
+        """
+        self.logger.info(f"Subscribing to answer topic: {answer_topic}")
+        self.answer_topic = answer_topic
 
-        await self.register_handlers()
-        return True
+        # Subscribe to answer messages with the Pydantic model for type safety
+        await self.messager.subscribe(answer_topic, self.handle_answer, AnswerMessage)
+        self._subscribed_topics.add(answer_topic)
 
-    async def stop(self) -> None:
-        """Stop the client - disconnect from MQTT broker"""
-        await self.disconnect()
+    async def handle_answer(self, message: AnswerMessage) -> None:
+        """
+        Handle answer messages - override in subclasses
+
+        Args:
+            message: The answer message to handle
+        """
+        self.logger.info(f"Received answer: {message.question}")
+        # Base implementation - subclasses should override this
 
     async def ask_question(self, question: str, topic: str) -> None:
-        """Ask a question to the agent"""
+        """
+        Ask a question to the agent
+
+        Args:
+            question: The question text
+            topic: Topic to publish the question to
+        """
         self.logger.info(f"Asking question: {question}")
         ask_message = AskQuestionMessage(
             question=question,
             user_id=self.user_id,
             source=self.client_id,
         )
-        # Properly await the publish call
-        await self.messager.publish(topic, ask_message.model_dump_json())
+        await self.messager.publish(topic, ask_message)
+
+    async def start(self) -> bool:
+        """Start the client - connect"""
+        return await self.connect()
+
+    async def stop(self) -> None:
+        """Stop the client - unsubscribe and disconnect"""
+        # Unsubscribe from all topics
+        for topic in self._subscribed_topics:
+            try:
+                await self.messager.unsubscribe(topic)
+            except Exception as e:
+                self.logger.error(f"Error unsubscribing from {topic}: {e}")
+
+        # Disconnect from broker
+        await self.disconnect()

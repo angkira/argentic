@@ -1,3 +1,5 @@
+import logging
+import traceback
 from typing import Coroutine, Dict, Any, Type, Optional, Union
 from abc import ABC, abstractmethod
 
@@ -82,10 +84,7 @@ class BaseTool(ABC):
                 return
 
             # on successful registration
-            await self.messager.log(
-                f"Tool '{self.name}': Registered successfully with ID: {self.id}",
-                level="info",
-            )
+            self.logger.info(f"Tool '{self.name}': Registration confirmed. Tool ID: {self.id}")
             # subscribe to incoming task messages now that id is set
             await self._initialize()
 
@@ -113,6 +112,14 @@ class BaseTool(ABC):
         await self.messager.publish(registration_topic, registration_message)
 
     async def unregister(self):
+        if self.id is None:
+            await self.messager.log(
+                f"Tool '{self.name}': Cannot unregister. Tool ID is not set.",
+                level="warning",
+            )
+
+            return
+
         unregister_message = UnregisterToolMessage(
             tool_id=self.id,
         )
@@ -124,113 +131,117 @@ class BaseTool(ABC):
 
     async def _handle_task_message(self, task: TaskMessage):
         """Handles incoming task messages from MQTT using Pydantic."""
-        await self.messager.log(
-            f"Tool '{self.name}' ({self.id}): Received task message",
-            level="debug",
+        self.logger.info(
+            f"Tool '{self.name}' ({self.id}): Received task message for task_id: {task.task_id}",
         )
-        result_message: Optional[TaskResultMessage] = None
+        result_message_to_publish: Optional[Union[TaskResultMessage, TaskErrorMessage]] = None
 
         try:
             # verify message is for this tool
             if task.tool_id != self.id:
                 error_msg = f"Mismatched tool id. Expected '{self.id}', got '{task.tool_id}'."
-
-                await self.messager.log(f"Tool '{self.name}': {error_msg}", level="error")
-
-                error_message = TaskErrorMessage(
+                self.logger.error(f"Tool '{self.name}': {error_msg}")
+                result_message_to_publish = TaskErrorMessage(
                     task_id=task.task_id,
                     tool_id=self.id,
+                    tool_name=self.name,
+                    arguments=task.arguments,
+                    status=TaskStatus.FAILED,
                     error=error_msg,
                     source=self.messager.client_id,
                 )
-
-                await self.messager.publish(
-                    self.result_topic,
-                    error_message,
-                )
             else:
-                # 4. Validate arguments against schema
+                # Validate arguments against schema using task.arguments
                 try:
-                    validated_args = self.argument_schema.model_validate(task.data)
-                    await self.messager.log(
-                        f"Tool '{self.name}': Validated arguments for task {task.task_id}",
-                        level="debug",
+                    if task.arguments is None:
+                        raise ValueError("Task arguments are missing (None).")
+
+                    validated_args = self.argument_schema.model_validate(task.arguments)
+                    self.logger.debug(
+                        f"Tool '{self.name}': Validated arguments for task {task.task_id}"
                     )
 
-                    await self.messager.log(
+                    self.logger.info(
                         f"Tool '{self.name}': Executing task {task.task_id} with args: {validated_args.model_dump()}"
                     )
                     try:
                         tool_output = await self._execute(**validated_args.model_dump())
 
-                        result_message = TaskResultMessage(
+                        result_message_to_publish = TaskResultMessage(
                             task_id=task.task_id,
                             tool_id=self.id,
+                            tool_name=self.name,
+                            arguments=task.arguments,
                             status=TaskStatus.SUCCESS,
                             result=tool_output,
                             source=self.messager.client_id,
                         )
-
-                        await self.messager.log(
-                            f"Tool '{self.name}': Task {task.task_id} executed successfully.",
-                            level="debug",
+                        self.logger.debug(
+                            f"Tool '{self.name}': Task {task.task_id} executed successfully."
                         )
                     except Exception as exec_e:
                         error_msg = f"Execution failed for task {task.task_id}: {exec_e}"
-
-                        await self.messager.log(f"Tool '{self.name}': {error_msg}", level="error")
-                        # Optionally log traceback here
-                        result_message = TaskErrorMessage(
+                        self.logger.error(f"Tool '{self.name}': {error_msg}", exc_info=True)
+                        result_message_to_publish = TaskErrorMessage(
                             task_id=task.task_id,
                             tool_id=self.id,
+                            tool_name=self.name,
+                            arguments=task.arguments,
+                            status=TaskStatus.FAILED,
                             error=error_msg,
+                            traceback=(
+                                traceback.format_exc()
+                                if self.logger.level <= logging.DEBUG
+                                else None
+                            ),
                             source=self.messager.client_id,
                         )
 
                 except ValidationError as e:
-                    error_msg = f"Argument validation failed for task {task.task_id}: {e}"
-
-                    await self.messager.log(f"Tool '{self.name}': {error_msg}", level="error")
-
-                    result_message = TaskErrorMessage(
+                    error_msg = f"Argument validation failed for task {task.task_id} using task.arguments: {e}"
+                    self.logger.error(f"Tool '{self.name}': {error_msg}")
+                    result_message_to_publish = TaskErrorMessage(
                         task_id=task.task_id,
                         tool_id=self.id,
+                        tool_name=self.name,
+                        arguments=task.arguments,
+                        status=TaskStatus.FAILED,
                         error=f"Invalid arguments: {e}",
                         source=self.messager.client_id,
                     )
+                except ValueError as ve:
+                    error_msg = f"Argument error for task {task.task_id}: {ve}"
+                    self.logger.error(f"Tool '{self.name}': {error_msg}")
+                    result_message_to_publish = TaskErrorMessage(
+                        task_id=task.task_id,
+                        tool_id=self.id,
+                        tool_name=self.name,
+                        arguments=task.arguments,
+                        status=TaskStatus.FAILED,
+                        error=error_msg,
+                        source=self.messager.client_id,
+                    )
 
-            if result_message:
-                await self.messager.publish(self.result_topic, result_message)
+            if result_message_to_publish:
+                if not hasattr(self, "result_topic") or not self.result_topic:
+                    self.logger.error(
+                        f"Tool '{self.name}': result_topic not set. Cannot publish result for task {task.task_id}."
+                    )
+                    return
 
-                await self.messager.log(
-                    f"Tool '{self.name}': Published result for task {task.task_id} (Status: {result_message.status}) to {self.result_topic}",
-                    level="debug",
+                await self.messager.publish(
+                    self.result_topic, result_message_to_publish.model_dump_json()
+                )
+                self.logger.info(
+                    f"Tool '{self.name}': Published result for task {task.task_id} (Status: {result_message_to_publish.status}) to {self.result_topic}"
                 )
 
-        except (
-            ValueError,
-            ValidationError,
-        ) as e:  # Catch errors from from_mqtt_message or Pydantic validation
-            # Error parsing the TaskMessage structure itself or invalid format
-            # Preview the raw data payload
-            payload_preview = str(task.data)[:100]
-
-            await self.messager.log(
-                f"Tool '{self.name}': Failed to parse/validate incoming message: {e}. Payload preview: '{payload_preview}...'",
-                level="error",
-            )
-            # Cannot send error result as task_id might be unknown/invalid
         except Exception as e:
-            task_id_str = f"task {task.task_id}" if task else "unknown task"
-
-            await self.messager.log(
-                f"Tool '{self.name}': Unexpected error handling {task_id_str}: {e}",
-                level="error",
+            task_id_str = task.task_id if task and hasattr(task, "task_id") else "unknown task"
+            self.logger.error(
+                f"Tool '{self.name}': Unexpected critical error in _handle_task_message for {task_id_str}: {e}",
+                exc_info=True,
             )
-            # Optionally log traceback
-            # import traceback
-            # self.messager.log(traceback.format_exc(), level="error")
-            # Cannot reliably send error result if task parsing failed or task_id is missing
 
     @abstractmethod
     async def _execute(self, **kwargs) -> Coroutine[Any, Any, Any]:
