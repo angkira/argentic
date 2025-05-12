@@ -11,6 +11,14 @@ from core.llm.providers.google_gemini import GoogleGeminiProvider
 
 from core.logger import get_logger
 
+# Define a mapping from provider names to classes
+PROVIDER_MAP = {
+    "ollama": OllamaProvider,
+    "llama_cpp_server": LlamaCppServerProvider,
+    "llama_cpp_cli": LlamaCppCLIProvider,
+    "google_gemini": GoogleGeminiProvider,
+}
+
 # The start_llm_server function might be deprecated or moved if
 # LlamaCppServerProvider's auto_start is sufficient.
 # For now, I'll leave it but comment it out from factory usage.
@@ -40,14 +48,10 @@ class LLMFactory:
 
         logger.info(f"Creating LLM provider: {provider_name}")
 
-        if provider_name == "ollama":
-            return OllamaProvider(config, messager)
-        elif provider_name == "llama_cpp_server":
-            return LlamaCppServerProvider(config, messager)
-        elif provider_name == "llama_cpp_cli":
-            return LlamaCppCLIProvider(config, messager)
-        elif provider_name == "google_gemini":
-            return GoogleGeminiProvider(config, messager)
-        else:
+        try:
+            provider_class = PROVIDER_MAP[provider_name]
+            logger.debug(f"Found provider class: {provider_class.__name__}")
+            return provider_class(config, messager)
+        except KeyError:
             logger.error(f"Unsupported LLM provider: {provider_name}")
-            raise ValueError(f"Unsupported LLM provider: {provider_name}")
+            raise ValueError(f"Unsupported LLM provider: {provider_name}. Supported providers are: {list(PROVIDER_MAP.keys())}")
