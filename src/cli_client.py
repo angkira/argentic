@@ -1,12 +1,10 @@
 import asyncio
 import sys
-import traceback
 from typing import Optional
 import yaml
 import uuid
 import re
 import concurrent.futures
-import threading
 
 from core.client import Client
 from core.messager.messager import Messager
@@ -25,16 +23,17 @@ except yaml.YAMLError as e:
     print(f"CLI Error: Parsing configuration file '{CONFIG_PATH}': {e}")
     sys.exit(1)
 
-# --- MQTT Configuration ---
-MQTT_BROKER = config["mqtt"]["broker_address"]
-MQTT_PORT = config["mqtt"]["port"]
-MQTT_KEEPALIVE = config["mqtt"]["keepalive"]
-MQTT_CLIENT_ID = config["mqtt"].get("cli_client_id", f"cli_client_{uuid.uuid4()}")
+# --- MESSAGING Configuration ---
+messaging_config = config["messaging"]
+MESSAGING_BROKER = messaging_config["broker_address"]
+MESSAGING_PORT = messaging_config["port"]
+MESSAGING_KEEPALIVE = messaging_config["keepalive"]
+MESSAGING_CLIENT_ID = messaging_config.get("cli_client_id", f"cli_client_{uuid.uuid4()}")
 
 # Get topics from config
-MQTT_TOPIC_ASK = config["topics"]["commands"].get("ask_question")
-MQTT_TOPIC_ANSWER = config["topics"]["responses"]["answer"]
-MQTT_PUB_LOG = config["topics"]["log"]
+MESSAGING_TOPIC_ASK = config["topics"]["commands"].get("ask_question")
+MESSAGING_TOPIC_ANSWER = config["topics"]["responses"]["answer"]
+MESSAGING_PUB_LOG = config["topics"]["log"]
 
 logger = get_logger("CliClient", LogLevel.INFO)
 
@@ -44,19 +43,19 @@ class CliClient(Client):
 
     def __init__(self):
         """Initialize the CLI Client"""
-        self.client_id = MQTT_CLIENT_ID
-        self.ask_topic = MQTT_TOPIC_ASK
+        self.client_id = MESSAGING_CLIENT_ID
+        self.ask_topic = MESSAGING_TOPIC_ASK
         self.messager: Optional[Messager] = None
         self.answer_received_event: Optional[asyncio.Event] = None
 
     async def initialize(self):
         """Initialize the client in async context"""
         self.messager = Messager(
-            broker_address=MQTT_BROKER,
-            port=MQTT_PORT,
+            broker_address=MESSAGING_BROKER,
+            port=MESSAGING_PORT,
             client_id=self.client_id,
-            keepalive=MQTT_KEEPALIVE,
-            pub_log_topic=MQTT_PUB_LOG,
+            keepalive=MESSAGING_KEEPALIVE,
+            pub_log_topic=MESSAGING_PUB_LOG,
             log_level=LogLevel.INFO,
         )
         super().__init__(
@@ -132,9 +131,9 @@ class CliClient(Client):
                 return False
 
             await self.messager.subscribe(
-                MQTT_TOPIC_ANSWER, self.handle_answer, message_cls=AnswerMessage
+                MESSAGING_TOPIC_ANSWER, self.handle_answer, message_cls=AnswerMessage
             )
-            self.logger.info(f"Subscribed to answer topic: {MQTT_TOPIC_ANSWER}")
+            self.logger.info(f"Subscribed to answer topic: {MESSAGING_TOPIC_ANSWER}")
 
             print("--- Agent CLI Client ---")
             print("Type your question and press Enter.")
@@ -175,7 +174,7 @@ class CliClient(Client):
             return False
         finally:
             self.logger.info("CLI: Shutting down (run_interactive's finally block)...")
-            await self.stop() # Graceful MQTT disconnect etc.
+            await self.stop() # Graceful MESSAGING disconnect etc.
             self.logger.info("CLI: Shutdown complete (run_interactive's finally block).")
             
             self.logger.info("CLI: Shutting down stdin thread pool executor...")

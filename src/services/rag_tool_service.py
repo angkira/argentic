@@ -19,7 +19,7 @@ load_dotenv()
 
 # --- Configuration Loading ---
 config = yaml.safe_load(open("config.yaml"))
-mqtt_cfg = config["mqtt"]
+messaging_cfg = config["messaging"]
 topic_cfg = config.get("topics", {})
 
 rag_config_path = os.path.join("src", "tools", "RAG", "rag_config.yaml")
@@ -34,7 +34,7 @@ log_level = parse_log_level(log_level_str)
 logger = get_logger("rag_tool_service", log_level)
 
 logger.info("Configuration loaded successfully.")
-logger.info(f"MQTT Broker: {mqtt_cfg['broker_address']}, Port: {mqtt_cfg['port']}")
+logger.info(f"MQTT Broker: {messaging_cfg['broker_address']}, Port: {messaging_cfg['port']}")
 logger.info(f"Vector Store Directory: {vec_cfg['base_directory']}")
 logger.info(f"Default Collection: {vec_cfg['default_collection']}")
 logger.info(f"Embedding Model: {embed_cfg['model_name']}, Device: {embed_cfg['device']}")
@@ -83,10 +83,10 @@ async def main():
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown_handler()))
 
     messager = Messager(
-        broker_address=mqtt_cfg["broker_address"],
-        port=mqtt_cfg["port"],
-        client_id=mqtt_cfg.get("tool_client_id", "rag_tool_service"),
-        keepalive=mqtt_cfg["keepalive"],
+        broker_address=messaging_cfg["broker_address"],
+        port=messaging_cfg["port"],
+        client_id=messaging_cfg.get("tool_client_id", "rag_tool_service"),
+        keepalive=messaging_cfg["keepalive"],
         pub_log_topic=topic_cfg["log"],
         log_level=log_level,
     )

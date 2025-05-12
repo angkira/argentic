@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, TypeVar, Generic, Union
-from paho.mqtt.client import MQTTMessage as PahoMQTTMessage
+from typing import Any, Dict, Literal, Optional, TypeVar, Generic
 from pydantic import BaseModel, Field
 import uuid
 
@@ -66,10 +65,3 @@ class StatusRequestMessage(BaseMessage[None]):
     type: Literal["STATUS_REQUEST"] = "STATUS_REQUEST"
     request_details: Optional[str] = None
 
-
-def to_mqtt_message(message: BaseMessage) -> PahoMQTTMessage:
-    """Converts a Pydantic message model to a Paho MQTTMessage."""
-    payload = message.model_dump_json()
-    msg = PahoMQTTMessage()
-    msg.payload = payload.encode("utf-8")
-    return msg

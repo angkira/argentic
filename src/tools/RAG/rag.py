@@ -16,7 +16,7 @@ class AddInfoMessage(BaseMessage[None]):
     type: Literal["ADD_INFO"] = "ADD_INFO"
     text: str
     collection_name: Optional[str] = None
-    source_info: Optional[str] = "mqtt_add_info"
+    source_info: Optional[str] = "add_info"
     metadata: Optional[Dict[str, Any]] = None
 
 

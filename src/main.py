@@ -3,6 +3,8 @@ import signal
 from typing import Optional
 import yaml
 from dotenv import load_dotenv
+import argparse
+import os
 
 # Core components
 from core.messager.messager import Messager
@@ -53,28 +55,63 @@ async def shutdown_handler(sig):
 async def main():
     global messager, agent, llm_provider  # Allow modification
 
+    # --- Argument Parsing ---
+    parser = argparse.ArgumentParser(description="AI Agent Main Application")
+    parser.add_argument(
+        "--config-path",
+        type=str,
+        default=os.getenv("CONFIG_PATH", "config.yaml"),
+        help="Path to the configuration file. Defaults to 'config.yaml' or ENV VAR CONFIG_PATH.",
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        help="Logging level (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL). Defaults to 'INFO' or ENV VAR LOG_LEVEL.",
+    )
+    args = parser.parse_args()
+
+    # --- Setup Logging Early ---
+    # Use parsed log level directly
+    parsed_log_level_str = args.log_level
+    log_level_enum = parse_log_level(parsed_log_level_str)
+    logger.setLevel(log_level_enum.value)
+    logger.info(f"Log level set to: {parsed_log_level_str.upper()} (from CLI/ENV/Default)")
+
+
     # --- Load Config ---
-    config = yaml.safe_load(open("config.yaml"))
-    mqtt_cfg = config["mqtt"]
+    logger.info(f"Loading configuration from: {args.config_path}")
+    try:
+        with open(args.config_path, 'r') as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        logger.critical(f"Configuration file not found: {args.config_path}")
+        return
+    except Exception as e:
+        logger.critical(f"Error loading configuration file {args.config_path}: {e}")
+        return
+
+    messaging_cfg = config["messaging"]
     # llm_cfg is now part of the main config, accessed by LLMFactory
     topic_cfg = config["topics"]
-    log_cfg = config.get("logging", {})
-    log_level = parse_log_level(log_cfg.get("level", "debug"))
-    logger.setLevel(log_level.value)
+    # Log level from config is now superseded by args.log_level
+    # log_cfg = config.get("logging", {}) # No longer needed for level
+    # log_level = parse_log_level(log_cfg.get("level", "debug")) # No longer needed
+    # logger.setLevel(log_level.value) # Moved up and uses args.log_level
 
     # --- Initialize Components ---
     logger.info("Initializing components...")
 
     # Initialize Messager
     messager = Messager(
-        broker_address=mqtt_cfg["broker_address"],
-        port=mqtt_cfg["port"],
-        client_id=mqtt_cfg.get("client_id", "ai_agent_client"),  # Use client_id from config
-        username=mqtt_cfg.get("username"),
-        password=mqtt_cfg.get("password"),
-        keepalive=mqtt_cfg.get("keepalive", 60),
+        broker_address=messaging_cfg["broker_address"],
+        port=messaging_cfg["port"],
+        client_id=messaging_cfg.get("client_id", "ai_agent_client"),  # Use client_id from config
+        username=messaging_cfg.get("username"),
+        password=messaging_cfg.get("password"),
+        keepalive=messaging_cfg.get("keepalive", 60),
         pub_log_topic=topic_cfg.get("log", "agent/log"),  # Get log topic from config
-        log_level=log_level,
+        log_level=log_level_enum, # Use the enum parsed from args
     )
 
     # Initialize LLM Provider using the factory
@@ -93,7 +130,7 @@ async def main():
     agent = Agent(
         llm=llm_provider,  # Pass the provider instance
         messager=messager,
-        log_level=log_level,
+        log_level=log_level_enum, # Use the enum parsed from args
         register_topic=register_topic,
         answer_topic=answer_topic,  # Pass answer_topic directly
     )
@@ -148,7 +185,7 @@ async def main():
             try:
                 await messager.log(f"AI Agent: Critical error: {e}", level="critical")
             except Exception as log_e:
-                logger.error(f"Failed to log critical error via MQTT: {log_e}")
+                logger.error(f"Failed to log critical error via Messager: {log_e}")
     finally:
         logger.info("Main function finished or errored. Cleaning up...")
         if llm_provider:  # Ensure LLM provider is stopped

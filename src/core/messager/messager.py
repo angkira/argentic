@@ -1,5 +1,5 @@
 import time
-import asyncio  # for scheduling async message handlers
+import asyncio
 from typing import Dict, Optional, Union, Any
 import ssl
 
@@ -42,7 +42,7 @@ class Messager:
             self.log_level = log_level
 
         # Use client_id in logger name for clarity if multiple clients run
-        self.logger = get_logger(f"mqtt.{self.client_id}", level=self.log_level)
+        self.logger = get_logger(f"messager.{self.client_id}", level=self.log_level)
 
         self._tls_params = None
         if tls_params:
