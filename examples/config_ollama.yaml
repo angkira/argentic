@@ -1,0 +1,21 @@
+# Example configuration using Ollama
+
+llm:
+  provider: ollama
+  ollama_model_name: gemma:latest # Replace with your desired Ollama model (e.g., llama3:8b, mistral)
+  ollama_use_chat_model: true # Use ChatOllama if true, OllamaLLM otherwise
+  # Optional: Specify Ollama host if not default (http://localhost:11434)
+  # ollama_host: http://your-ollama-host:11434
+
+# Add other top-level configurations like 'messaging' and 'agent' as needed
+# Example:
+# messaging:
+#   driver: mqtt
+#   broker_address: localhost
+#   port: 1883
+#   topics:
+#     log: agent/log
+#     # ... other topics
+
+# agent:
+#  log_level: INFO 

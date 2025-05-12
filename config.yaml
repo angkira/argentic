@@ -31,7 +31,7 @@ llm:
   google_gemini_api_key: "YOUR_GEMINI_API_KEY" # Store securely, e.g., via environment variable
   google_gemini_model_name: "gemini-2.0-flash" # Updated to match official example
 
-mqtt:
+messaging:
   # Connection settings
   broker_address: localhost
   port: 1883
