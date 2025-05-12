@@ -22,7 +22,7 @@ Argentic provides a lightweight, configurable framework designed to simplify the
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repo-url>
+    git clone https://github.com/angkira/argentic.git
     cd argentic
     ```
 2.  **Set up Python environment:**
