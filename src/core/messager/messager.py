@@ -2,7 +2,6 @@ import time
 import asyncio  # for scheduling async message handlers
 from typing import Dict, Optional, Union, Any
 import ssl
-import uuid
 
 from pydantic import ValidationError
 
@@ -25,31 +24,28 @@ class Messager:
         username: Optional[str] = None,
         password: Optional[str] = None,
         keepalive: int = 60,
-        pub_log_topic: Optional[str] = None, # Log topic is now separate
+        pub_log_topic: Optional[str] = None,
         log_level: Union[LogLevel, str] = LogLevel.INFO,
         tls_params: Optional[Dict[str, Any]] = None,
-        # Removed config: Dict[str, Any]
     ):
-        # Restore original assignment logic
         self.broker_address = broker_address
         self.port = port
-        self.client_id = client_id or f"client-{uuid.uuid4().hex[:8]}"
+        self.client_id = client_id or f"client-{int(time.time())}"
         self.username = username
         self.password = password
         self.keepalive = keepalive
-        self.pub_log_topic = pub_log_topic # Assign passed log topic
+        self.pub_log_topic = pub_log_topic
 
         if isinstance(log_level, str):
             self.log_level = parse_log_level(log_level)
         else:
             self.log_level = log_level
 
-        # Use client_id in logger name for clarity
-        self.logger = get_logger(f"messager.{self.client_id}", level=self.log_level)
+        # Use client_id in logger name for clarity if multiple clients run
+        self.logger = get_logger(f"mqtt.{self.client_id}", level=self.log_level)
 
-        # Restore TLS handling from passed tls_params
         self._tls_params = None
-        if tls_params and isinstance(tls_params, dict):
+        if tls_params:
             try:
                 self._tls_params = {
                     "ca_certs": tls_params.get("ca_certs"),
@@ -63,35 +59,21 @@ class Messager:
                     ),
                     "ciphers": tls_params.get("ciphers"),
                 }
-                self._tls_params = {k: v for k, v in self._tls_params.items() if v is not None}
-                if self._tls_params:
-                     self.logger.info("TLS parameters configured.")
-                else:
-                     self._tls_params = None
+                self.logger.info("TLS parameters configured.")
             except Exception as e:
                 self.logger.error(f"Failed to configure TLS parameters: {e}", exc_info=True)
-                self._tls_params = None
+                raise ValueError(f"Invalid TLS configuration: {e}") from e
 
-        # Instantiate protocol driver using passed/default protocol
+        # Instantiate protocol driver
         cfg = DriverConfig(
-            url=self.broker_address,
-            port=self.port,
-            user=self.username,
-            password=self.password,
+            url=broker_address,
+            port=port,
+            user=username,
+            password=password,
             token=None,
-            client_id=self.client_id,
-            keepalive=self.keepalive,
-            tls_params=self._tls_params
         )
 
-        # Use the protocol passed to init
         self._driver = create_driver(protocol, cfg)
-
-        # Remove topic extraction logic from here - it belongs where Messager is instantiated
-        # self.messaging_config = config.get("messaging", {})
-        # topics_config = self.messaging_config.get("topics", {})
-        # ... (removed topic assignments)
-        # self.subscription_map = topics_config.get("subscriptions", {})
 
     def is_connected(self) -> bool:
         """Check if the client is currently connected."""
@@ -202,7 +184,3 @@ class Messager:
         This is an alias for disconnect() to provide a consistent interface.
         """
         await self.disconnect()
-
-    async def _connect_mqtt(self) -> None:
-        """Establishes connection to the MQTT broker."""
-        # Implementation of _connect_mqtt method
