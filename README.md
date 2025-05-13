@@ -161,6 +161,82 @@ Argentic supports interaction with external tools via the configured messaging s
 
 An example `rag_tool_service.py` demonstrates how a tool (`KnowledgeBaseTool`) can be built and run independently, registering and communicating with the agent using this messaging pattern.
 
+## Testing
+
+The project includes a comprehensive test suite organized into categories:
+
+### Test Structure
+
+- **Unit Tests**: Located in `tests/core/messager/unit/`, these tests verify individual components in isolation.
+- **Integration Tests**: Located in `tests/core/messager/test_messager_integration.py`, these tests verify how components work together.
+- **End-to-End Tests**: Located in `tests/core/messager/e2e/`, these tests verify the system behavior using actual message brokers via Docker.
+
+### Running Tests
+
+Several scripts are available in the `bin/` directory to run different types of tests:
+
+- **All Tests**: Run the complete test suite with the main test script:
+
+  ```bash
+  ./bin/run_tests.sh
+  ```
+
+- **Unit Tests Only**: Run only the unit tests:
+
+  ```bash
+  ./bin/run_unit_tests.sh
+  ```
+
+- **E2E Tests Only**: Run only the end-to-end tests (requires Docker):
+
+  ```bash
+  ./bin/run_e2e_tests.sh
+  ```
+
+  The E2E test script supports Docker container management:
+
+  ```bash
+  # Start Docker containers before running tests
+  ./bin/run_e2e_tests.sh --start-docker
+
+  # Start Docker, run tests, and stop containers afterward
+  ./bin/run_e2e_tests.sh --start-docker --stop-docker
+
+  # Only start Docker containers without running tests
+  ./bin/run_e2e_tests.sh --docker-only --start-docker
+
+  # Only stop Docker containers
+  ./bin/run_e2e_tests.sh --docker-only --stop-docker
+
+  # Pass additional arguments to pytest after --
+  ./bin/run_e2e_tests.sh --start-docker -- -v
+  ```
+
+- **Integration Tests Only**: Run only the integration tests:
+  ```bash
+  ./bin/run_integration_tests.sh
+  ```
+
+Each script accepts additional pytest arguments. For example, to run tests with higher verbosity:
+
+```bash
+./bin/run_unit_tests.sh -v
+```
+
+### Test Markers
+
+The tests use markers to categorize different test types:
+
+- `@pytest.mark.e2e`: Marks tests that require external dependencies (Docker containers)
+- `@pytest.mark.slow`: Marks tests that take a long time to execute
+- `@pytest.mark.kafka`: Marks Kafka-specific tests
+
+You can use these markers with pytest's `-m` option to run specific test categories:
+
+```bash
+python -m pytest -m "e2e and not kafka"
+```
+
 ## Documentation
 
 More detailed documentation is planned, potentially hosted on GitHub Pages, covering architecture, API details, and tool development guidelines.
