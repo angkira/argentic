@@ -143,10 +143,7 @@ class Messager:
         await self._driver.publish(topic, payload, qos=qos, retain=retain)
 
     async def subscribe(
-        self,
-        topic: str,
-        handler: MessageHandler,
-        message_cls: BaseMessage = BaseMessage,
+        self, topic: str, handler: MessageHandler, message_cls: BaseMessage = BaseMessage, **kwargs
     ) -> None:
         """Subscribe to a topic with the specified message handler.
 
@@ -154,6 +151,7 @@ class Messager:
             topic: Topic pattern to subscribe to
             handler: Callback function to handle received messages
             message_cls: Message class for parsing received payloads
+            **kwargs: Additional arguments passed to the underlying driver
         """
         self.logger.info(
             f"Subscribing to topic: {topic} with handler: {handler.__name__}, message_cls: {message_cls.__name__}"
@@ -194,7 +192,7 @@ class Messager:
             asyncio.create_task(handler(base_msg))
             # Don't return the task
 
-        await self._driver.subscribe(topic, handler_adapter)
+        await self._driver.subscribe(topic, handler_adapter, **kwargs)
 
     async def unsubscribe(self, topic: str) -> None:
         """Unsubscribe from a previously subscribed topic.
