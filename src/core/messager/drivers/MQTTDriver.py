@@ -46,8 +46,25 @@ class MQTTDriver(BaseDriver):
     async def publish(self, topic: str, payload: Any, qos: int = 0, retain: bool = False) -> None:
         """Publish a message to the MQTT broker with a longer timeout"""
         if isinstance(payload, BaseMessage):
-            # If payload is a Pydantic model, convert it to JSON
-            data = payload.model_dump_json().encode("utf-8")
+            # Use model_dump first and then json.dumps to ensure proper serialization
+            try:
+                data = payload.model_dump_json().encode("utf-8")
+            except Exception:
+                # Fallback to manual JSON serialization via model_dump
+                try:
+                    data = json.dumps(payload.model_dump()).encode("utf-8")
+                except Exception:
+                    # Last resort, try direct JSON serialization
+                    data = json.dumps(
+                        {
+                            "id": str(payload.id),
+                            "timestamp": (
+                                payload.timestamp.isoformat() if payload.timestamp else None
+                            ),
+                            "type": payload.__class__.__name__,
+                            **{k: v for k, v in payload.__dict__.items() if not k.startswith("_")},
+                        }
+                    ).encode("utf-8")
         elif isinstance(payload, str):
             data = payload.encode("utf-8")
         elif isinstance(payload, bytes):

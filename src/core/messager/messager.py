@@ -13,7 +13,21 @@ from core.protocol.message import BaseMessage
 
 
 class Messager:
-    """Async MQTT client"""
+    """Asynchronous messaging client that supports multiple protocols.
+
+    This class provides a unified interface for messaging operations including
+    publishing, subscribing, and handling messages. It supports different messaging
+    protocols (default is MQTT) through pluggable drivers and includes features for:
+
+    - Establishing secure connections with TLS/SSL support
+    - Publishing and subscribing to topics
+    - Message type validation through Pydantic models
+    - Integrated logging with configurable levels
+    - Asynchronous message handling
+
+    The client handles reconnection, message parsing, and provides a consistent
+    API regardless of the underlying protocol implementation.
+    """
 
     def __init__(
         self,
@@ -28,6 +42,20 @@ class Messager:
         log_level: Union[LogLevel, str] = LogLevel.INFO,
         tls_params: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize a new Messager instance.
+
+        Args:
+            broker_address: Address of the message broker
+            port: Broker port number
+            protocol: Messaging protocol to use
+            client_id: Unique client identifier, generated from timestamp if not provided
+            username: Authentication username
+            password: Authentication password
+            keepalive: Keepalive interval in seconds
+            pub_log_topic: Topic to publish log messages to, if any
+            log_level: Logging level
+            tls_params: TLS/SSL configuration parameters
+        """
         self.broker_address = broker_address
         self.port = port
         self.client_id = client_id or f"client-{int(time.time())}"
@@ -76,11 +104,19 @@ class Messager:
         self._driver = create_driver(protocol, cfg)
 
     def is_connected(self) -> bool:
-        """Check if the client is currently connected."""
+        """Check if the client is currently connected.
+
+        Returns:
+            bool: True if connected, False otherwise
+        """
         return self._driver.is_connected()
 
     async def connect(self) -> bool:
-        """Delegates connection to underlying driver"""
+        """Connect to the message broker using the configured driver.
+
+        Returns:
+            bool: True if connection was successful, False otherwise
+        """
         try:
             await self._driver.connect()
             self.logger.info("Connected successfully via driver")
@@ -90,23 +126,33 @@ class Messager:
             return False
 
     async def disconnect(self) -> None:
-        """Delegates disconnection to underlying driver"""
+        """Disconnect from the message broker."""
         await self._driver.disconnect()
 
     async def publish(
         self, topic: str, payload: BaseMessage, qos: int = 0, retain: bool = False
     ) -> None:
-        """Publishes a message via driver"""
+        """Publish a message to the specified topic.
+
+        Args:
+            topic: Topic to publish the message to
+            payload: Message payload object
+            qos: Quality of Service level (0, 1, or 2)
+            retain: Whether the message should be retained by the broker
+        """
         await self._driver.publish(topic, payload, qos=qos, retain=retain)
 
     async def subscribe(
-        self,
-        topic: str,
-        handler: MessageHandler,
-        message_cls: BaseMessage = BaseMessage,
+        self, topic: str, handler: MessageHandler, message_cls: BaseMessage = BaseMessage, **kwargs
     ) -> None:
-        """Delegate subscription to driver"""
+        """Subscribe to a topic with the specified message handler.
 
+        Args:
+            topic: Topic pattern to subscribe to
+            handler: Callback function to handle received messages
+            message_cls: Message class for parsing received payloads
+            **kwargs: Additional arguments passed to the underlying driver
+        """
         self.logger.info(
             f"Subscribing to topic: {topic} with handler: {handler.__name__}, message_cls: {message_cls.__name__}"
         )
@@ -146,16 +192,19 @@ class Messager:
             asyncio.create_task(handler(base_msg))
             # Don't return the task
 
-        await self._driver.subscribe(topic, handler_adapter)
+        await self._driver.subscribe(topic, handler_adapter, **kwargs)
 
     async def unsubscribe(self, topic: str) -> None:
-        """Delegate unsubscribe to driver if supported"""
+        """Unsubscribe from a previously subscribed topic.
+
+        Args:
+            topic: Topic to unsubscribe from
+        """
         if hasattr(self._driver, "unsubscribe"):
             await self._driver.unsubscribe(topic)
 
     async def log(self, message: str, level: str = "info") -> None:
-        """
-        Publishes a log message to the configured log topic.
+        """Publish a log message to the configured log topic.
 
         Args:
             message: The log message text
@@ -179,8 +228,8 @@ class Messager:
             self.logger.error(f"Failed to publish log message: {e}", exc_info=True)
 
     async def stop(self) -> None:
-        """
-        Stops the messager - disconnects from broker and cleans up resources.
+        """Stop the messager client, disconnecting from broker and cleaning up resources.
+
         This is an alias for disconnect() to provide a consistent interface.
         """
         await self.disconnect()
