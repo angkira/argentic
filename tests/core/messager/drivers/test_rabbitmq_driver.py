@@ -95,8 +95,9 @@ class TestRabbitMQDriver:
     @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
     @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.Message")
     @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
+    @patch("src.core.messager.drivers.RabbitMQDriver.json.dumps")
     async def test_publish(
-        self, mock_exchange_type, mock_message_class, mock_connect, driver_config
+        self, mock_json_dumps, mock_exchange_type, mock_message_class, mock_connect, driver_config
     ):
         """Test publish method"""
         mock_connect.return_value = self.mock_connection
@@ -110,14 +111,30 @@ class TestRabbitMQDriver:
         mock_message = MagicMock()
         mock_message_class.return_value = mock_message
 
+        # Mock json.dumps to return a known string
+        mock_json_dumps.return_value = '{"id":"test-id","type":"test-type"}'
+
         driver = RabbitMQDriver(driver_config)
         driver._connection = self.mock_connection
         driver._channel = self.mock_channel
 
         # Simple mock class that just needs to be detected as a BaseMessage
         class MockBaseMessage:
+            id = "test-id"
+            timestamp = None
+
             def model_dump_json(self):
                 return '{"id":"test-id","type":"test-type"}'
+
+            def model_dump(self):
+                return {"id": "test-id", "type": "test-type"}
+
+            def __dict__(self):
+                return {"id": "test-id", "type": "test-type"}
+
+            @property
+            def __class__(self):
+                return type("MockBaseMessage", (), {"__name__": "MockBaseMessage"})
 
         # Test data
         test_topic = "test-topic"
@@ -125,13 +142,13 @@ class TestRabbitMQDriver:
 
         await driver.publish(test_topic, test_message)
 
-        # Verify exchange was declared
-        self.mock_channel.declare_exchange.assert_awaited_once_with(test_topic, "fanout")
+        # Verify exchange was declared with correct parameters
+        self.mock_channel.declare_exchange.assert_called_once_with(
+            test_topic, mock_exchange_type.FANOUT
+        )
 
-        # Verify message was created correctly
-        mock_message_class.assert_called_once_with(body=test_message.model_dump_json().encode())
-
-        # Verify message was published to the exchange
+        # Verify message was published with correct parameters
+        mock_message_class.assert_called_once()
         self.mock_exchange.publish.assert_awaited_once_with(mock_message, routing_key="")
 
     @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")

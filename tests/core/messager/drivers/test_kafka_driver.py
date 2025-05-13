@@ -164,10 +164,14 @@ class TestKafkaDriver:
 
         await driver.subscribe(test_topic, test_handler, group_id=test_group_id)
 
-        # Verify consumer was created with correct parameters
+        # Verify consumer was created with correct parameters - now including all default values
         mock_consumer_class.assert_called_once_with(
             bootstrap_servers=f"{driver_config.url}:{driver_config.port}",
             group_id=test_group_id,
+            auto_offset_reset="earliest",
+            session_timeout_ms=30000,
+            heartbeat_interval_ms=10000,
+            max_poll_interval_ms=300000,
         )
 
         # Verify consumer was started and subscribed
