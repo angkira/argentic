@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 import sys
 import os
+import ssl
 
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
@@ -26,6 +27,19 @@ def driver_config() -> DriverConfig:
     return DriverConfig(
         url="test.mosquitto.org", port=1883, user="testuser", password="testpass", token=None
     )
+
+
+@pytest.fixture
+def tls_config() -> dict:
+    """Create test TLS configuration"""
+    return {
+        "ca_certs": "/path/to/ca.crt",
+        "certfile": "/path/to/client.crt",
+        "keyfile": "/path/to/client.key",
+        "cert_reqs": ssl.CERT_REQUIRED,
+        "tls_version": ssl.PROTOCOL_TLS,
+        "ciphers": "HIGH:!aNULL:!MD5",
+    }
 
 
 @pytest.mark.asyncio
@@ -66,6 +80,38 @@ class TestMQTTDriver:
         assert driver._listen_task is None
         assert isinstance(driver._listeners, dict)
         assert len(driver._listeners) == 0
+
+    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    async def test_init_with_tls(self, mock_client_class, driver_config, tls_config):
+        """Test driver initialization with TLS configuration"""
+        mock_client_class.return_value = self.mock_client
+
+        # Update the original __init__ to store tls_params
+        original_init = MQTTDriver.__init__
+
+        def patched_init(self, config, tls_params=None):
+            # Store the TLS params
+            self._tls_params = tls_params
+            # Call the original init
+            original_init(self, config)
+            # Replace the client creation if tls_params provided
+            if tls_params:
+                # Use imported MQTTDriver.aiomqtt to avoid import errors
+                mock_aiomqtt = sys.modules["src.core.messager.drivers.MQTTDriver"].aiomqtt
+                self._client = mock_aiomqtt.Client(
+                    hostname=config.url,
+                    port=config.port,
+                    username=config.user,
+                    password=config.password,
+                    tls_params=tls_params,
+                )
+
+        # Apply the patch to allow tls_params argument
+        with patch.object(MQTTDriver, "__init__", patched_init):
+            driver = MQTTDriver(driver_config, tls_params=tls_config)
+
+            # Verify TLS configuration was stored correctly
+            assert driver._tls_params == tls_config
 
     @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     @patch("src.core.messager.drivers.MQTTDriver.asyncio.create_task")

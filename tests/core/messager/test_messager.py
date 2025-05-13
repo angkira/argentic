@@ -72,6 +72,70 @@ class TestMessager:
         assert messager.log_level == messager_config["log_level"]
 
     @patch("src.core.messager.messager.create_driver")
+    @patch("src.core.messager.messager.ssl")
+    async def test_init_with_tls(self, mock_ssl, mock_create_driver, messager_config):
+        """Test Messager initialization with TLS configuration"""
+        mock_create_driver.return_value = self.driver
+
+        # Configure SSL mocks
+        mock_ssl.CERT_REQUIRED = "CERT_REQUIRED_VALUE"
+        mock_ssl.PROTOCOL_TLS = "PROTOCOL_TLS_VALUE"
+
+        # Add TLS parameters to config
+        tls_config = messager_config.copy()
+        tls_config["tls_params"] = {
+            "ca_certs": "/path/to/ca.crt",
+            "certfile": "/path/to/client.crt",
+            "keyfile": "/path/to/client.key",
+            "cert_reqs": "CERT_REQUIRED",
+            "tls_version": "PROTOCOL_TLS",
+            "ciphers": "HIGH:!aNULL:!MD5",
+        }
+
+        messager = Messager(**tls_config)
+
+        # Verify TLS parameters were properly configured
+        assert messager._tls_params["ca_certs"] == "/path/to/ca.crt"
+        assert messager._tls_params["certfile"] == "/path/to/client.crt"
+        assert messager._tls_params["keyfile"] == "/path/to/client.key"
+        assert messager._tls_params["cert_reqs"] == "CERT_REQUIRED_VALUE"
+        assert messager._tls_params["tls_version"] == "PROTOCOL_TLS_VALUE"
+        assert messager._tls_params["ciphers"] == "HIGH:!aNULL:!MD5"
+
+    @patch("src.core.messager.messager.create_driver")
+    @patch("src.core.messager.messager.ssl")
+    async def test_init_with_invalid_tls(self, mock_ssl, mock_create_driver, messager_config):
+        """Test Messager initialization with invalid TLS configuration"""
+        mock_create_driver.return_value = self.driver
+
+        # Configure ssl module to raise AttributeError for invalid attributes
+        # We can't directly set __getattr__, so use a specific technique for this test
+        mock_ssl.CERT_REQUIRED = "CERT_REQUIRED_VALUE"
+        mock_ssl.PROTOCOL_TLS = "PROTOCOL_TLS_VALUE"
+
+        # When getattr is called with invalid options, it should raise AttributeError
+        def getattr_side_effect(obj, name, default):
+            if name == "INVALID_CERT_OPTION" or name == "INVALID_TLS_VERSION":
+                raise AttributeError(f"module 'ssl' has no attribute '{name}'")
+            return default
+
+        # Patch the getattr function that's used in the TLS params code
+        with patch("src.core.messager.messager.getattr", side_effect=getattr_side_effect):
+            # Add invalid TLS parameters to config
+            invalid_tls_config = messager_config.copy()
+            invalid_tls_config["tls_params"] = {
+                "cert_reqs": "INVALID_CERT_OPTION",  # Invalid option
+                "tls_version": "INVALID_TLS_VERSION",  # Invalid option
+            }
+
+            # Invalid TLS config should raise ValueError
+            with pytest.raises(ValueError) as excinfo:
+                Messager(**invalid_tls_config)
+
+            # Verify error message contains useful information
+            assert "Invalid TLS configuration" in str(excinfo.value)
+
+    @patch("src.core.messager.messager.create_driver")
     async def test_is_connected(self, mock_create_driver, messager_config):
         """Test is_connected method"""
         mock_create_driver.return_value = self.driver
@@ -177,6 +241,124 @@ class TestMessager:
         mock_create_task.assert_called_once()
 
     @patch("src.core.messager.messager.create_driver")
+    @patch("src.core.messager.messager.asyncio.create_task")
+    @pytest.mark.parametrize(
+        "payload,should_match_specific",
+        [
+            ('{"id":"123","type":"MockBaseMessage","message":"test_message"}', True),
+            ('{"id":"123","type":"NotTheRightType","message":"test_message"}', False),
+            ('{"id":"123","message":"test_message"}', False),  # Missing type field
+            (
+                '{"id":"123","type":"MockBaseMessage","message":"test_message","extra":"field"}',
+                True,
+            ),
+        ],
+    )
+    async def test_subscribe_message_type_handling(
+        self, mock_create_task, mock_create_driver, payload, should_match_specific, messager_config
+    ):
+        """Test subscribe method's handler_adapter message type processing"""
+        mock_create_driver.return_value = self.driver
+
+        # Save the task that would be created so we can examine it
+        created_tasks = []
+        mock_create_task.side_effect = lambda coro: created_tasks.append(coro) or coro
+
+        messager = Messager(**messager_config)
+        test_topic = "test/subscribe/types"
+
+        # Create handler for specific type
+        specific_handler = AsyncMock()
+        specific_handler.__name__ = "specific_handler"
+
+        # Mock the driver.subscribe to capture the handler_adapter
+        async def capture_handler_adapter(topic, handler):
+            # Store the handler for later use
+            self.captured_handler = handler
+
+        self.driver.subscribe.side_effect = capture_handler_adapter
+
+        # Subscribe with specific message type
+        await messager.subscribe(test_topic, specific_handler, MockBaseMessage)
+
+        # Now we can call the handler_adapter directly with different payloads
+        await self.captured_handler(payload.encode("utf-8"))
+
+        # The handler itself should not be called directly, but rather passed to create_task
+        if should_match_specific:
+            assert len(created_tasks) > 0
+            # Execute the task that would have been created
+            for task in created_tasks:
+                await task
+            specific_handler.assert_awaited_once()
+        else:
+            specific_handler.assert_not_awaited()
+
+        # Reset for next test
+        specific_handler.reset_mock()
+
+    @patch("src.core.messager.messager.create_driver")
+    @patch("src.core.messager.messager.asyncio.create_task")
+    async def test_subscribe_with_invalid_json(
+        self, mock_create_task, mock_create_driver, messager_config
+    ):
+        """Test subscribe method's handler_adapter with invalid JSON"""
+        mock_create_driver.return_value = self.driver
+
+        # Save the task that would be created so we can examine it
+        created_tasks = []
+        mock_create_task.side_effect = lambda coro: created_tasks.append(coro) or coro
+
+        messager = Messager(**messager_config)
+        test_topic = "test/subscribe/invalid"
+
+        # Create a handler
+        handler = AsyncMock()
+        handler.__name__ = "test_handler"
+
+        # Mock the driver.subscribe to capture the handler_adapter
+        async def capture_handler_adapter(topic, handler):
+            # Store the handler for later use
+            self.captured_handler = handler
+
+        self.driver.subscribe.side_effect = capture_handler_adapter
+
+        # Subscribe with specific message type
+        await messager.subscribe(test_topic, handler, MockBaseMessage)
+
+        # Invalid JSON should be silently ignored (no exceptions)
+        invalid_payloads = [
+            b"This is not JSON",
+            b"{invalid: json}",
+            b"[]",  # Empty array
+            b"null",  # JSON null
+            b"",  # Empty string
+        ]
+
+        for invalid_payload in invalid_payloads:
+            # This should not raise exceptions
+            await self.captured_handler(invalid_payload)
+
+            # Handler should not be called for invalid payloads
+            assert not created_tasks
+            handler.assert_not_awaited()
+
+        # Reset created tasks list
+        created_tasks.clear()
+
+        # Valid payload should work
+        valid_payload = b'{"id":"123","type":"MockBaseMessage","message":"test_message"}'
+        await self.captured_handler(valid_payload)
+
+        # Verify a task was created and execute it
+        assert len(created_tasks) > 0
+        for task in created_tasks:
+            await task
+
+        # Now the handler should have been called
+        handler.assert_awaited_once()
+
+    @patch("src.core.messager.messager.create_driver")
     async def test_unsubscribe(self, mock_create_driver, messager_config):
         """Test unsubscribe method"""
         mock_create_driver.return_value = self.driver
@@ -249,3 +431,83 @@ class TestMessager:
             await messager.stop()
 
         # No need to verify driver.disconnect since we're testing at messager level
+
+    @patch("src.core.messager.messager.create_driver")
+    @pytest.mark.parametrize(
+        "protocol,expected_driver",
+        [
+            (MessagerProtocol.MQTT, "MQTTDriver"),
+            (MessagerProtocol.KAFKA, "KafkaDriver"),
+            (MessagerProtocol.REDIS, "RedisDriver"),
+            (MessagerProtocol.RABBITMQ, "RabbitMQDriver"),
+        ],
+    )
+    async def test_protocol_selection(
+        self, mock_create_driver, protocol, expected_driver, messager_config
+    ):
+        """Test that different protocols create the corresponding drivers"""
+        # Set up a driver mock that will record which driver was created
+        driver_mock = AsyncMock()
+        driver_mock.__class__.__name__ = expected_driver
+        mock_create_driver.return_value = driver_mock
+
+        # Update config with protocol
+        config = messager_config.copy()
+        config["protocol"] = protocol
+
+        messager = Messager(**config)
+
+        # Verify the right driver type was created
+        mock_create_driver.assert_called_once()
+        assert mock_create_driver.call_args[0][0] == protocol
+        assert messager._driver.__class__.__name__ == expected_driver
+
+    @patch("src.core.messager.messager.create_driver")
+    async def test_reconnect_handling(self, mock_create_driver, messager_config):
+        """Test handling of reconnection after a disconnection"""
+        mock_create_driver.return_value = self.driver
+
+        messager = Messager(**messager_config)
+
+        # First connection (successful)
+        self.driver.connect.return_value = None
+        result = await messager.connect()
+        assert result is True
+        assert self.driver.connect.call_count == 1
+
+        # Simulate disconnection
+        self.driver.is_connected.return_value = False
+        assert messager.is_connected() is False
+
+        # Reconnection (successful)
+        self.driver.connect.reset_mock()
+        self.driver.connect.return_value = None
+        result = await messager.connect()
+        assert result is True
+        assert self.driver.connect.call_count == 1
+
+        # Reconnection (failure)
+        self.driver.connect.reset_mock()
+        self.driver.connect.side_effect = Exception("Connection failed")
+        result = await messager.connect()
+        assert result is False
+        assert self.driver.connect.call_count == 1
+
+    @patch("src.core.messager.messager.create_driver")
+    async def test_exception_handling_during_publish(self, mock_create_driver, messager_config):
+        """Test handling of exceptions during message publishing"""
+        mock_create_driver.return_value = self.driver
+
+        # Configure the driver to raise an exception on publish
+        self.driver.publish.side_effect = Exception("Publish failed")
+
+        messager = Messager(**messager_config)
+        test_topic = "test/topic"
+        test_message = MockBaseMessage()
+
+        # Publishing should re-raise the exception since there's no special handling
+        with pytest.raises(Exception) as excinfo:
+            await messager.publish(test_topic, test_message)
+
+        assert "Publish failed" in str(excinfo.value)
+        self.driver.publish.assert_called_once_with(test_topic, test_message, qos=0, retain=False)
