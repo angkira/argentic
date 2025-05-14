@@ -240,3 +240,15 @@ python -m pytest -m "e2e and not kafka"
 ## Documentation
 
 More detailed documentation is planned, potentially hosted on GitHub Pages, covering architecture, API details, and tool development guidelines.
+
+For development, clone the repository and install in editable mode with development dependencies:
+```bash
+git clone https://github.com/yourusername/argentic.git
+cd argentic
+# Create and activate a virtual environment (recommended)
+# python -m venv .venv 
+# source .venv/bin/activate  # On Windows use .venv\Scripts\activate
+
+# Install the project in editable mode with development dependencies
+uv pip install -e .[dev]
+```

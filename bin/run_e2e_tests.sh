@@ -147,10 +147,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Install test dependencies if needed
-if [ "$DOCKER_ONLY" = false ]; then
-    python -m pip install -e ".[dev]"
-fi
+# Ensure the script stops if any command fails
+set -e
+
+# Install dependencies
+# python -m pip install -e ".[dev,kafka,redis,rabbitmq]"
+uv sync --extra dev --extra kafka --extra redis --extra rabbitmq
 
 # Set Python path to include the src directory
 PROJECT_ROOT=$(pwd)

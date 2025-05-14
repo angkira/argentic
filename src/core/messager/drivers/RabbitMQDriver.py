@@ -2,13 +2,39 @@ from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
 from core.protocol.message import BaseMessage
 
 from typing import Optional, List, Dict, Any
-import aio_pika
+
+try:
+    import aio_pika
+
+    AIO_PIKA_INSTALLED = True
+except ImportError:
+    AIO_PIKA_INSTALLED = False
+    # Define dummy types for type hinting
+    aio_pika = type(
+        "aio_pika",
+        (object,),
+        {
+            "RobustConnection": type("RobustConnection", (object,), {}),
+            "Channel": type("Channel", (object,), {}),
+            "ExchangeType": type("ExchangeType", (object,), {"FANOUT": "fanout"}),
+            "Message": type("Message", (object,), {}),
+            "IncomingMessage": type("IncomingMessage", (object,), {}),
+            "Queue": type("Queue", (object,), {}),
+            "connect_robust": lambda _: None,  # Dummy function
+        },
+    )
+
 import json
 import logging
 
 
 class RabbitMQDriver(BaseDriver):
     def __init__(self, config: DriverConfig):
+        if not AIO_PIKA_INSTALLED:
+            raise ImportError(
+                "aio-pika is not installed. "
+                "Please install it with: uv pip install argentic[rabbitmq]"
+            )
         super().__init__(config)
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None

@@ -1,7 +1,19 @@
 from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
 from core.protocol.message import BaseMessage
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from typing import Optional, Dict, List
+
+try:
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
+    from aiokafka.errors import KafkaConnectionError, KafkaTimeoutError
+
+    AIOKAFKA_INSTALLED = True
+except ImportError:
+    AIOKAFKA_INSTALLED = False
+    # Define dummy types for type hinting if aiokafka is not installed
+    AIOKafkaConsumer = type("AIOKafkaConsumer", (object,), {})
+    AIOKafkaProducer = type("AIOKafkaProducer", (object,), {})
+    TopicPartition = type("TopicPartition", (object,), {})
+    KafkaConnectionError = type("KafkaConnectionError", (Exception,), {})
+    KafkaTimeoutError = type("KafkaTimeoutError", (Exception,), {})
 
 import asyncio
 import logging
@@ -9,6 +21,11 @@ import logging
 
 class KafkaDriver(BaseDriver):
     def __init__(self, config: DriverConfig):
+        if not AIOKAFKA_INSTALLED:
+            raise ImportError(
+                "aiokafka is not installed. "
+                "Please install it with: uv pip install argentic[kafka]"
+            )
         super().__init__(config)
         self._producer: Optional[AIOKafkaProducer] = None
         self._consumer: Optional[AIOKafkaConsumer] = None

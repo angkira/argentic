@@ -3,11 +3,32 @@ from core.protocol.message import BaseMessage
 
 import asyncio
 from typing import Optional, List, Dict
-import aioredis
+
+try:
+    import aioredis
+
+    AIOREDIS_INSTALLED = True
+except ImportError:
+    AIOREDIS_INSTALLED = False
+    # Define dummy types for type hinting
+    aioredis = type(
+        "aioredis",
+        (object,),
+        {
+            "Redis": type("Redis", (object,), {}),
+            "client": type("client", (object,), {"PubSub": type("PubSub", (object,), {})}),
+            "from_url": lambda _: None,  # Dummy function
+        },
+    )
 
 
 class RedisDriver(BaseDriver):
     def __init__(self, config: DriverConfig):
+        if not AIOREDIS_INSTALLED:
+            raise ImportError(
+                "aioredis is not installed. "
+                "Please install it with: uv pip install argentic[redis]"
+            )
         super().__init__(config)
         self._redis: Optional[aioredis.Redis] = None
         # topic to list of handlers

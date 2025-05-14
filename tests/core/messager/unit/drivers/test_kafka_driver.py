@@ -13,6 +13,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 sys.modules["aiokafka"] = MagicMock()
 sys.modules["aiokafka"].AIOKafkaConsumer = MagicMock()
 sys.modules["aiokafka"].AIOKafkaProducer = MagicMock()
+sys.modules["aiokafka"].TopicPartition = MagicMock()
+sys.modules["aiokafka"].errors = MagicMock()
+sys.modules["aiokafka"].errors.KafkaConnectionError = type("KafkaConnectionError", (Exception,), {})
+sys.modules["aiokafka"].errors.KafkaTimeoutError = type("KafkaTimeoutError", (Exception,), {})
 
 
 # Mock for Kafka message
