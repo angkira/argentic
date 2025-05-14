@@ -27,6 +27,7 @@ jobs:
     - name: Install dependencies with uv
       run: |
         uv sync --all-extras
+        uv pip install --system flake8 pytest pytest-asyncio
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
