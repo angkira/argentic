@@ -25,7 +25,6 @@ load_dotenv()
 
 async def shutdown_handler(sig):
     """Graceful shutdown handler."""
-    global llm_provider  # Allow modification
     logger.info(f"Received exit signal {sig.name}...")
     stop_event.set()
 
@@ -78,11 +77,10 @@ async def main():
     logger.setLevel(log_level_enum.value)
     logger.info(f"Log level set to: {parsed_log_level_str.upper()} (from CLI/ENV/Default)")
 
-
     # --- Load Config ---
     logger.info(f"Loading configuration from: {args.config_path}")
     try:
-        with open(args.config_path, 'r') as f:
+        with open(args.config_path, "r") as f:
             config = yaml.safe_load(f)
     except FileNotFoundError:
         logger.critical(f"Configuration file not found: {args.config_path}")
@@ -112,7 +110,7 @@ async def main():
         password=messaging_cfg.get("password"),
         keepalive=messaging_cfg.get("keepalive", 60),
         pub_log_topic=topic_cfg.get("log", "agent/log"),  # Get log topic from config
-        log_level=log_level_enum, # Use the enum parsed from args
+        log_level=log_level_enum,  # Use the enum parsed from args
     )
 
     # Initialize LLM Provider using the factory
@@ -131,7 +129,7 @@ async def main():
     agent = Agent(
         llm=llm_provider,  # Pass the provider instance
         messager=messager,
-        log_level=log_level_enum, # Use the enum parsed from args
+        log_level=log_level_enum,  # Use the enum parsed from args
         register_topic=register_topic,
         answer_topic=answer_topic,  # Pass answer_topic directly
     )

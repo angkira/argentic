@@ -64,4 +64,3 @@ class AnswerMessage(BaseMessage[None]):
 class StatusRequestMessage(BaseMessage[None]):
     type: Literal["STATUS_REQUEST"] = "STATUS_REQUEST"
     request_details: Optional[str] = None
-

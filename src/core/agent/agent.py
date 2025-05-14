@@ -104,7 +104,9 @@ WHEN TO USE EACH FORMAT:
 3. Use "tool_result" ONLY when:
    - You have just received results from a tool call (role: tool messages in history).
    - You are providing the final answer to the original question.
-   - Incorporate the tool results into your answer *if they are relevant and helpful*. If the tool results are not helpful or empty, state that briefly and answer using your general knowledge.
+   - Incorporate the tool results into your answer *if they are relevant and\
+       helpful*. If the tool results are not helpful or empty, state that \
+        briefly and answer using your general knowledge.
 
 STRICT RULES:
 1. ALWAYS wrap your response in a markdown code block (```json ... ```).
@@ -121,9 +123,15 @@ HANDLING TOOL RESULTS:
 - If you receive successful tool results (role: tool):
     - Analyze the results.
     - If the results help answer the original question, incorporate them into your final answer and use the "tool_result" format.
-    - If the results are empty or not relevant to the original question, briefly state that the tool didn't provide useful information, then answer the original question using your general knowledge, still using the "tool_result" format but explaining the situation in the 'result' field.
-- If you're unsure after getting tool results, use the "tool_result" format and explain your reasoning in the 'result' field.
-- Never make another tool call immediately after receiving tool results unless absolutely necessary and clearly justified."""
+    - If the results are empty or not relevant to the original question, \
+        briefly state that the tool didn't provide useful information, then \
+            answer the original question using your general knowledge, still \
+                using the "tool_result" format but explaining the situation in \
+                    the 'result' field.
+- If you're unsure after getting tool results, use the "tool_result" format and \
+    explain your reasoning in the 'result' field.
+- Never make another tool call immediately after receiving tool results unless \
+    absolutely necessary and clearly justified."""
 
         # Main prompt that includes the system prompt and current context
         template = f"""{system_prompt}
@@ -201,22 +209,20 @@ ANSWER:"""
             json_str = json_str.strip()
 
             parsed_data = json.loads(json_str)
-            
+
             # Check if it's a direct response
             if isinstance(parsed_data, dict) and parsed_data.get("type") == "direct":
                 return None
-                
+
             # Check if it's a valid tool call
             if isinstance(parsed_data, dict) and parsed_data.get("type") == "tool_call":
                 tool_calls = parsed_data.get("tool_calls", [])
                 if tool_calls and all("tool_id" in call for call in tool_calls):
                     return parsed_data
-                    
-            self.logger.warning(
-                f"Invalid response format or type: {parsed_data}"
-            )
+
+            self.logger.warning(f"Invalid response format or type: {parsed_data}")
             return None
-            
+
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse JSON response: {e}")
             return None
@@ -350,7 +356,7 @@ ANSWER:"""
             max_iterations = self.max_tool_iterations
 
         history: List[Dict[str, str]] = []
-        original_question = question # Store the original question
+        original_question = question  # Store the original question
         current_question = question
 
         for i in range(max_iterations):
@@ -363,27 +369,34 @@ ANSWER:"""
 
             # Build messages for LLM, including system prompt on first turn
             messages_for_llm: List[Dict[str, str]] = []
-            system_prompt_content = self._build_prompt_template().template.split("Available Tools:")[0].strip()
+            system_prompt_content = (
+                self._build_prompt_template().template.split("Available Tools:")[0].strip()
+            )
             messages_for_llm.append({"role": "system", "content": system_prompt_content})
 
             if not history:
                 # First turn: Add the initial user question formatted with tools
-                user_prompt_content = self.prompt_template.format(
-                    tool_descriptions=tools_description_str,
-                    question=current_question
-                ).split("ANSWER:")[0] + "ANSWER:"
+                user_prompt_content = (
+                    self.prompt_template.format(
+                        tool_descriptions=tools_description_str, question=current_question
+                    ).split("ANSWER:")[0]
+                    + "ANSWER:"
+                )
                 messages_for_llm.append({"role": "user", "content": user_prompt_content})
             else:
                 # Subsequent turns: Add initial question, history, and current follow-up
-                initial_user_prompt_content = self.prompt_template.format(
-                    tool_descriptions=tools_description_str,
-                    question=original_question # Always refer to the original question here
-                ).split("ANSWER:")[0] + "ANSWER:"
+                initial_user_prompt_content = (
+                    self.prompt_template.format(
+                        tool_descriptions=tools_description_str,
+                        question=original_question,  # Always refer to the original question here
+                    ).split("ANSWER:")[0]
+                    + "ANSWER:"
+                )
                 messages_for_llm.append({"role": "user", "content": initial_user_prompt_content})
-                messages_for_llm.extend(history) # Add previous assistant/tool turns
+                messages_for_llm.extend(history)  # Add previous assistant/tool turns
                 # Add the follow-up instruction/question if it exists
                 if current_question != original_question:
-                     messages_for_llm.append({"role": "user", "content": current_question})
+                    messages_for_llm.append({"role": "user", "content": current_question})
 
             llm_response_text = await self._call_llm(messages_for_llm)
             self.logger.debug(f"LLM response (Iter {i+1}): {llm_response_text[:300]}...")
@@ -397,14 +410,16 @@ ANSWER:"""
                 if "```json" in llm_response_text:
                     json_str = llm_response_text.split("```json")[1].split("```")[0].strip()
                 elif "```" in llm_response_text:
-                     # Handle cases where ``` is used without json marker
-                     json_str = llm_response_text.split("```")[1].split("```")[0].strip()
+                    # Handle cases where ``` is used without json marker
+                    json_str = llm_response_text.split("```")[1].split("```")[0].strip()
                 else:
                     # Assume raw JSON if no markdown fences
                     json_str = llm_response_text.strip()
-                
+
                 if not json_str:
-                    self.logger.error(f"Could not extract JSON from LLM response: {llm_response_text}")
+                    self.logger.error(
+                        f"Could not extract JSON from LLM response: {llm_response_text}"
+                    )
                     return "Error: Could not parse JSON response from AI assistant."
 
                 parsed_response = json.loads(json_str)
@@ -412,48 +427,60 @@ ANSWER:"""
 
                 # Handle direct response
                 if response_type == "direct":
-                    return parsed_response.get("content", "Error: Missing content in direct response.")
-                
+                    return parsed_response.get(
+                        "content", "Error: Missing content in direct response."
+                    )
+
                 # Handle tool result response (treat as final answer)
                 elif response_type == "tool_result":
-                    return parsed_response.get("result", "Error: Missing result in tool_result response.")
+                    return parsed_response.get(
+                        "result", "Error: Missing result in tool_result response."
+                    )
 
                 # Handle tool call
                 elif response_type == "tool_call":
                     tool_calls = parsed_response.get("tool_calls", [])
                     if tool_calls:
                         tool_results_history, had_error = await self._execute_tool_calls(tool_calls)
-                        
+
                         if tool_results_history:
                             for res in tool_results_history:
-                                history.append(res) # Append tool results to history
-                        
+                                history.append(res)  # Append tool results to history
+
                         if had_error:
-                            self.logger.warning("Tool execution had errors. Asking LLM to summarize.")
+                            self.logger.warning(
+                                "Tool execution had errors. Asking LLM to summarize."
+                            )
                             current_question = f"There were errors during tool execution (see tool messages above). Please explain the error to the user based on the original question: '{original_question}'. Use the 'direct' format."
                         else:
-                             # No errors, ask LLM to process results and answer original question
-                            self.logger.info("Tool execution successful. Asking LLM to process results.")
+                            # No errors, ask LLM to process results and answer original question
+                            self.logger.info(
+                                "Tool execution successful. Asking LLM to process results."
+                            )
                             current_question = f"The tool execution finished (see results above). Please analyze the results. If they are helpful, incorporate them into your answer to the original question: '{original_question}'. If the tool results were empty or not helpful, state that briefly and answer using your general knowledge. Respond using the 'tool_result' format."
-                        continue # Continue loop for LLM to process results/errors
+                        continue  # Continue loop for LLM to process results/errors
                     else:
                         self.logger.warning("'tool_call' type received but no tool_calls found.")
                         return "Error: Received tool call request with no specific tools listed."
                 else:
                     self.logger.error(f"Invalid response type: {response_type}")
                     return f"Error: Invalid response type '{response_type}' from AI assistant. Expected 'direct', 'tool_call', or 'tool_result'."
-                        
+
             except json.JSONDecodeError as e:
-                self.logger.error(f"Invalid JSON response from LLM: {e}. Response: {json_str}") # Log the extracted string
+                self.logger.error(
+                    f"Invalid JSON response from LLM: {e}. Response: {json_str}"
+                )  # Log the extracted string
                 return f"Error: Invalid JSON response format from AI assistant: {e}"
-                
+
             except Exception as e:
                 self.logger.error(f"Error processing LLM response: {e}", exc_info=True)
                 return f"Error: Failed to process AI response: {str(e)}"
 
         self.logger.warning(f"Max iterations ({max_iterations}) reached.")
         # Fallback logic remains the same
-        last_response = history[-1]["content"] if history and history[-1]["role"] == "assistant" else ""
+        last_response = (
+            history[-1]["content"] if history and history[-1]["role"] == "assistant" else ""
+        )
         if last_response:
             try:
                 json_str = None
@@ -463,16 +490,18 @@ ANSWER:"""
                     json_str = last_response.split("```")[1].split("```")[0].strip()
                 else:
                     json_str = last_response.strip()
-                
+
                 if json_str:
                     parsed = json.loads(json_str)
-                    if parsed.get("type") == "direct": return parsed.get("content", "Max iterations reached.")
-                    if parsed.get("type") == "tool_result": return parsed.get("result", "Max iterations reached.")
+                    if parsed.get("type") == "direct":
+                        return parsed.get("content", "Max iterations reached.")
+                    if parsed.get("type") == "tool_result":
+                        return parsed.get("result", "Max iterations reached.")
             except Exception:
-                pass 
+                pass
             return f"Error: Maximum interaction depth reached. Last response: {last_response}"
         else:
-             return "Error: Maximum interaction depth reached without reaching a final answer."
+            return "Error: Maximum interaction depth reached without reaching a final answer."
 
     async def handle_ask_question(self, message):
         """

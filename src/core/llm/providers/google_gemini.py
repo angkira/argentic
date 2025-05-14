@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 
 from .base import ModelProvider
 from core.logger import get_logger
@@ -48,7 +48,7 @@ class GoogleGeminiProvider(ModelProvider):
         # Try to parse the content as JSON
         try:
             parsed = json.loads(content)
-            
+
             # Handle nested tool calls (when Gemini wraps them in a respond function)
             if isinstance(parsed, dict) and "tool_calls" in parsed:
                 tool_calls = parsed["tool_calls"]
@@ -71,7 +71,7 @@ class GoogleGeminiProvider(ModelProvider):
                             return json.dumps(actual_tool_call)
                     except json.JSONDecodeError:
                         pass
-            
+
             # If it's a simple content response, return it directly without wrapping in tool_calls
             if isinstance(parsed, dict) and "content" in parsed and "tool_calls" not in parsed:
                 return parsed["content"]
@@ -92,7 +92,9 @@ class GoogleGeminiProvider(ModelProvider):
             elif role == "system":
                 # For Gemini, we'll prepend system messages to the first user message
                 if lc_messages and isinstance(lc_messages[0], HumanMessage):
-                    lc_messages[0] = HumanMessage(content=f"System Instructions: {content}\n\n{lc_messages[0].content}")
+                    lc_messages[0] = HumanMessage(
+                        content=f"System Instructions: {content}\n\n{lc_messages[0].content}"
+                    )
                 else:
                     lc_messages.append(HumanMessage(content=f"System Instructions: {content}"))
             else:

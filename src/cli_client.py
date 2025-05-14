@@ -120,8 +120,8 @@ class CliClient(Client):
         # If the creating thread is NOT a daemon (e.g., main thread), worker threads ARE daemonic by default.
         # This means we likely don't need a custom initializer for daemon status with modern Python.
         executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, # Only one thread needed for stdin
-            thread_name_prefix='CLIInputWorker' # Optional: for easier debugging
+            max_workers=1,  # Only one thread needed for stdin
+            thread_name_prefix="CLIInputWorker",  # Optional: for easier debugging
         )
 
         try:
@@ -169,22 +169,24 @@ class CliClient(Client):
         except asyncio.CancelledError:
             self.logger.info("CLI: run_interactive task was cancelled.")
             # Propagate cancellation if needed, or handle specific cleanup
-            raise # Re-raise CancelledError so run_until_complete in start() sees it if not handled by KeyboardInterrupt
+            raise  # Re-raise CancelledError so run_until_complete in start() sees it if not handled by KeyboardInterrupt
         except Exception as e:
-            self.logger.error(f"CLI Error: An unexpected error occurred in run_interactive: {e}", exc_info=True)
+            self.logger.error(
+                f"CLI Error: An unexpected error occurred in run_interactive: {e}", exc_info=True
+            )
             return False
         finally:
             self.logger.info("CLI: Shutting down (run_interactive's finally block)...")
-            await self.stop() # Graceful MESSAGING disconnect etc.
+            await self.stop()  # Graceful MESSAGING disconnect etc.
             self.logger.info("CLI: Shutdown complete (run_interactive's finally block).")
-            
+
             self.logger.info("CLI: Shutting down stdin thread pool executor...")
             # For daemon threads, wait=False is appropriate as they won't block exit.
             # cancel_futures (Python 3.9+) attempts to cancel pending work.
             if sys.version_info >= (3, 9):
                 executor.shutdown(wait=False, cancel_futures=True)
             else:
-                executor.shutdown(wait=False) # For Python < 3.9
+                executor.shutdown(wait=False)  # For Python < 3.9
             self.logger.info("CLI: Stdin thread pool executor shutdown initiated.")
 
     def start(self):
@@ -198,7 +200,9 @@ class CliClient(Client):
             # and runs its finally block.
             return loop.run_until_complete(self.run_interactive())
         except KeyboardInterrupt:
-            self.logger.info("CLI: KeyboardInterrupt caught in start. Expecting run_interactive's finally block to have handled self.stop().")
+            self.logger.info(
+                "CLI: KeyboardInterrupt caught in start. Expecting run_interactive's finally block to have handled self.stop()."
+            )
             keyboard_interrupted = True
             # At this point, self.run_interactive() should have been cancelled
             # and its 'finally' block (containing self.stop()) should have executed.
@@ -218,38 +222,48 @@ class CliClient(Client):
                     # tasks_to_cancel = [t for t in all_tasks if t is not asyncio.current_task(loop=loop)] # More robust
                     tasks_to_cancel = [t for t in all_tasks]
 
-
                     if tasks_to_cancel:
-                        self.logger.info(f"CLI: Cancelling {len(tasks_to_cancel)} outstanding tasks during final cleanup...")
+                        self.logger.info(
+                            f"CLI: Cancelling {len(tasks_to_cancel)} outstanding tasks during final cleanup..."
+                        )
                         for task in tasks_to_cancel:
                             task.cancel()
                         # Give cancelled tasks a chance to run their cleanup code
-                        loop.run_until_complete(asyncio.gather(*tasks_to_cancel, return_exceptions=True))
+                        loop.run_until_complete(
+                            asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+                        )
                         self.logger.info("CLI: Outstanding tasks gathered during final cleanup.")
 
                     # Shutdown async generators
-                    if loop.is_running(): # Check if running before shutting down async gens
-                         self.logger.info("CLI: Shutting down async generators...")
-                         loop.run_until_complete(loop.shutdown_asyncgens())
-                         self.logger.info("CLI: Async generators shutdown.")
+                    if loop.is_running():  # Check if running before shutting down async gens
+                        self.logger.info("CLI: Shutting down async generators...")
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+                        self.logger.info("CLI: Async generators shutdown.")
 
                 except RuntimeError as e_rt:
-                    self.logger.warning(f"CLI: Runtime error during final loop cleanup (loop may be closed or stopping): {e_rt}")
+                    self.logger.warning(
+                        f"CLI: Runtime error during final loop cleanup (loop may be closed or stopping): {e_rt}"
+                    )
                 except Exception as e_final_cleanup:
-                    self.logger.error(f"CLI: Error during final cleanup of loop/tasks: {e_final_cleanup}", exc_info=True)
+                    self.logger.error(
+                        f"CLI: Error during final cleanup of loop/tasks: {e_final_cleanup}",
+                        exc_info=True,
+                    )
                 finally:
-                    if not loop.is_closed(): # Re-check as operations above might have closed it
+                    if not loop.is_closed():  # Re-check as operations above might have closed it
                         self.logger.info("CLI: Closing event loop.")
                         loop.close()
                         self.logger.info("CLI: Event loop closed.")
                     else:
-                        self.logger.info("CLI: Event loop was already closed by prior cleanup in finally.")
+                        self.logger.info(
+                            "CLI: Event loop was already closed by prior cleanup in finally."
+                        )
             else:
-                 self.logger.info("CLI: Event loop was already closed before start's finally block.")
+                self.logger.info("CLI: Event loop was already closed before start's finally block.")
 
         if keyboard_interrupted:
             self.logger.info("CLI: Exiting program explicitly after KeyboardInterrupt handling.")
-            sys.exit(0) # Force exit after cleanup attempts
+            sys.exit(0)  # Force exit after cleanup attempts
 
         # This return is for cases where run_interactive completed without KeyboardInterrupt (e.g., user typed 'exit')
         # or if another non-KeyboardInterrupt exception occurred and was handled.
