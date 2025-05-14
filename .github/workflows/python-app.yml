@@ -26,7 +26,6 @@ jobs:
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     - name: Install dependencies with uv
       run: |
-        uv pip install --system flake8 pytest
         uv sync --all-extras
     - name: Lint with flake8
       run: |
