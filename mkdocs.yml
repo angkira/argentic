@@ -1,0 +1,54 @@
+site_name: Argentic
+site_description: Documentation for the Argentic project.
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+  language: en
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+      primary: indigo
+      accent: indigo
+    - scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+      primary: indigo
+      accent: indigo
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  # Add other pages and sections here
+  # Example:
+  # - User Guide:
+  #   - 'Getting Started': 'user-guide/getting-started.md'
+  #   - 'Configuration': 'user-guide/configuration.md'
+  # - API:
+  #   - 'Core API': 'api/core.md'
+
+# If you want to include your root README.md as the main page,
+# you'll copy it to docs/index.md. We'll do this in the GitHub Action.
+# Or, for local builds, you can do it manually or with a script.
+
+# You can also add markdown extensions if needed
+# markdown_extensions:
+#   - pymdownx.highlight:
+#       anchor_linenums: true
+#   - pymdownx.inlinehilite
+#   - pymdownx.snippets
+#   - pymdownx.superfences 

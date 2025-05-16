@@ -35,17 +35,22 @@ jobs:
     - name: Install documentation dependencies with uv
       run: |
         uv pip install --system -e .[docs]
-    - name: Build Sphinx documentation
+    - name: Prepare docs source
       run: |
-        cd docs
-        make html
+        cp README.md docs/index.md
+        # Add commands here to copy other READMEs or markdown files into the docs/ directory
+        # For example: 
+        # mkdir -p docs/module1
+        # cp src/module1/README.md docs/module1/index.md 
+    - name: Build MkDocs documentation
+      run: |
+        mkdocs build --site-dir _site
     - name: Setup Pages
       uses: actions/configure-pages@v5
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
-        # Upload entire directory
-        path: 'docs/build/html'
+        path: '_site' # Upload the _site directory
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4 

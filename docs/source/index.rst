@@ -3,15 +3,33 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Argentic documentation
-======================
-
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
+Welcome to Argentic's documentation!
+======================================
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Overview:
+
+   ../../README.md 
+
+.. toctree::
+   :maxdepth: 2
+   :caption: User Guide:
+
+   # Add links to your user guide .md or .rst files here
+   # Example: user_guide/getting_started.md
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference:
+
+   # Add links to your API documentation .md or .rst files here
+   # Example: ../../src/your_module/api.md
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
 
