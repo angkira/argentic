@@ -45,6 +45,14 @@ nav:
 # you'll copy it to docs/index.md. We'll do this in the GitHub Action.
 # Or, for local builds, you can do it manually or with a script.
 
+markdown_extensions:
+  - pymdownx.snippets
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  # Add other pymdownx extensions or standard Markdown extensions here
+
 # You can also add markdown extensions if needed
 # markdown_extensions:
 #   - pymdownx.highlight:
