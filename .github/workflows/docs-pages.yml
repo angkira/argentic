@@ -35,6 +35,13 @@ jobs:
     - name: Install documentation dependencies with uv
       run: |
         uv pip install --system -e .[docs]
+    - name: Prepare docs source
+      run: |
+        cp README.md docs/index.md
+        # Add commands here to copy other READMEs or markdown files into the docs/ directory
+        # For example: 
+        # mkdir -p docs/module1
+        # cp src/module1/README.md docs/module1/index.md 
     - name: Build MkDocs documentation
       run: |
         mkdocs build --site-dir _site
