@@ -14,6 +14,12 @@ class DriverConfig(BaseModel):
     user: Optional[str] = Field(None, description="Username for auth")
     password: Optional[str] = Field(None, description="Password for auth")
     token: Optional[str] = Field(None, description="Token for auth, if applicable")
+    client_id: Optional[str] = Field(None, description="Client ID for the connection")
+    # RabbitMQ specific
+    virtualhost: Optional[str] = Field(None, description="Virtual host for RabbitMQ")
+    # Kafka specific
+    group_id: Optional[str] = Field(None, description="Consumer group ID for Kafka")
+    auto_offset_reset: Optional[str] = Field(None, description="Offset reset policy for Kafka")
 
 
 MessageHandler = Callable[[BaseMessage], Coroutine[Any, Any, None]]
@@ -48,6 +54,13 @@ class BaseDriver(ABC):
     def is_connected(self) -> bool:
         """Return connection status"""
         ...
+
+    def format_connection_error_details(self, exception: Exception) -> Optional[str]:
+        """
+        Allows drivers to provide specific formatted details from a connection exception.
+        Returns a string with details or None if no specific details are extracted.
+        """
+        return None
 
 
 # Mapping of protocols to module paths and driver class names

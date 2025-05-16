@@ -33,21 +33,36 @@ function wait_for_services {
         sleep 5
     fi
     
-    # Check RabbitMQ status
-    echo "Checking RabbitMQ status..."
-    if ! curl -s http://localhost:15672/api/vhosts -u guest:guest > /dev/null; then
-        echo "Warning: RabbitMQ management interface is not responding. Some tests may fail."
-        echo "Waiting longer for RabbitMQ to initialize..."
-        sleep 5
-    else
-        echo "RabbitMQ is ready for connections."
-        # Ensure RabbitMQ is properly configured for tests
-        configure_rabbitmq_for_tests
+    # Check RabbitMQ status and readiness for configuration
+    echo "Checking RabbitMQ management API readiness for configuration..."
+    # Loop until RabbitMQ management API is responsive or timeout
+    RETRY_COUNT=0
+    MAX_RETRIES=12 # Wait up to 60 seconds (12 * 5s)
+    SUCCESS=false
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if curl -f -u guest:guest http://localhost:15672/api/aliveness-test/%2F > /dev/null 2>&1; then
+            echo "RabbitMQ management API is responsive on default vhost."
+            SUCCESS=true
+            break
+        else
+            echo "RabbitMQ management API not yet responsive. Retrying in 5 seconds... ($((RETRY_COUNT+1))/$MAX_RETRIES)"
+            sleep 5
+            RETRY_COUNT=$((RETRY_COUNT+1))
+        fi
+    done
+
+    if [ "$SUCCESS" = false ]; then
+        echo "Error: RabbitMQ management API did not become responsive. Exiting."
+        exit 1
     fi
+
+    # If responsive, then proceed to configure
+    echo "RabbitMQ management API is up, proceeding with vhost/permissions configuration."
+    configure_rabbitmq_for_tests
     
     # Show status for debugging
-    echo "Docker services status:"
-    docker-compose -f "$DOCKER_COMPOSE_PATH" ps
+    echo "Docker services status after initial wait_for_services:"
+    docker compose -f "$DOCKER_COMPOSE_PATH" ps
 }
 
 function show_help {
@@ -89,18 +104,41 @@ function check_running_services {
 function configure_rabbitmq_for_tests {
     echo "Configuring RabbitMQ for tests..."
     
-    # Create test vhost if it doesn't exist
-    if ! curl -s -u guest:guest -X GET http://localhost:15672/api/vhosts/test | grep -q "name"; then
-        echo "Creating test vhost..."
-        curl -s -u guest:guest -X PUT http://localhost:15672/api/vhosts/test
+    echo "Attempting to create test vhost if it doesn't exist..."
+    # Check if vhost 'test' exists
+    if curl -f -u guest:guest -X GET http://localhost:15672/api/vhosts/test > /dev/null 2>&1; then
+        echo "Vhost 'test' already exists."
+    else
+        echo "Vhost 'test' does not exist or not accessible, attempting to create..."
+        curl -f -u guest:guest -X PUT http://localhost:15672/api/vhosts/test
+        CREATE_VHOST_EC=$?
+        if [ $CREATE_VHOST_EC -ne 0 ]; then
+            echo "Error: Failed to create vhost 'test'. Exit code: $CREATE_VHOST_EC. Output above."
+            # Attempt to get more info on failure
+            curl -v -u guest:guest -X GET http://localhost:15672/api/vhosts
+            exit 1
+        else
+            echo "Successfully sent command to create vhost 'test'."
+        fi
     fi
     
-    # Ensure guest user has permissions on test vhost
     echo "Setting permissions for guest user on test vhost..."
-    curl -s -u guest:guest -X PUT \
+    curl -f -u guest:guest -X PUT \
         -H "Content-Type: application/json" \
         -d '{"configure":".*","write":".*","read":".*"}' \
         http://localhost:15672/api/permissions/test/guest
+    SET_PERMISSIONS_EC=$?
+    if [ $SET_PERMISSIONS_EC -ne 0 ]; then
+        echo "Error: Failed to set permissions for user 'guest' on vhost 'test'. Exit code: $SET_PERMISSIONS_EC. Output above."
+        # Attempt to get more info on failure
+        echo "Current permissions for vhost test:"
+        curl -v -u guest:guest http://localhost:15672/api/vhosts/test/permissions
+        echo "Current permissions for user guest:"
+        curl -v -u guest:guest http://localhost:15672/api/users/guest/permissions
+        exit 1
+    else
+        echo "Successfully set permissions for user 'guest' on vhost 'test'."
+    fi
     
     echo "RabbitMQ configuration complete."
 }
@@ -152,7 +190,7 @@ set -e
 
 # Install dependencies
 # python -m pip install -e ".[dev,kafka,redis,rabbitmq]"
-uv sync --extra dev --extra kafka --extra redis --extra rabbitmq
+uv sync --all-extras
 
 # Set Python path to include the src directory
 PROJECT_ROOT=$(pwd)
@@ -166,10 +204,10 @@ if [ "$START_DOCKER" = true ]; then
     else
         # If forcing restart or containers not running, start new ones
         echo "Stopping any existing containers..."
-        docker-compose -f "$DOCKER_COMPOSE_PATH" down -v --remove-orphans
+        docker compose -f "$DOCKER_COMPOSE_PATH" down -v --remove-orphans
 
         echo "Starting Docker containers..."
-        docker-compose -f "$DOCKER_COMPOSE_PATH" up -d
+        docker compose -f "$DOCKER_COMPOSE_PATH" up -d
         
         if [ $? -ne 0 ]; then
             echo "Failed to start Docker containers"
@@ -180,16 +218,22 @@ if [ "$START_DOCKER" = true ]; then
     fi
     
     # Show running containers
-    docker-compose -f "$DOCKER_COMPOSE_PATH" ps
+    docker compose -f "$DOCKER_COMPOSE_PATH" ps
     
-    # Check RabbitMQ status specifically
-    echo "Checking RabbitMQ status..."
-    if ! curl -s http://localhost:15672/api/vhosts -u guest:guest > /dev/null; then
-        echo "Warning: RabbitMQ management interface is not responding. Some tests may fail."
+    # This block is now somewhat redundant if wait_for_services fully handles configuration,
+    # but keep it as a final check and explicit sleep before tests.
+    echo "Final check of RabbitMQ status before tests..."
+    if ! curl -f -u guest:guest http://localhost:15672/api/aliveness-test/%2F > /dev/null 2>&1; then
+        echo "Error: RabbitMQ management interface became unresponsive before tests. Exiting."
+        exit 1
     else
-        echo "RabbitMQ is ready for connections."
-        # Ensure RabbitMQ is properly configured for tests
-        configure_rabbitmq_for_tests
+        echo "RabbitMQ management API still responsive."
+        # Re-ensure configuration one last time, or rely on wait_for_services.
+        # For safety, let's call it again, it has checks for existence.
+        echo "Re-confirming RabbitMQ configuration..."
+        configure_rabbitmq_for_tests 
+        echo "Waiting 5 seconds for RabbitMQ configuration to apply fully before tests..."
+        sleep 5 # Increased sleep slightly
     fi
 fi
 
@@ -212,7 +256,7 @@ fi
 # Stop Docker containers if requested
 if [ "$STOP_DOCKER" = true ]; then
     echo "Stopping Docker containers..."
-    docker-compose -f "$DOCKER_COMPOSE_PATH" down -v --remove-orphans
+    docker compose -f "$DOCKER_COMPOSE_PATH" down -v --remove-orphans
 fi
 
 exit $TEST_EXIT_CODE 

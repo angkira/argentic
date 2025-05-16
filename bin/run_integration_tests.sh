@@ -2,7 +2,7 @@
 
 # Install test dependencies if needed
 # python -m pip install -e ".[dev,kafka,redis,rabbitmq]"
-uv sync --extra dev --extra kafka --extra redis --extra rabbitmq
+uv sync --all-extras
 
 # Set Python path to include the src directory
 export PYTHONPATH=$PYTHONPATH:$(pwd)

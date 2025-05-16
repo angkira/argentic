@@ -71,7 +71,12 @@ class TestRabbitMQDriver:
         await driver.connect()
 
         # Verify connection was made with correct URL
-        expected_url = f"amqp://{driver_config.user}:{driver_config.password}@{driver_config.url}:{driver_config.port}/"
+        expected_url = f"amqp://{driver_config.user}:{driver_config.password}@{driver_config.url}:{driver_config.port}"
+        if driver_config.virtualhost and driver_config.virtualhost != "/":
+            expected_url += f"/{driver_config.virtualhost.lstrip('/')}"
+        else:
+            pass
+
         mock_connect.assert_awaited_once_with(expected_url)
 
         # Verify channel was created

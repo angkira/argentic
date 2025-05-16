@@ -4,7 +4,7 @@ This directory contains end-to-end tests for the messaging system that use actua
 
 ## Requirements
 
-- Docker and docker-compose installed on your system
+- Docker and docker compose installed on your system
 - Python dependencies installed (same as main project)
 
 ## Running the Tests
@@ -45,7 +45,7 @@ If tests fail:
 2. Ensure no other services are using the required ports
 3. Check container logs:
    ```bash
-   docker-compose -f tests/core/messager/docker-compose.yml logs
+   docker compose -f tests/core/messager/docker-compose.yml logs
    ```
 4. Increase timeouts in the test code if necessary
 

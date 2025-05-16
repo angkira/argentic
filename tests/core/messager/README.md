@@ -33,7 +33,7 @@ pytest tests/core/messager/drivers/test_mqtt_driver.py
 
 ### End-to-End Tests
 
-These tests require Docker and docker-compose. See `e2e_README.md` for detailed instructions.
+These tests require Docker and docker compose. See `e2e_README.md` for detailed instructions.
 
 ```bash
 # Run all e2e tests (requires Docker)

@@ -5,12 +5,32 @@ import sys
 import os
 
 # Add src to path to fix import issues
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../")))
 
-# Mock the aiokafka module
-sys.modules["aiokafka"] = MagicMock()
-sys.modules["aiokafka"].AIOKafkaConsumer = MagicMock()
-sys.modules["aiokafka"].AIOKafkaProducer = MagicMock()
+# --- Adjusted aiokafka mocking ---
+mock_aiokafka_itself = MagicMock()  # Mock for 'aiokafka' if it's imported directly
+sys.modules["aiokafka"] = mock_aiokafka_itself
+
+# Mock for 'aiokafka.abc'
+mock_aiokafka_abc = MagicMock()
+sys.modules["aiokafka.abc"] = mock_aiokafka_abc
+mock_aiokafka_abc.ConsumerRebalanceListener = type("ConsumerRebalanceListener", (object,), {})
+
+# Mock for 'aiokafka.errors'
+mock_aiokafka_errors = MagicMock()
+sys.modules["aiokafka.errors"] = mock_aiokafka_errors
+mock_aiokafka_errors.KafkaConnectionError = type("KafkaConnectionError", (Exception,), {})
+mock_aiokafka_errors.KafkaTimeoutError = type("KafkaTimeoutError", (Exception,), {})
+
+# Set attributes on the main 'aiokafka' mock if needed for other import styles (e.g. aiokafka.AIOKafkaConsumer)
+mock_aiokafka_itself.AIOKafkaConsumer = MagicMock()
+mock_aiokafka_itself.AIOKafkaProducer = MagicMock()
+mock_aiokafka_itself.TopicPartition = MagicMock()
+# Ensure the main mock also has 'errors' and 'abc' attributes pointing to the submodule mocks
+# This helps if some code does 'import aiokafka' then 'aiokafka.errors.KafkaConnectionError'
+mock_aiokafka_itself.errors = mock_aiokafka_errors
+mock_aiokafka_itself.abc = mock_aiokafka_abc
+# ---- End of adjusted mocking ----
 
 from src.core.messager.drivers import DriverConfig
 from src.core.messager.drivers.KafkaDriver import KafkaDriver
@@ -47,7 +67,8 @@ class TestKafkaDriver:
         self.mock_consumer = AsyncMock()
         self.mock_consumer.start = AsyncMock()
         self.mock_consumer.stop = AsyncMock()
-        self.mock_consumer.subscribe = AsyncMock()
+        self.mock_consumer.subscribe = MagicMock()
+        self.mock_consumer.subscription = MagicMock(return_value=set())
 
         # Setup async iterator for consumer
         self.mock_consumer.__aiter__ = AsyncMock()
@@ -78,7 +99,8 @@ class TestKafkaDriver:
 
         # Verify producer was created with correct parameters
         mock_producer_class.assert_called_once_with(
-            bootstrap_servers=f"{driver_config.url}:{driver_config.port}"
+            bootstrap_servers=f"{driver_config.url}:{driver_config.port}",
+            loop=asyncio.get_running_loop(),
         )
 
         # Verify producer was started
@@ -172,11 +194,12 @@ class TestKafkaDriver:
             session_timeout_ms=30000,
             heartbeat_interval_ms=10000,
             max_poll_interval_ms=300000,
+            loop=asyncio.get_running_loop(),
         )
 
         # Verify consumer was started and subscribed
         self.mock_consumer.start.assert_awaited_once()
-        self.mock_consumer.subscribe.assert_awaited_once_with([test_topic])
+        self.mock_consumer.subscribe.assert_called_once_with([test_topic], listener=None)
 
         # Verify reader task was created
         mock_create_task.assert_called_once()
@@ -199,10 +222,12 @@ class TestKafkaDriver:
         driver._producer = self.mock_producer
         driver._consumer = self.mock_consumer
 
-        # Setup existing subscription
+        # Setup existing subscription and mock the return of subscription()
         first_topic = "first-topic"
         first_handler = AsyncMock()
         driver._listeners = {first_topic: [first_handler]}
+        # Ensure our mock_consumer.subscription returns what we expect for this state
+        self.mock_consumer.subscription.return_value = {first_topic}
 
         # Test data for new subscription
         second_topic = "second-topic"
@@ -212,7 +237,7 @@ class TestKafkaDriver:
 
         # Since we don't know the exact implementation, just verify that subscribe was called
         # and the handler was registered properly
-        assert self.mock_consumer.subscribe.await_count >= 1
+        assert self.mock_consumer.subscribe.call_count >= 1
 
         # Verify handler was registered
         assert second_topic in driver._listeners

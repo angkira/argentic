@@ -29,7 +29,7 @@ The `run_e2e_tests.sh` script helps manage Docker containers for end-to-end test
 
 The script now robustly detects if the required containers (mosquitto, redis, rabbitmq, zookeeper, kafka) are already running and reuses them by default. The detection works with:
 
-- Containers started by our docker-compose file
+- Containers started by our docker compose file
 - Containers started by other means but with matching names
 - Custom-built images like our mosquitto container
 

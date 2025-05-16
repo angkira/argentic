@@ -41,6 +41,7 @@ class Messager:
         pub_log_topic: Optional[str] = None,
         log_level: Union[LogLevel, str] = LogLevel.INFO,
         tls_params: Optional[Dict[str, Any]] = None,
+        **driver_kwargs: Any,
     ):
         """Initialize a new Messager instance.
 
@@ -55,6 +56,7 @@ class Messager:
             pub_log_topic: Topic to publish log messages to, if any
             log_level: Logging level
             tls_params: TLS/SSL configuration parameters
+            **driver_kwargs: Additional keyword arguments for the specific driver config
         """
         self.broker_address = broker_address
         self.port = port
@@ -99,6 +101,8 @@ class Messager:
             user=username,
             password=password,
             token=None,
+            client_id=self.client_id,
+            **driver_kwargs,
         )
 
         self._driver = create_driver(protocol, cfg)
@@ -122,7 +126,14 @@ class Messager:
             self.logger.info("Connected successfully via driver")
             return True
         except Exception as e:
-            self.logger.error(f"Driver connection failed: {e}")
+            log_msg = f"Driver connection failed: {e!r}"
+            # Attempt to get more detailed error information from the driver
+            if hasattr(self._driver, "format_connection_error_details"):
+                detailed_error_info = self._driver.format_connection_error_details(e)
+                if detailed_error_info:
+                    log_msg += f"\n--- Driver Specific Error Details ---\n{detailed_error_info}"
+                    log_msg += "\n-------------------------------------"
+            self.logger.error(log_msg, exc_info=True)  # exc_info=True will add traceback
             return False
 
     async def disconnect(self) -> None:
@@ -154,7 +165,8 @@ class Messager:
             **kwargs: Additional arguments passed to the underlying driver
         """
         self.logger.info(
-            f"Subscribing to topic: {topic} with handler: {handler.__name__}, message_cls: {message_cls.__name__}"
+            f"Subscribing to topic: {topic} with handler: {handler.__name__}, "
+            f"message_cls: {message_cls.__name__}"
         )
 
         # Make handler_adapter async and handle task creation properly

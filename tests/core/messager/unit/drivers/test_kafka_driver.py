@@ -3,6 +3,7 @@ from src.core.messager.drivers.KafkaDriver import KafkaDriver
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
 
 import pytest
 
@@ -10,13 +11,25 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../")))
 
 # Mock the aiokafka module
-sys.modules["aiokafka"] = MagicMock()
-sys.modules["aiokafka"].AIOKafkaConsumer = MagicMock()
-sys.modules["aiokafka"].AIOKafkaProducer = MagicMock()
-sys.modules["aiokafka"].TopicPartition = MagicMock()
-sys.modules["aiokafka"].errors = MagicMock()
-sys.modules["aiokafka"].errors.KafkaConnectionError = type("KafkaConnectionError", (Exception,), {})
-sys.modules["aiokafka"].errors.KafkaTimeoutError = type("KafkaTimeoutError", (Exception,), {})
+mock_aiokafka = MagicMock()
+sys.modules["aiokafka"] = mock_aiokafka
+
+# Simulate the aiokafka.abc submodule for ConsumerRebalanceListener
+mock_aiokafka_abc = MagicMock()
+mock_aiokafka.abc = mock_aiokafka_abc
+mock_aiokafka_abc.ConsumerRebalanceListener = type("ConsumerRebalanceListener", (object,), {})
+
+
+# Simulate the aiokafka.errors submodule
+mock_aiokafka_errors = MagicMock()
+mock_aiokafka.errors = mock_aiokafka_errors
+mock_aiokafka_errors.KafkaConnectionError = type("KafkaConnectionError", (Exception,), {})
+mock_aiokafka_errors.KafkaTimeoutError = type("KafkaTimeoutError", (Exception,), {})
+
+# Mock other aiokafka components as before
+mock_aiokafka.AIOKafkaConsumer = MagicMock()
+mock_aiokafka.AIOKafkaProducer = MagicMock()
+mock_aiokafka.TopicPartition = MagicMock()
 
 
 # Mock for Kafka message
@@ -50,7 +63,8 @@ class TestKafkaDriver:
         self.mock_consumer = AsyncMock()
         self.mock_consumer.start = AsyncMock()
         self.mock_consumer.stop = AsyncMock()
-        self.mock_consumer.subscribe = AsyncMock()
+        self.mock_consumer.subscribe = MagicMock()
+        self.mock_consumer.subscription = MagicMock(return_value=set())
 
         # Setup async iterator for consumer
         self.mock_consumer.__aiter__ = AsyncMock()
@@ -81,7 +95,8 @@ class TestKafkaDriver:
 
         # Verify producer was created with correct parameters
         mock_producer_class.assert_called_once_with(
-            bootstrap_servers=f"{driver_config.url}:{driver_config.port}"
+            bootstrap_servers=f"{driver_config.url}:{driver_config.port}",
+            loop=asyncio.get_running_loop(),
         )
 
         # Verify producer was started
@@ -175,11 +190,12 @@ class TestKafkaDriver:
             session_timeout_ms=30000,
             heartbeat_interval_ms=10000,
             max_poll_interval_ms=300000,
+            loop=asyncio.get_running_loop(),
         )
 
         # Verify consumer was started and subscribed
         self.mock_consumer.start.assert_awaited_once()
-        self.mock_consumer.subscribe.assert_awaited_once_with([test_topic])
+        self.mock_consumer.subscribe.assert_called_once_with([test_topic], listener=None)
 
         # Verify reader task was created
         mock_create_task.assert_called_once()
@@ -202,10 +218,12 @@ class TestKafkaDriver:
         driver._producer = self.mock_producer
         driver._consumer = self.mock_consumer
 
-        # Setup existing subscription
+        # Setup existing subscription and mock the return of subscription()
         first_topic = "first-topic"
         first_handler = AsyncMock()
         driver._listeners = {first_topic: [first_handler]}
+        # Ensure our mock_consumer.subscription returns what we expect for this state
+        self.mock_consumer.subscription.return_value = {first_topic}
 
         # Test data for new subscription
         second_topic = "second-topic"
@@ -215,7 +233,7 @@ class TestKafkaDriver:
 
         # Since we don't know the exact implementation, just verify that subscribe was called
         # and the handler was registered properly
-        assert self.mock_consumer.subscribe.await_count >= 1
+        assert self.mock_consumer.subscribe.call_count >= 1
 
         # Verify handler was registered
         assert second_topic in driver._listeners
