@@ -49,9 +49,12 @@ markdown_extensions:
   - pymdownx.snippets
   - pymdownx.highlight:
       anchor_linenums: true
+      css_class: highlight
   - pymdownx.inlinehilite
   - pymdownx.superfences
-  # Add other pymdownx extensions or standard Markdown extensions here
+  - admonition
+  - toc:
+      permalink: true
 
 # You can also add markdown extensions if needed
 # markdown_extensions:
