@@ -1,4 +1,5 @@
 # Argentic
+[![Python application](https://github.com/angkira/argentic/actions/workflows/python-app.yml/badge.svg)](https://github.com/angkira/argentic/actions/workflows/python-app.yml)
 
 A microframework for building and running local AI agents.
 
