@@ -1,7 +1,8 @@
 # Argentic
 Microframework for building and running local AI agents.
 
-<p><center></center><img src="./assets/logo.jpg" class="styled-logo" style="height: 256px; width: 256px; text-align: center;" /> </center></p>
+![Argentic Logo](./assets/logo.jpg){: .styled-logo }
+
 [![Python application](https://github.com/angkira/argentic/actions/workflows/python-app.yml/badge.svg)](https://github.com/angkira/argentic/actions/workflows/python-app.yml)
 
 
@@ -222,36 +223,4 @@ Several scripts are available in the `bin/` directory to run different types of 
 
 Each script accepts additional pytest arguments. For example, to run tests with higher verbosity:
 
-```bash
-./bin/run_unit_tests.sh -v
-```
-
-### Test Markers
-
-The tests use markers to categorize different test types:
-
-- `@pytest.mark.e2e`: Marks tests that require external dependencies (Docker containers)
-- `@pytest.mark.slow`: Marks tests that take a long time to execute
-- `@pytest.mark.kafka`: Marks Kafka-specific tests
-
-You can use these markers with pytest's `-m` option to run specific test categories:
-
-```bash
-python -m pytest -m "e2e and not kafka"
-```
-
-## Documentation
-
-More detailed documentation is planned, potentially hosted on GitHub Pages, covering architecture, API details, and tool development guidelines.
-
-For development, clone the repository and install in editable mode with development dependencies:
-```bash
-git clone https://github.com/yourusername/argentic.git
-cd argentic
-# Create and activate a virtual environment (recommended)
-# python -m venv .venv 
-# source .venv/bin/activate  # On Windows use .venv\Scripts\activate
-
-# Install the project in editable mode with development dependencies
-uv pip install -e .[dev]
 ```
