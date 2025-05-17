@@ -3,7 +3,7 @@ name = "argentic"
 version = "0.5.3"
 description = ""
 authors = [{ name = "Iurii", email = "angkira0@gmail.com" }]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
 keywords = [
@@ -44,7 +44,8 @@ dev = [
     "pytest-asyncio>=0.23.5,<0.24",
     "python-on-whales>=0.70.0",
     "flake8>=7.2.0",
-    "commitizen>=4.7.1,<4",
+    "commitizen>=4.7.1,<5",
+    "pre-commit>=4.2.0,<5",
 ]
 docs = [
     "mkdocs>=1.6.0",
