@@ -59,7 +59,7 @@ jobs:
         find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "*.md" -not -name "README.md" -type f | while read -r file; do
           dest_path="docs/$(dirname "${file#./}")/$(basename "$file")"
           mkdir -p "$(dirname "$dest_path")"
-          cp "$file" "$dest_path"
+          cp -r "$file" "$dest_path"
         done
         # Add commands here to copy other READMEs or markdown files into the docs/ directory
         # For example: 
