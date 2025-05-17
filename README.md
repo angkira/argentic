@@ -1,8 +1,9 @@
 # Argentic
-![Argentic Logo](./assets/logo.jpg){: .styled-logo }
+Microframework for building and running local AI agents.
+
+<p><center></center><img src="./assets/logo.jpg" class="styled-logo" style="height: 256px; width: 256px; text-align: center;" /> </center></p>
 [![Python application](https://github.com/angkira/argentic/actions/workflows/python-app.yml/badge.svg)](https://github.com/angkira/argentic/actions/workflows/python-app.yml)
 
-A microframework for building and running local AI agents.
 
 Argentic provides a lightweight, configurable framework designed to simplify the setup and operation of local AI agents. It integrates with various Large Language Model (LLM) backends and utilizes a messaging protocol (currently MQTT) for flexible communication between the core agent, tools, and clients.
 
