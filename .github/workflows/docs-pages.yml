@@ -47,6 +47,10 @@ jobs:
 
         # Find all README.md files, excluding .git, .github, docs, and virtual environment directories
         find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "README.md" -type f | while read -r file; do
+          if [ -d "$file" ]; then
+            echo "Warning: Skipping directory found by README.md find: $file" >&2
+            continue
+          fi
           # Create a relative path for the destination in docs/
           # Example: ./src/moduleA/README.md -> docs/src/moduleA/index.md
           dest_dir="docs/$(dirname "${file#./}")"
