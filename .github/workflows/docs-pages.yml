@@ -98,7 +98,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
-        path: '_site' # Upload the _site directory
+        path: 'docs/_site' # Upload the docs/_site directory
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4 
