@@ -73,7 +73,26 @@ jobs:
         PYTHONPATH: ./src # Add src to Python's search path for mkdocstrings
       run: |
         echo "PYTHONPATH is: $PYTHONPATH"
-        mkdocs build --config-file docs/mkdocs.yml --site-dir _site
+        mkdocs build --verbose --config-file docs/mkdocs.yml --site-dir _site
+    - name: Debug _site location
+      run: |
+        echo "--- Current directory: $(pwd)"
+        echo "--- Listing root directory (GITHUB_WORKSPACE):"
+        ls -la
+        echo "--- Listing docs/ directory:"
+        ls -la docs/
+        if [ -d "_site" ]; then
+          echo "--- _site directory FOUND at GITHUB_WORKSPACE/_site. Contents:"
+          ls -la _site
+        else
+          echo "--- _site directory NOT FOUND at GITHUB_WORKSPACE/_site."
+        fi
+        if [ -d "docs/_site" ]; then
+          echo "--- docs/_site directory FOUND. Contents:"
+          ls -la docs/_site
+        else
+          echo "--- docs/_site directory NOT FOUND."
+        fi
     - name: Setup Pages
       uses: actions/configure-pages@v5
     - name: Upload artifact
