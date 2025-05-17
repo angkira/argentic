@@ -37,7 +37,15 @@ jobs:
         uv pip install --system -e .[docs]
     - name: Prepare docs source
       run: |
-        cp README.md docs/index.md
+        mkdir -p docs/assets
+        cp logo.jpg docs/assets/logo.jpg # For theme and for the final path in docs/index.md
+        
+        cp README.md docs/index.md # Copy root README to docs/index.md
+        # Now, adjust the image path within the newly copied docs/index.md
+        # This changes "./docs/assets/logo.jpg){: .styled-logo }" (correct for root README viewing on GitHub)
+        # to "./assets/logo.jpg){: .styled-logo }" (correct for docs/index.md served by MkDocs from docs/)
+        sed -i 's|!\[Argentic Logo\](./docs/assets/logo.jpg){: .styled-logo }|!\[Argentic Logo\](./assets/logo.jpg){: .styled-logo }|g' docs/index.md
+
         # Find all README.md files, excluding .git, .github, docs, and virtual environment directories
         find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "README.md" -type f | while read -r file; do
           # Create a relative path for the destination in docs/
@@ -59,7 +67,7 @@ jobs:
         # cp src/module1/README.md docs/module1/index.md 
     - name: Build MkDocs documentation
       run: |
-        mkdocs build --site-dir _site
+        mkdocs build --config-file docs/mkdocs.yml --site-dir _site
     - name: Setup Pages
       uses: actions/configure-pages@v5
     - name: Upload artifact

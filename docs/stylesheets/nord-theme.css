@@ -231,3 +231,14 @@
    For now, direct hex values are used. Material theme might derive these if base colors are set.
    If more precise transparency is needed, HSL versions of Nord colors would need to be added.
 */
+
+/* Custom styles for logo */
+.styled-logo {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  width: 256px;
+  height: 256px;
+  /* Set to 256px as requested. For non-square logos, this might cause stretching. */
+  /* Consider setting only width: 256px; and height: auto; to maintain aspect ratio. */
+}
