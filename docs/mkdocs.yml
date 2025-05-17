@@ -66,6 +66,9 @@ nav:
 # you'll copy it to docs/index.md. We'll do this in the GitHub Action.
 # Or, for local builds, you can do it manually or with a script.
 
+extra_css:
+  - stylesheets/nord-theme.css
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
