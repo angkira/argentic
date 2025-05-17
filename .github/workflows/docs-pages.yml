@@ -37,6 +37,7 @@ jobs:
         uv pip install --system -e .[docs]
     - name: Prepare docs source
       run: |
+        set -x # Print each command before executing
         mkdir -p docs/assets
         cp assets/logo.jpg docs/assets/logo.jpg # For theme and for the final path in docs/index.md
         
