@@ -46,7 +46,7 @@ jobs:
         # sed -i 's|!\[Argentic Logo\](./docs/assets/logo.jpg){: .styled-logo }|!\[Argentic Logo\](./assets/logo.jpg){: .styled-logo }|g' docs/index.md
 
         # Find all README.md files, excluding .git, .github, docs, and virtual environment directories
-        find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "README.md" -type f | while read -r file; do
+        find . \( -path ./docs -o -path ./.git -o -path ./.github -o -path ./.venv -o -path ./venv \) -prune -o \( -name "README.md" -type f -print \) | while read -r file; do
           if [ -d "$file" ]; then
             echo "Warning: Skipping directory found by README.md find: $file" >&2
             continue
@@ -59,7 +59,7 @@ jobs:
         done
         # Find all other .md files (excluding README.md as they are handled above, and excluding specified directories)
         # and copy them, maintaining their original names and directory structure within docs/
-        find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "*.md" -not -name "README.md" -type f | while read -r file; do
+        find . \( -path ./docs -o -path ./.git -o -path ./.github -o -path ./.venv -o -path ./venv \) -prune -o \( -name "*.md" -not -name "README.md" -type f -print \) | while read -r file; do
           dest_path="docs/$(dirname "${file#./}")/$(basename "$file")"
           mkdir -p "$(dirname "$dest_path")"
           cp "$file" "$dest_path" # Changed back from cp -r, as these are files
