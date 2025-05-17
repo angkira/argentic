@@ -76,5 +76,5 @@ markdown_extensions:
   - attr_list
   - md_in_html
 
-site_dir: ../_site
+# site_dir: ../_site # Let CLI arg --site-dir handle this
 docs_dir: . 
