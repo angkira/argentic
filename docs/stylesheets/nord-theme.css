@@ -1,0 +1,244 @@
+/* Nord Color Palette */
+:root {
+  --nord0: #2e3440;
+  --nord1: #3b4252;
+  --nord2: #434c5e;
+  --nord3: #4c566a;
+  --nord4: #d8dee9;
+  --nord5: #e5e9f0;
+  --nord6: #eceff4;
+  --nord7: #8fbcbb;
+  --nord8: #88c0d0;
+  --nord9: #81a1c1;
+  --nord10: #5e81ac;
+  --nord11: #bf616a;
+  /* Aurora Error */
+  --nord12: #d08770;
+  /* Aurora Special */
+  --nord13: #ebcb8b;
+  /* Aurora Warning */
+  --nord14: #a3be8c;
+  /* Aurora Success, String */
+  --nord15: #b48ead;
+  /* Aurora Number */
+}
+
+/* Apply Nord to Material Theme */
+
+/* Default (Light Scheme - adapting Nord's "bright ambiance") */
+/* Also use [data-md-color-scheme="default"] for specificity */
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--nord10);
+  /* Frost - dark intensive */
+  --md-primary-fg-color--light: var(--nord8);
+  /* Frost - bright shiny */
+  --md-primary-fg-color--dark: var(--nord10);
+  /* Frost - dark intensive */
+  --md-primary-bg-color: var(--nord6);
+  /* Snow Storm - brightest (background) */
+  --md-primary-bg-color--light: var(--nord6);
+
+  --md-accent-fg-color: var(--nord8);
+  /* Frost - primary accent */
+  --md-accent-fg-color--transparent: hsla(var(--nord8-hsl), 0.1);
+  /* Assuming nord8 can be HSL */
+  --md-accent-bg-color: var(--nord6);
+  --md-accent-bg-color--light: var(--nord6);
+
+  --md-default-fg-color: var(--nord0);
+  /* Polar Night - darkest (text on light bg) */
+  --md-default-fg-color--light: var(--nord1);
+  /* Polar Night - lighter shade for subtle text */
+  --md-default-fg-color--lighter: var(--nord2);
+  /* Polar Night - even lighter for more subtle */
+  --md-default-bg-color: var(--nord6);
+  /* Snow Storm - brightest (main background) */
+
+  --md-code-fg-color: var(--nord3);
+  /* Polar Night - for comments/guides on light bg */
+  --md-code-bg-color: var(--nord5);
+  /* Snow Storm - slightly off-white for code blocks */
+
+  --md-typeset-a-color: var(--nord8);
+  /* Frost - primary accent for links */
+
+  --md-typeset-table-color: var(--nord1);
+  /* Table text */
+  --md-typeset-table-header-color: var(--nord0);
+  /* Table header text */
+  --md-typeset-table-accent-color: var(--nord4);
+  /* Table borders/accent */
+
+
+  /* More specific overrides can be added here */
+  --md-footer-bg-color: var(--nord5);
+  --md-footer-fg-color: var(--nord1);
+  --md-footer-bg-color--dark: var(--nord4);
+
+  --md-admonition-fg-color: var(--nord0);
+  --md-admonition-bg-color: var(--nord5);
+
+  /* Specific admonition types based on Aurora for light theme */
+  .md-typeset .admonition.info>.admonition-title,
+  .md-typeset .admonition.info>svg {
+    color: var(--nord8);
+  }
+
+  .md-typeset .admonition.tip>.admonition-title,
+  .md-typeset .admonition.tip>svg {
+    color: var(--nord14);
+  }
+
+  .md-typeset .admonition.warning>.admonition-title,
+  .md-typeset .admonition.warning>svg {
+    color: var(--nord13);
+  }
+
+  .md-typeset .admonition.danger>.admonition-title,
+  .md-typeset .admonition.danger>svg {
+    color: var(--nord11);
+  }
+
+  /* Light scheme syntax highlighting */
+  --md-code-hl-keyword-color: var(--nord9);
+  --md-code-hl-operator-color: var(--nord9);
+  --md-code-hl-punctuation-color: var(--nord9);
+  --md-code-hl-string-color: var(--nord14);
+  --md-code-hl-number-color: var(--nord15);
+  --md-code-hl-comment-color: var(--nord3);
+  --md-code-hl-name-color: var(--nord0);
+  --md-code-hl-function-color: var(--nord8);
+  --md-code-hl-class-color: var(--nord7);
+  --md-code-hl-constant-color: var(--nord7);
+  --md-code-hl-special-color: var(--nord12);
+  --md-code-hl-error-color: var(--nord11);
+  --md-code-hl-generic-color: var(--nord0);
+}
+
+/* Dark Scheme (slate - adapting Nord's "dark ambiance") */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: var(--nord8);
+  /* Frost - bright shiny (primary accent on dark) */
+  --md-primary-fg-color--light: var(--nord8);
+  --md-primary-fg-color--dark: var(--nord7);
+  /* Frost - calm contrasted */
+  --md-primary-bg-color: var(--nord1);
+  /* Polar Night - elevated bg */
+  --md-primary-bg-color--light: var(--nord2);
+
+  --md-accent-fg-color: var(--nord7);
+  /* Frost - secondary accent */
+  --md-accent-fg-color--transparent: hsla(var(--nord7-hsl), 0.1);
+  /* Assuming nord7 can be HSL */
+  --md-accent-bg-color: var(--nord1);
+  --md-accent-bg-color--light: var(--nord2);
+
+  --md-default-fg-color: var(--nord6);
+  /* Snow Storm - brightest (text on dark bg) */
+  --md-default-fg-color--light: var(--nord5);
+  /* Snow Storm - for subtle text */
+  --md-default-fg-color--lighter: var(--nord4);
+  /* Snow Storm - even more subtle */
+  --md-default-bg-color: var(--nord0);
+  /* Polar Night - darkest (main background) */
+
+  --md-code-fg-color: var(--nord4);
+  /* Snow Storm - variables, constants on dark bg */
+  --md-code-bg-color: var(--nord1);
+  /* Polar Night - elevated for code blocks */
+
+  --md-typeset-a-color: var(--nord8);
+  /* Frost - primary accent for links */
+
+  --md-typeset-table-color: var(--nord4);
+  /* Table text */
+  --md-typeset-table-header-color: var(--nord5);
+  /* Table header text */
+  --md-typeset-table-accent-color: var(--nord2);
+  /* Table borders/accent */
+
+  /* More specific overrides can be added here */
+  --md-footer-bg-color: var(--nord1);
+  --md-footer-fg-color: var(--nord5);
+  --md-footer-bg-color--dark: var(--nord0);
+
+  --md-admonition-fg-color: var(--nord6);
+  --md-admonition-bg-color: var(--nord1);
+
+  /* Color for specific admonition types titles/icons in dark mode*/
+  .md-typeset .admonition.info>.admonition-title,
+  .md-typeset .admonition.info>svg {
+    color: var(--nord8);
+  }
+
+  .md-typeset .admonition.tip>.admonition-title,
+  .md-typeset .admonition.tip>svg {
+    color: var(--nord14);
+  }
+
+  .md-typeset .admonition.warning>.admonition-title,
+  .md-typeset .admonition.warning>svg {
+    color: var(--nord13);
+  }
+
+  .md-typeset .admonition.danger>.admonition-title,
+  .md-typeset .admonition.danger>svg {
+    color: var(--nord11);
+  }
+
+  /* Dark scheme syntax highlighting */
+  --md-code-hl-keyword-color: var(--nord9);
+  --md-code-hl-operator-color: var(--nord9);
+  --md-code-hl-punctuation-color: var(--nord9);
+  --md-code-hl-string-color: var(--nord14);
+  --md-code-hl-number-color: var(--nord15);
+  --md-code-hl-comment-color: var(--nord3);
+  --md-code-hl-name-color: var(--nord4);
+  --md-code-hl-function-color: var(--nord8);
+  --md-code-hl-class-color: var(--nord7);
+  --md-code-hl-constant-color: var(--nord7);
+  --md-code-hl-special-color: var(--nord12);
+  --md-code-hl-error-color: var(--nord11);
+  --md-code-hl-generic-color: var(--nord4);
+}
+
+/* Optional: Adjust specific Material components if needed */
+/* Example: Header */
+/* [data-md-color-scheme="slate"] .md-header {
+  background-color: var(--nord0); 
+}
+:root .md-header {
+  background-color: var(--nord6);
+} */
+
+/* Example: Tabs */
+/* [data-md-color-scheme="slate"] .md-tabs {
+  background-color: var(--nord1);
+}
+:root .md-tabs {
+  background-color: var(--nord5);
+}
+[data-md-color-scheme="slate"] .md-tabs__link--active {
+  color: var(--nord8);
+}
+:root .md-tabs__link--active {
+  color: var(--nord10);
+} */
+
+/* Note: The HSL variables like --nord8-hsl are not defined yet. 
+   These would be needed if hsla() is used for transparency with Nord colors.
+   For now, direct hex values are used. Material theme might derive these if base colors are set.
+   If more precise transparency is needed, HSL versions of Nord colors would need to be added.
+*/
+
+/* Custom styles for logo */
+.styled-logo {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  width: 256px;
+  height: 256px;
+  /* Set to 256px as requested. For non-square logos, this might cause stretching. */
+  /* Consider setting only width: 256px; and height: auto; to maintain aspect ratio. */
+}
