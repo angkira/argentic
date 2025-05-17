@@ -69,7 +69,10 @@ jobs:
         # mkdir -p docs/module1
         # cp src/module1/README.md docs/module1/index.md 
     - name: Build MkDocs documentation
+      env:
+        PYTHONPATH: ./src # Add src to Python's search path for mkdocstrings
       run: |
+        echo "PYTHONPATH is: $PYTHONPATH"
         mkdocs build --config-file docs/mkdocs.yml --site-dir _site
     - name: Setup Pages
       uses: actions/configure-pages@v5
