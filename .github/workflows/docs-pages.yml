@@ -38,7 +38,7 @@ jobs:
     - name: Prepare docs source
       run: |
         mkdir -p docs/assets
-        cp logo.jpg docs/assets/logo.jpg # For theme and for the final path in docs/index.md
+        cp assets/logo.jpg docs/assets/logo.jpg # For theme and for the final path in docs/index.md
         
         cp README.md docs/index.md # Copy root README to docs/index.md
         # Now, adjust the image path within the newly copied docs/index.md
