@@ -30,9 +30,30 @@ theme:
 
 plugins:
   - search
+  - same-dir
+  - mkdocstrings:
+      handlers:
+        python:
+          setup_commands:
+            - import sys
+            - import os
+            # Add the absolute path to src, which is one level up from docs/
+            - src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")) if "__file__" in locals() else os.path.abspath("../src")
+            - if src_path not in sys.path:
+            -   sys.path.insert(0, src_path)
+            - 'sys.stderr.write("MKDOCSTRINGS_PYTHON_SYS_PATH_FROM_DOCS_YML: " + str(sys.path) + "\n")'
+          options:
+            show_root_heading: true
+            show_source: true
+  - macros:
+      include_dir: '..'
 
 nav:
   - Home: index.md
+  - API Reference:
+    - Messager: api/messager.md
+    - Message Structures: api/messages.md
+    - Messaging Drivers: api/drivers.md
   # Add other pages and sections here
   # Example:
   # - User Guide:
@@ -46,7 +67,6 @@ nav:
 # Or, for local builds, you can do it manually or with a script.
 
 markdown_extensions:
-  - pymdownx.snippets
   - pymdownx.highlight:
       anchor_linenums: true
       css_class: highlight
@@ -62,4 +82,7 @@ markdown_extensions:
 #       anchor_linenums: true
 #   - pymdownx.inlinehilite
 #   - pymdownx.snippets
-#   - pymdownx.superfences 
+#   - pymdownx.superfences
+
+site_dir: ../_site
+docs_dir: . 

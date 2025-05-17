@@ -38,6 +38,21 @@ jobs:
     - name: Prepare docs source
       run: |
         cp README.md docs/index.md
+        # Find all README.md files, excluding .git, .github, docs, and virtual environment directories
+        find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "README.md" -type f | while read -r file; do
+          # Create a relative path for the destination in docs/
+          # Example: ./src/moduleA/README.md -> docs/src/moduleA/index.md
+          dest_dir="docs/$(dirname "${file#./}")"
+          mkdir -p "$dest_dir"
+          cp "$file" "$dest_dir/index.md"
+        done
+        # Find all other .md files (excluding README.md as they are handled above, and excluding specified directories)
+        # and copy them, maintaining their original names and directory structure within docs/
+        find . -path ./docs -prune -o -path ./.git -prune -o -path ./.github -prune -o -path ./.venv -prune -o -path ./venv -prune -o -name "*.md" -not -name "README.md" -type f | while read -r file; do
+          dest_path="docs/$(dirname "${file#./}")/$(basename "$file")"
+          mkdir -p "$(dirname "$dest_path")"
+          cp "$file" "$dest_path"
+        done
         # Add commands here to copy other READMEs or markdown files into the docs/ directory
         # For example: 
         # mkdir -p docs/module1

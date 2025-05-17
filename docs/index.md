@@ -5,4 +5,4 @@ search:
 
 # Welcome to Argentic
 
---8<-- "../README.md" 
+{% include "README.md" %} 
