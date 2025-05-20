@@ -15,18 +15,37 @@ class LlamaCppServerProvider(ModelProvider):
     def __init__(self, config: Dict[str, Any], messager: Optional[Any] = None):
         super().__init__(config, messager)
         self.logger = get_logger(self.__class__.__name__)
+
+        llm_config = config.get("llm", {})
+        server_config_block = llm_config.get("llama_cpp_server", {})
+        default_gen_settings = llm_config.get("default_generation_settings", {})
+
         self.server_binary = os.path.expanduser(
-            self._get_config_value("llama_cpp_server_binary", "")
+            server_config_block.get("llama_cpp_server_binary", "")
         )
-        self.server_args = self._get_config_value("llama_cpp_server_args", [])
-        self.server_host = self._get_config_value("llama_cpp_server_host", "127.0.0.1")
-        self.server_port = int(
-            self._get_config_value("llama_cpp_server_port", 8080)
-        )  # llama.cpp default
-        self.auto_start = self._get_config_value("llama_cpp_server_auto_start", False)
+        # Startup arguments for the server process itself
+        self.startup_args = server_config_block.get("startup_args", [])
+        self.server_host = server_config_block.get("llama_cpp_server_host", "127.0.0.1")
+        self.server_port = int(server_config_block.get("llama_cpp_server_port", 8080))
+        self.auto_start = server_config_block.get("llama_cpp_server_auto_start", False)
         self.server_url = f"http://{self.server_host}:{self.server_port}"
         self._process: Optional[Popen] = None
         self.timeout = 600  # seconds for requests
+
+        # Prepare and store generation parameters for API calls
+        self.generation_params: Dict[str, Any] = {**default_gen_settings}
+        specific_gen_settings = server_config_block.get("generation_settings", {})
+        self.generation_params.update(specific_gen_settings)
+
+        # Map generic max_tokens to Llama.cpp's n_predict if not already set
+        if "n_predict" not in self.generation_params and "max_tokens" in self.generation_params:
+            self.generation_params["n_predict"] = self.generation_params.pop("max_tokens")
+
+        # Llama.cpp server specific: rename stop_sequences to stop
+        if "stop_sequences" in self.generation_params:
+            self.generation_params["stop"] = self.generation_params.pop("stop_sequences")
+
+        self.logger.debug(f"Llama.cpp server generation params set to: {self.generation_params}")
 
         if self.auto_start and not self.server_binary:
             self.logger.warning(
@@ -40,7 +59,7 @@ class LlamaCppServerProvider(ModelProvider):
 
     async def start(self) -> None:
         if self.auto_start and self.server_binary and self._process is None:
-            cmd = [self.server_binary] + [str(arg) for arg in self.server_args]
+            cmd = [self.server_binary] + [str(arg) for arg in self.startup_args]
             # Expand user paths in arguments
             cmd = [os.path.expanduser(c) if isinstance(c, str) and "~" in c else c for c in cmd]
             self.logger.info(f"Attempting to start llama.cpp server with command: {' '.join(cmd)}")
@@ -94,9 +113,14 @@ class LlamaCppServerProvider(ModelProvider):
 
     def invoke(self, prompt: str, **kwargs: Any) -> str:
         # llama.cpp server /completion endpoint
-        payload = {"prompt": prompt, "n_predict": kwargs.get("n_predict", 128), **kwargs}
+        # Start with base generation params, then override with call-specific kwargs
+        payload = {**self.generation_params, "prompt": prompt, **kwargs}
         # Remove known chat params if any passed via kwargs to avoid issues with /completion
         payload.pop("messages", None)
+        # Ensure n_predict has a default if not in merged params somehow
+        if "n_predict" not in payload:
+            payload["n_predict"] = 128
+
         loop = asyncio.get_event_loop()
         if loop.is_running():
             # If in async context, run sync in executor
@@ -109,14 +133,20 @@ class LlamaCppServerProvider(ModelProvider):
         return response_data.get("content", "")
 
     async def ainvoke(self, prompt: str, **kwargs: Any) -> str:
-        payload = {"prompt": prompt, "n_predict": kwargs.get("n_predict", 128), **kwargs}
+        payload = {**self.generation_params, "prompt": prompt, **kwargs}
         payload.pop("messages", None)
+        if "n_predict" not in payload:
+            payload["n_predict"] = 128
         response_data = await self._make_request("/completion", payload)
         return response_data.get("content", "")
 
     def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
         # llama.cpp server /v1/chat/completions endpoint (OpenAI compatible)
-        payload = {"messages": messages, **kwargs}
+        # Start with base generation params, then override with call-specific kwargs
+        payload = {**self.generation_params, "messages": messages, **kwargs}
+        # Remove prompt if it accidentally got in from default_generation_settings and we are in chat mode
+        payload.pop("prompt", None)
+
         loop = asyncio.get_event_loop()
         if loop.is_running():
             future = asyncio.run_coroutine_threadsafe(
@@ -131,7 +161,8 @@ class LlamaCppServerProvider(ModelProvider):
         return ""
 
     async def achat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
-        payload = {"messages": messages, **kwargs}
+        payload = {**self.generation_params, "messages": messages, **kwargs}
+        payload.pop("prompt", None)
         response_data = await self._make_request("/v1/chat/completions", payload)
         if response_data.get("choices") and response_data["choices"][0].get("message"):
             return response_data["choices"][0]["message"].get("content", "")

@@ -13,26 +13,56 @@ class GoogleGeminiProvider(ModelProvider):
     def __init__(self, config: Dict[str, Any], messager: Optional[Any] = None):
         super().__init__(config, messager)
         self.logger = get_logger(self.__class__.__name__)
-        self.api_key = os.getenv("GEMINI_API_KEY") or self._get_config_value(
-            "google_gemini_api_key"
-        )
-        self.model_name = self._get_config_value("google_gemini_model_name", "gemini-2.0-flash")
+
+        llm_config = config.get("llm", {})
+        gemini_config = llm_config.get("google_gemini", {})
+        default_gen_settings = llm_config.get("default_generation_settings", {})
+
+        self.api_key = os.getenv("GEMINI_API_KEY") or gemini_config.get("google_gemini_api_key")
+        self.model_name = gemini_config.get("google_gemini_model_name", "gemini-2.0-flash")
 
         if not self.api_key:
             raise ValueError(
                 "Google Gemini API key not found. Set GEMINI_API_KEY environment variable or google_gemini_api_key in config."
             )
 
-        # Initialize with safety settings and generation config
+        # Prepare generation_config for ChatGoogleGenerativeAI
+        # Start with defaults, then override with Gemini-specific settings
+        gen_params: Dict[str, Any] = {**default_gen_settings}
+        specific_gen_settings = gemini_config.get("generation_settings", {})
+        gen_params.update(specific_gen_settings)
+
+        # Handle max_tokens from default if not overridden by max_output_tokens
+        if "max_output_tokens" not in gen_params and "max_tokens" in gen_params:
+            gen_params["max_output_tokens"] = gen_params.pop("max_tokens")
+
+        # Rename stop_sequences to stop for Langchain if present
+        if "stop_sequences" in gen_params:
+            gen_params["stop"] = gen_params.pop("stop_sequences")
+
+        # Filter out any parameters not accepted by ChatGoogleGenerativeAI constructor
+        # or not relevant for this provider. Also filter out None values.
+        accepted_llm_params = [
+            "temperature",
+            "top_p",
+            "top_k",
+            "max_output_tokens",
+            "stop",  # Langchain's ChatGoogleGenerativeAI uses 'stop'
+            "candidate_count",
+        ]
+
+        final_generation_config = {
+            k: v for k, v in gen_params.items() if k in accepted_llm_params and v is not None
+        }
+
+        self.logger.debug(f"Final generation config for Gemini: {final_generation_config}")
+
         self.llm = ChatGoogleGenerativeAI(
-            model=self.model_name,
-            google_api_key=self.api_key,
-            temperature=0.7,
-            top_p=0.95,
-            top_k=40,
-            max_output_tokens=2048,
+            model=self.model_name, google_api_key=self.api_key, **final_generation_config
         )
-        self.logger.info(f"Initialized GoogleGeminiProvider with model: {self.model_name}")
+        self.logger.info(
+            f"Initialized GoogleGeminiProvider with model: {self.model_name} and config: {final_generation_config}"
+        )
 
     def _parse_llm_result(self, result: Any) -> str:
         if isinstance(result, BaseMessage):

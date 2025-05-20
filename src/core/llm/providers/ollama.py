@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from langchain_ollama import OllamaLLM
 from langchain_ollama.chat_models import ChatOllama
@@ -9,22 +9,72 @@ from core.logger import get_logger
 
 
 class OllamaProvider(ModelProvider):
+    llm: Union[ChatOllama, OllamaLLM]
+
     def __init__(self, config: Dict[str, Any], messager: Optional[Any] = None):
         super().__init__(config, messager)
         self.logger = get_logger(self.__class__.__name__)
-        self.model_name = self._get_config_value("ollama_model_name", "gemma3:12b-it-qat")
-        self.use_chat_model = self._get_config_value("ollama_use_chat_model", True)
-        self.base_url = self._get_config_value("ollama_base_url", "http://localhost:11434")
+
+        llm_config = config.get("llm", {})
+        ollama_config_block = llm_config.get("ollama", {})
+        default_gen_settings = llm_config.get("default_generation_settings", {})
+
+        self.model_name = ollama_config_block.get("ollama_model_name", "gemma3:12b-it-qat")
+        self.use_chat_model = ollama_config_block.get("ollama_use_chat_model", True)
+        self.base_url = ollama_config_block.get("ollama_base_url", "http://localhost:11434")
+
+        # Prepare generation parameters
+        gen_params: Dict[str, Any] = {**default_gen_settings}
+        specific_gen_settings = ollama_config_block.get("generation_settings", {})
+        gen_params.update(specific_gen_settings)
+
+        # Map generic max_tokens to Ollama's num_predict if not already set
+        if "num_predict" not in gen_params and "max_tokens" in gen_params:
+            gen_params["num_predict"] = gen_params.pop("max_tokens")
+
+        # Ollama specific: rename stop_sequences to stop
+        if "stop_sequences" in gen_params:
+            gen_params["stop"] = gen_params.pop("stop_sequences")
+
+        # Parameters accepted by Langchain's OllamaLLM/ChatOllama constructors
+        # (This list might not be exhaustive but covers common ones from config)
+        accepted_ollama_params = [
+            "mirostat",
+            "mirostat_eta",
+            "mirostat_tau",
+            "num_ctx",
+            "num_gpu",
+            "num_thread",
+            "repeat_last_n",
+            "repeat_penalty",
+            "temperature",
+            "stop",
+            "tfs_z",
+            "top_k",
+            "top_p",
+            "seed",
+            "num_predict",
+            # Format, keep_alive, etc. are handled separately or have defaults
+        ]
+
+        final_generation_config = {
+            k: v for k, v in gen_params.items() if k in accepted_ollama_params and v is not None
+        }
+        self.logger.debug(f"Final generation config for Ollama: {final_generation_config}")
 
         if self.use_chat_model:
-            self.llm = ChatOllama(model=self.model_name, base_url=self.base_url)
+            self.llm = ChatOllama(
+                model=self.model_name, base_url=self.base_url, **final_generation_config
+            )
             self.logger.info(
-                f"Initialized ChatOllama with model: {self.model_name} at {self.base_url}"
+                f"Initialized ChatOllama with model: {self.model_name} at {self.base_url} with config: {final_generation_config}"
             )
         else:
-            self.llm = OllamaLLM(model=self.model_name, base_url=self.base_url)
+            self.llm = OllamaLLM(
+                model=self.model_name, base_url=self.base_url, **final_generation_config
+            )
             self.logger.info(
-                f"Initialized OllamaLLM with model: {self.model_name} at {self.base_url}"
+                f"Initialized OllamaLLM with model: {self.model_name} at {self.base_url} with config: {final_generation_config}"
             )
 
     def _parse_llm_result(self, result: Any) -> str:

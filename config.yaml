@@ -31,6 +31,80 @@ llm:
   google_gemini_api_key: "YOUR_GEMINI_API_KEY" # Store securely, e.g., via environment variable
   google_gemini_model_name: "gemini-2.0-flash" # Updated to match official example
 
+  # Common generation parameters (defaults for all providers)
+  # Providers can override these with their specific settings below.
+  default_generation_settings:
+    temperature: 0.7
+    max_tokens: 256  # Generic name, providers will map to their specific param
+    top_p: 0.9
+    top_k: 40
+    stop_sequences: ["\\nUser:", "\\nAI:", "---"] # Example stop sequences
+    seed: null # Using null or omitting means random seed
+
+  # Ollama-specific generation settings (override defaults or add new ones)
+  # generation_settings:
+  #   temperature: 0.8            # Overrides default_generation_settings.temperature for Ollama
+  #   num_predict: 512            # Ollama's name for max_tokens, overrides default max_tokens
+  #   repeat_penalty: 1.1
+  #   num_ctx: 4096               # Context window size for Ollama
+  #   top_k: 50                   # Overrides default top_k
+  #   # Add other Ollama-specific parameters like mirostat, mirostat_eta, mirostat_tau if needed
+
+  # Llama.cpp Server specific settings
+  llama_cpp_server:
+    model_path: ~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf # Useful for startup if not in args
+    
+    # Arguments for starting the llama-server itself (not per-request generation)
+    # These are distinct from generation parameters sent via API.
+    # startup_args: # Replaces the flat llama_cpp_server_args
+    #   - --host
+    #   - ${llm.llama_cpp_server.host}
+    #   - --port
+    #   - ${llm.llama_cpp_server.port}
+    #   - -m
+    #   - ${llm.llama_cpp_server.model_path}
+    #   - --threads 
+    #   - 4
+    #   - --n-gpu-layers
+    #   - 0
+    #   - --ctx-size
+    #   - 2048
+
+    # Generation settings for API calls to the Llama.cpp server
+    # generation_settings:
+    #   temperature: 0.65
+    #   n_predict: 300              # Llama.cpp's name for max_tokens
+    #   top_k: 30
+    #   top_p: 0.85
+    #   stop: ["\\nHuman:", "\\nUSER:"] # Llama.cpp server API usually takes 'stop' as a list
+    #   repeat_penalty: 1.15
+    #   # Add other parameters supported by the llama.cpp server /completion API (e.g., stream, grammar)
+
+  # Llama.cpp CLI specific settings
+  llama_cpp_cli:
+    # These parameters will be translated into CLI arguments by the provider
+    # This replaces the generic llama_cpp_cli_args list for better structure
+    # generation_parameters:
+    #   temperature: 0.75           # Becomes --temp 0.75
+    #   n_predict: 150              # Becomes --n-predict 150
+    #   top_k: 45                   # Becomes --top-k 45
+    #   top_p: 0.92                 # Becomes --top-p 0.92
+    #   repeat_penalty: 1.1
+    #   # stop: ["\\nHuman:", " USER:"] # The provider logic would create --stop "\\nHuman:" --stop " USER:"
+    #   # seed: 12345                 # Becomes --seed 12345
+    # additional_cli_flags:
+    #   - --some-other-flag
+
+  # Google Gemini specific settings
+  google_gemini:
+    generation_settings:
+      temperature: 0.9
+      max_output_tokens: 300      # Gemini's name for max_tokens
+      top_p: null                 # Gemini often recommends setting top_p OR top_k, not both with temperature
+      top_k: null                 # Setting to null or omitting if not used actively with temperature/top_p
+      candidate_count: 1
+      stop_sequences: ["\\nUser:", "Input:"]
+
 messaging:
   # Connection settings
   protocol: mqtt
