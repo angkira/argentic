@@ -1,27 +1,27 @@
 from core.protocol.message import BaseMessage
-from typing import Literal, Optional, Dict, Any, Union
+from typing import Literal, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
-class RegisterToolMessage(BaseMessage):
+class RegisterToolMessage(BaseMessage[None]):
     type: Literal["REGISTER_TOOL"] = "REGISTER_TOOL"
     tool_name: str
     tool_manual: str
     tool_api: str
 
 
-class ToolRegisteredMessage(BaseMessage):
+class ToolRegisteredMessage(BaseMessage[None]):
     type: Literal["TOOL_REGISTERED"] = "TOOL_REGISTERED"
     tool_id: str
     tool_name: str
 
 
-class ToolUnregisteredMessage(BaseMessage):
+class ToolUnregisteredMessage(BaseMessage[None]):
     type: Literal["TOOL_UNREGISTERED"] = "TOOL_UNREGISTERED"
     tool_id: str
 
 
-class ToolRegistrationErrorMessage(BaseMessage):
+class ToolRegistrationErrorMessage(BaseMessage[None]):
     type: Literal["TOOL_REGISTRATION_ERROR"] = "TOOL_REGISTRATION_ERROR"
     error: str
     traceback: Optional[str] = None
@@ -29,7 +29,7 @@ class ToolRegistrationErrorMessage(BaseMessage):
     tool_name: Optional[str] = None
 
 
-class UnregisterToolMessage(BaseMessage):
+class UnregisterToolMessage(BaseMessage[None]):
     type: Literal["UNREGISTER_TOOL"] = "UNREGISTER_TOOL"
     tool_id: str
 

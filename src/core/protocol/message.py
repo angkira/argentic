@@ -30,9 +30,9 @@ class BaseMessage(BaseModel, Generic[Payload]):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = Field(default="agent")
-    type: str
+    type: str  # This will be set by each subclass
 
-    data: Payload
+    data: Optional[Payload] = None
 
 
 class SystemMessage(BaseMessage[Dict[str, Any]]):
