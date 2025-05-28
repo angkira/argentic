@@ -1,11 +1,19 @@
 import os
-import time
 import asyncio
 import subprocess
 from subprocess import Popen
 from typing import Any, Dict, List, Optional
 
 import httpx  # Using httpx for async requests
+
+# Langchain imports for alternative implementation
+try:
+    from langchain_community.llms.llamacpp import LlamaCpp
+
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LlamaCpp = None
+    LANGCHAIN_AVAILABLE = False
 
 from .base import ModelProvider
 from core.logger import get_logger
@@ -18,21 +26,46 @@ class LlamaCppServerProvider(ModelProvider):
         self.server_binary = os.path.expanduser(
             self._get_config_value("llama_cpp_server_binary", "")
         )
-        self.server_args = self._get_config_value("llama_cpp_server_args", [])
+        server_args_config = self._get_config_value("llama_cpp_server_args", [])
+        self.server_args = server_args_config if server_args_config is not None else []
         self.server_host = self._get_config_value("llama_cpp_server_host", "127.0.0.1")
-        self.server_port = int(
-            self._get_config_value("llama_cpp_server_port", 8080)
-        )  # llama.cpp default
+
+        # Handle port with proper type checking
+        port_value = self._get_config_value("llama_cpp_server_port", 8080)
+        self.server_port = int(port_value) if port_value is not None else 8080
+
         self.auto_start = self._get_config_value("llama_cpp_server_auto_start", False)
         self.server_url = f"http://{self.server_host}:{self.server_port}"
         self._process: Optional[Popen] = None
         self.timeout = 600  # seconds for requests
 
+        # Langchain integration option
+        self.use_langchain = self._get_config_value("llama_cpp_use_langchain", False)
+        self.model_path = self._get_config_value("llama_cpp_model_path", "")
+
+        # Initialize Langchain LLM if requested and available
+        self.langchain_llm: Optional[Any] = None
+        if self.use_langchain and LANGCHAIN_AVAILABLE and self.model_path and LlamaCpp is not None:
+            try:
+                self.langchain_llm = LlamaCpp(
+                    model_path=self.model_path,
+                    temperature=self._get_config_value("temperature", 0.7),
+                    max_tokens=self._get_config_value("max_tokens", 256),
+                    n_ctx=self._get_config_value("n_ctx", 2048),
+                    n_gpu_layers=self._get_config_value("n_gpu_layers", 0),
+                    verbose=False,
+                )
+                self.logger.info(f"Initialized Langchain LlamaCpp with model: {self.model_path}")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize Langchain LlamaCpp: {e}")
+                self.use_langchain = False
+
+        # Validate server binary path if auto_start is enabled
         if self.auto_start and not self.server_binary:
             self.logger.warning(
                 "llama_cpp_server_auto_start is true, but llama_cpp_server_binary is not set."
             )
-        elif self.auto_start and not os.path.isfile(self.server_binary):
+        elif self.auto_start and self.server_binary and not os.path.isfile(self.server_binary):
             self.logger.error(
                 f"llama_cpp_server_binary not found at: {self.server_binary}. Cannot auto-start."
             )
@@ -93,6 +126,14 @@ class LlamaCppServerProvider(ModelProvider):
                 ) from e
 
     def invoke(self, prompt: str, **kwargs: Any) -> str:
+        # Use Langchain if available and configured
+        if self.use_langchain and self.langchain_llm is not None:
+            try:
+                return self.langchain_llm.invoke(prompt, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Langchain LlamaCpp invoke failed: {e}, falling back to HTTP")
+
+        # Fallback to HTTP server approach
         # llama.cpp server /completion endpoint
         payload = {"prompt": prompt, "n_predict": kwargs.get("n_predict", 128), **kwargs}
         # Remove known chat params if any passed via kwargs to avoid issues with /completion
@@ -109,12 +150,30 @@ class LlamaCppServerProvider(ModelProvider):
         return response_data.get("content", "")
 
     async def ainvoke(self, prompt: str, **kwargs: Any) -> str:
+        # Use Langchain if available and configured
+        if self.use_langchain and self.langchain_llm is not None:
+            try:
+                return await self.langchain_llm.ainvoke(prompt, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Langchain LlamaCpp ainvoke failed: {e}, falling back to HTTP")
+
+        # Fallback to HTTP server approach
         payload = {"prompt": prompt, "n_predict": kwargs.get("n_predict", 128), **kwargs}
         payload.pop("messages", None)
         response_data = await self._make_request("/completion", payload)
         return response_data.get("content", "")
 
     def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+        # Use Langchain if available and configured
+        if self.use_langchain and self.langchain_llm is not None:
+            try:
+                # Convert messages to prompt for Langchain LlamaCpp
+                prompt = self._format_chat_messages_to_prompt(messages)
+                return self.langchain_llm.invoke(prompt, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Langchain LlamaCpp chat failed: {e}, falling back to HTTP")
+
+        # Fallback to HTTP server approach
         # llama.cpp server /v1/chat/completions endpoint (OpenAI compatible)
         payload = {"messages": messages, **kwargs}
         loop = asyncio.get_event_loop()
@@ -131,6 +190,16 @@ class LlamaCppServerProvider(ModelProvider):
         return ""
 
     async def achat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+        # Use Langchain if available and configured
+        if self.use_langchain and self.langchain_llm is not None:
+            try:
+                # Convert messages to prompt for Langchain LlamaCpp
+                prompt = self._format_chat_messages_to_prompt(messages)
+                return await self.langchain_llm.ainvoke(prompt, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Langchain LlamaCpp achat failed: {e}, falling back to HTTP")
+
+        # Fallback to HTTP server approach
         payload = {"messages": messages, **kwargs}
         response_data = await self._make_request("/v1/chat/completions", payload)
         if response_data.get("choices") and response_data["choices"][0].get("message"):

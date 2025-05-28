@@ -1,10 +1,11 @@
 import asyncio
 import re
 import json
-from typing import Any, List, Optional, Union, Tuple, Dict, Literal
+from typing import List, Optional, Union, Tuple, Dict, Literal
 
 from langchain.prompts import PromptTemplate
-from pydantic import BaseModel, ValidationError
+from langchain_core.output_parsers import PydanticOutputParser
+from pydantic import BaseModel
 
 from core.messager.messager import Messager
 from core.protocol.message import (
@@ -44,6 +45,18 @@ class LLMResponseToolResult(BaseModel):
     result: str
 
 
+# Union type for all possible LLM responses
+class LLMResponse(BaseModel):
+    """Union model that can handle any of the three response types"""
+
+    type: Literal["tool_call", "direct", "tool_result"]
+    # Optional fields for different response types
+    tool_calls: Optional[List[ToolCallRequest]] = None
+    content: Optional[str] = None
+    tool_id: Optional[str] = None
+    result: Optional[str] = None
+
+
 class Agent:
     """Manages interaction with LLM and ToolManager (Async Version)."""
 
@@ -71,6 +84,13 @@ class Agent:
         self._tool_manager = ToolManager(
             messager, log_level=self.log_level, register_topic=register_topic
         )
+
+        # Initialize Langchain output parsers
+        self.response_parser = PydanticOutputParser(pydantic_object=LLMResponse)
+        self.tool_call_parser = PydanticOutputParser(pydantic_object=LLMResponseToolCall)
+        self.direct_parser = PydanticOutputParser(pydantic_object=LLMResponseDirect)
+        self.tool_result_parser = PydanticOutputParser(pydantic_object=LLMResponseToolResult)
+
         self.prompt_template = self._build_prompt_template()
         if not self.raw_template:
             raise ValueError(
@@ -155,7 +175,9 @@ HANDLING TOOL RESULTS:
     - If the results help answer the original question, incorporate them into your final answer and use the "tool_result" format.
     - If the results are empty or not relevant to the original question, briefly state that the tool didn't provide useful information, then answer the original question using your general knowledge, still using the "tool_result" format but explaining the situation in the 'result' field.
 - If you're unsure after getting tool results, use the "tool_result" format and explain your reasoning in the 'result' field.
-- Never make another tool call immediately after receiving tool results unless absolutely necessary and clearly justified."""
+- Never make another tool call immediately after receiving tool results unless absolutely necessary and clearly justified.
+
+{format_instructions}"""
 
         # Main prompt that includes the system prompt and current context
         template = f"""{system_prompt}
@@ -190,69 +212,6 @@ ANSWER:"""
 
         # Update tool manager log level
         self._tool_manager.set_log_level(self.log_level)
-
-    async def _clean_and_extract_json_str(self, text: str) -> Optional[str]:
-        """Strips markdown fences and extracts the first potential JSON string."""
-        cleaned = text.strip()
-        if "```" in cleaned:
-            code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
-            code_blocks = re.findall(code_block_pattern, cleaned)
-            if code_blocks:
-                cleaned = code_blocks[0].strip()
-            else:
-                cleaned = cleaned.replace("```json", "").replace("```", "").strip()
-
-        if not (cleaned.startswith("{") and cleaned.endswith("}")):
-            match = re.search(r"\{[\s\S]*\}", text)
-            if match:
-                cleaned = match.group(0)
-                self.logger.debug(f"Extracted potential JSON using regex fallback: {cleaned}")
-                await self.messager.log(
-                    f"Agent Debug: Extracted potential JSON using regex fallback: {cleaned}",
-                    level="debug",
-                )
-
-        return cleaned
-
-    def _is_valid_tool_call_structure(self, parsed_data: Any) -> bool:
-        """Checks if the parsed data has the correct structure for tool calls."""
-        return (
-            isinstance(parsed_data, dict)
-            and "tool_calls" in parsed_data
-            and isinstance(parsed_data.get("tool_calls"), list)
-        )
-
-    async def _parse_json_tool_call(self, json_str: str) -> Optional[Dict[str, Any]]:
-        """Attempts to parse a string as JSON, specifically looking for tool calls."""
-        try:
-            # Extract JSON from markdown code block
-            if "```json" in json_str:
-                json_str = json_str.split("```json")[1]
-            if "```" in json_str:
-                json_str = json_str.split("```")[0]
-            json_str = json_str.strip()
-
-            parsed_data = json.loads(json_str)
-
-            # Check if it's a direct response
-            if isinstance(parsed_data, dict) and parsed_data.get("type") == "direct":
-                return None
-
-            # Check if it's a valid tool call
-            if isinstance(parsed_data, dict) and parsed_data.get("type") == "tool_call":
-                tool_calls = parsed_data.get("tool_calls", [])
-                if tool_calls and all("tool_id" in call for call in tool_calls):
-                    return parsed_data
-
-            self.logger.warning(f"Invalid response format or type: {parsed_data}")
-            return None
-
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse JSON response: {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Unexpected error parsing response: {e}")
-            return None
 
     async def _call_llm(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
@@ -375,7 +334,9 @@ ANSWER:"""
 
             # Format the user prompt for THIS specific turn, including tools and current question
             current_turn_formatted_prompt = self.prompt_template.format(
-                tool_descriptions=tools_description_str, question=current_question_for_llm_turn
+                tool_descriptions=tools_description_str,
+                question=current_question_for_llm_turn,
+                format_instructions=self.response_parser.get_format_instructions(),
             )
 
             # Create AgentLLMRequestMessage for this turn's interaction (not added to history before conversion)
@@ -393,114 +354,80 @@ ANSWER:"""
                 raw_content=llm_response_raw_text, source=MessageSource.LLM, data=None
             )
 
-            try:
-                cleaned_json_str = await self._clean_and_extract_json_str(llm_response_raw_text)
-                if not cleaned_json_str:
-                    self.logger.error(
-                        f"Could not extract JSON from LLM response: {llm_response_raw_text}"
-                    )
-                    # Assign to direct fields of the message object
-                    llm_response_msg.parsed_type = "error_parsing"
-                    llm_response_msg.error_details = "Could not extract JSON from LLM response."
-                    self.history.append(llm_response_msg)
-                    current_question_for_llm_turn = f"Prev response not valid JSON: {llm_response_raw_text}. Resubmit in JSON. Original Q: {question}"
-                    continue
+            # Use Langchain parser to parse the response
+            validated_response = await self._parse_llm_response_with_langchain(
+                llm_response_raw_text
+            )
 
-                parsed_dict = json.loads(cleaned_json_str)
-                response_type = parsed_dict.get("type")
-
-                if response_type == "direct":
-                    validated_response = LLMResponseDirect.model_validate(parsed_dict)
-                    llm_response_msg.parsed_type = "direct"
-                    llm_response_msg.parsed_direct_content = validated_response.content
-                    self.history.append(llm_response_msg)
-                    self.logger.debug(f"LLM direct response: {validated_response.content[:100]}...")
-                    return validated_response.content
-                elif response_type == "tool_result":
-                    validated_response = LLMResponseToolResult.model_validate(parsed_dict)
-                    llm_response_msg.parsed_type = "tool_result"
-                    llm_response_msg.parsed_tool_result_content = validated_response.result
-                    self.history.append(llm_response_msg)
-                    self.logger.debug(
-                        f"LLM tool_result response: {validated_response.result[:100]}..."
-                    )
-                    return validated_response.result
-                elif response_type == "tool_call":
-                    validated_response = LLMResponseToolCall.model_validate(parsed_dict)
-                    llm_response_msg.parsed_type = "tool_call"
-                    # Convert ToolCallRequest to MinimalToolCallRequest for storage
-                    llm_response_msg.parsed_tool_calls = [
-                        MinimalToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
-                        for tc in validated_response.tool_calls
-                    ]
-                    self.history.append(llm_response_msg)
-
-                    if not llm_response_msg.parsed_tool_calls:
-                        self.logger.warning(
-                            "'tool_call' type with no tool_calls. Asking LLM to clarify."
-                        )
-                        current_question_for_llm_turn = f"Indicated 'tool_call' but provided no tools. Please clarify or answer directly for: {question}"
-                        continue
-
-                    # Convert back to ToolCallRequest for execution
-                    tool_call_requests = [
-                        ToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
-                        for tc in llm_response_msg.parsed_tool_calls
-                    ]
-                    tool_outcome_messages, had_error = await self._execute_tool_calls(
-                        tool_call_requests
-                    )
-                    for outcome_msg in tool_outcome_messages:
-                        self.history.append(outcome_msg)
-
-                    if had_error:
-                        self.logger.warning(
-                            "Tool execution had errors. Asking LLM to summarize for user."
-                        )
-                        current_question_for_llm_turn = f"Errors occurred during tool execution (see history). Explain this to the user and answer the original question: '{question}' if possible. Use 'direct' format."
-                    else:
-                        self.logger.info(
-                            "Tool execution successful. Asking LLM to process results."
-                        )
-                        current_question_for_llm_turn = f"Tool execution finished (see history). Analyze results and answer the original question: '{question}'. Use 'tool_result' format."
-                    continue
-                else:
-                    self.logger.error(
-                        f"Invalid response type from LLM: {response_type}. Raw: {cleaned_json_str}"
-                    )
-                    llm_response_msg.parsed_type = "error_validation"
-                    llm_response_msg.error_details = f"Invalid response type '{response_type}'. Use 'direct', 'tool_call', or 'tool_result'."
-                    self.history.append(llm_response_msg)
-                    current_question_for_llm_turn = (
-                        f"Invalid response type '{response_type}'. Resubmit. Original Q: {question}"
-                    )
-                    continue
-            except json.JSONDecodeError as e:
-                self.logger.error(f"Invalid JSON from LLM: {e}. Response: {cleaned_json_str}")
+            if validated_response is None:
+                self.logger.error(f"Could not parse LLM response: {llm_response_raw_text}")
+                # Assign to direct fields of the message object
                 llm_response_msg.parsed_type = "error_parsing"
-                llm_response_msg.error_details = f"Invalid JSON: {e}"
+                llm_response_msg.error_details = "Could not parse LLM response."
                 self.history.append(llm_response_msg)
-                current_question_for_llm_turn = (
-                    f"Malformed JSON response: {e}. Resubmit. Original Q: {question}"
-                )
+                current_question_for_llm_turn = f"Previous response could not be parsed. Please resubmit in proper JSON format. Original question: {question}"
                 continue
-            except ValidationError as e:
-                self.logger.error(
-                    f"LLM response structure validation error: {e}. JSON: {cleaned_json_str}"
+
+            # Handle the different response types
+            if isinstance(validated_response, LLMResponseDirect):
+                llm_response_msg.parsed_type = "direct"
+                llm_response_msg.parsed_direct_content = validated_response.content
+                self.history.append(llm_response_msg)
+                self.logger.debug(f"LLM direct response: {validated_response.content[:100]}...")
+                return validated_response.content
+
+            elif isinstance(validated_response, LLMResponseToolResult):
+                llm_response_msg.parsed_type = "tool_result"
+                llm_response_msg.parsed_tool_result_content = validated_response.result
+                self.history.append(llm_response_msg)
+                self.logger.debug(f"LLM tool_result response: {validated_response.result[:100]}...")
+                return validated_response.result
+
+            elif isinstance(validated_response, LLMResponseToolCall):
+                llm_response_msg.parsed_type = "tool_call"
+                # Convert ToolCallRequest to MinimalToolCallRequest for storage
+                llm_response_msg.parsed_tool_calls = [
+                    MinimalToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
+                    for tc in validated_response.tool_calls
+                ]
+                self.history.append(llm_response_msg)
+
+                if not llm_response_msg.parsed_tool_calls:
+                    self.logger.warning(
+                        "'tool_call' type with no tool_calls. Asking LLM to clarify."
+                    )
+                    current_question_for_llm_turn = f"Indicated 'tool_call' but provided no tools. Please clarify or answer directly for: {question}"
+                    continue
+
+                # Convert back to ToolCallRequest for execution
+                tool_call_requests = [
+                    ToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
+                    for tc in llm_response_msg.parsed_tool_calls
+                ]
+                tool_outcome_messages, had_error = await self._execute_tool_calls(
+                    tool_call_requests
                 )
+                for outcome_msg in tool_outcome_messages:
+                    self.history.append(outcome_msg)
+
+                if had_error:
+                    self.logger.warning(
+                        "Tool execution had errors. Asking LLM to summarize for user."
+                    )
+                    current_question_for_llm_turn = f"Errors occurred during tool execution (see history). Explain this to the user and answer the original question: '{question}' if possible. Use 'direct' format."
+                else:
+                    self.logger.info("Tool execution successful. Asking LLM to process results.")
+                    current_question_for_llm_turn = f"Tool execution finished (see history). Analyze results and answer the original question: '{question}'. Use 'tool_result' format."
+                continue
+            else:
+                self.logger.error(f"Unknown validated response type: {type(validated_response)}")
                 llm_response_msg.parsed_type = "error_validation"
-                llm_response_msg.error_details = f"JSON structure invalid: {e}"
-                self.history.append(llm_response_msg)
-                current_question_for_llm_turn = (
-                    f"Invalid JSON structure: {e}. Match formats. Original Q: {question}"
+                llm_response_msg.error_details = (
+                    f"Unknown response type: {type(validated_response)}"
                 )
-                continue
-            except Exception as e:
-                self.logger.error(f"Error processing LLM response: {e}", exc_info=True)
-                llm_response_msg.parsed_type = "error_llm"
-                llm_response_msg.error_details = f"Unexpected error: {e}"
                 self.history.append(llm_response_msg)
-                return f"Error: Failed to process AI response: {str(e)}"
+                current_question_for_llm_turn = f"Unknown response format received. Please resubmit. Original question: {question}"
+                continue
 
         self.logger.warning(f"Max iterations ({max_iterations}) reached for: {question}")
         if self.history:
@@ -632,3 +559,77 @@ ANSWER:"""
                     f"Unrecognized message type in history for LLM conversion: {type(msg)}"
                 )
         return llm_formatted_messages
+
+    async def _parse_llm_response_with_langchain(
+        self, response_text: str
+    ) -> Optional[Union[LLMResponseToolCall, LLMResponseDirect, LLMResponseToolResult]]:
+        """
+        Parse LLM response using Langchain output parsers.
+        Returns the appropriate parsed response model or None if parsing fails.
+        """
+        try:
+            # First try to parse with the general response parser
+            parsed_response = self.response_parser.parse(response_text)
+
+            # Based on the type, validate with the specific parser
+            if parsed_response.type == "tool_call":
+                # Validate with specific tool call parser
+                return self.tool_call_parser.parse(response_text)
+            elif parsed_response.type == "direct":
+                # Validate with specific direct parser
+                return self.direct_parser.parse(response_text)
+            elif parsed_response.type == "tool_result":
+                # Validate with specific tool result parser
+                return self.tool_result_parser.parse(response_text)
+            else:
+                self.logger.error(f"Unknown response type: {parsed_response.type}")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Langchain parser failed: {e}")
+            # Fall back to original parsing method if needed
+            return await self._parse_llm_response_fallback(response_text)
+
+    async def _parse_llm_response_fallback(
+        self, response_text: str
+    ) -> Optional[Union[LLMResponseToolCall, LLMResponseDirect, LLMResponseToolResult]]:
+        """
+        Fallback parsing method using the original manual approach.
+        This ensures backward compatibility if Langchain parsing fails.
+        """
+        try:
+            # Simple JSON extraction logic
+            cleaned_json_str = response_text.strip()
+            if "```" in cleaned_json_str:
+                code_block_pattern = r"```(?:json)?\s*([\s\S]*?)```"
+                code_blocks = re.findall(code_block_pattern, cleaned_json_str)
+                if code_blocks:
+                    cleaned_json_str = code_blocks[0].strip()
+                else:
+                    cleaned_json_str = (
+                        cleaned_json_str.replace("```json", "").replace("```", "").strip()
+                    )
+
+            if not (cleaned_json_str.startswith("{") and cleaned_json_str.endswith("}")):
+                match = re.search(r"\{[\s\S]*\}", response_text)
+                if match:
+                    cleaned_json_str = match.group(0)
+
+            if not cleaned_json_str:
+                return None
+
+            parsed_dict = json.loads(cleaned_json_str)
+            response_type = parsed_dict.get("type")
+
+            if response_type == "direct":
+                return LLMResponseDirect.model_validate(parsed_dict)
+            elif response_type == "tool_result":
+                return LLMResponseToolResult.model_validate(parsed_dict)
+            elif response_type == "tool_call":
+                return LLMResponseToolCall.model_validate(parsed_dict)
+            else:
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Fallback parsing also failed: {e}")
+            return None
