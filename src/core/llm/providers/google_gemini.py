@@ -23,16 +23,58 @@ class GoogleGeminiProvider(ModelProvider):
                 "Google Gemini API key not found. Set GEMINI_API_KEY environment variable or google_gemini_api_key in config."
             )
 
-        # Initialize with safety settings and generation config
-        self.llm = ChatGoogleGenerativeAI(
-            model=self.model_name,
-            google_api_key=self.api_key,
-            temperature=0.7,
-            top_p=0.95,
-            top_k=40,
-            max_output_tokens=2048,
-        )
+        # Get advanced parameters from config
+        params = self._get_config_value("google_gemini_parameters", {}) or {}
+
+        # Build LLM initialization parameters
+        llm_params = {
+            "model": self.model_name,
+            "google_api_key": self.api_key,
+            "temperature": params.get("temperature", 0.7),
+            "top_p": params.get("top_p", 0.95),
+            "top_k": params.get("top_k", 40),
+            "max_output_tokens": params.get("max_output_tokens", 2048),
+        }
+
+        # Build model_kwargs for parameters that need to be passed to the underlying API
+        model_kwargs = {}
+
+        # candidate_count should be in model_kwargs to avoid LangChain warnings
+        candidate_count = params.get("candidate_count", 1)
+        if candidate_count != 1:  # Only add if different from default
+            model_kwargs["candidate_count"] = candidate_count
+
+        # Add optional parameters if specified
+        if params.get("stop_sequences"):
+            llm_params["stop_sequences"] = params["stop_sequences"]
+
+        if params.get("safety_settings"):
+            llm_params["safety_settings"] = params["safety_settings"]
+
+        if params.get("response_mime_type"):
+            llm_params["response_mime_type"] = params["response_mime_type"]
+
+        if params.get("response_schema"):
+            llm_params["response_schema"] = params["response_schema"]
+
+        # Add model_kwargs if any parameters were set
+        if model_kwargs:
+            llm_params["model_kwargs"] = model_kwargs
+
+        # Initialize with configured parameters
+        self.llm = ChatGoogleGenerativeAI(**llm_params)
+
         self.logger.info(f"Initialized GoogleGeminiProvider with model: {self.model_name}")
+
+        # Log key parameters including candidate_count
+        log_msg = (
+            f"Parameters: temperature={llm_params['temperature']}, "
+            f"top_p={llm_params['top_p']}, top_k={llm_params['top_k']}, "
+            f"max_output_tokens={llm_params['max_output_tokens']}"
+        )
+        if candidate_count != 1:
+            log_msg += f", candidate_count={candidate_count}"
+        self.logger.debug(log_msg)
 
     def _parse_llm_result(self, result: Any) -> str:
         if isinstance(result, BaseMessage):
@@ -44,6 +86,10 @@ class GoogleGeminiProvider(ModelProvider):
                 f"Unexpected result type from Google Gemini: {type(result)}. Converting to string."
             )
             content = str(result)
+
+        # Ensure content is a string
+        if not isinstance(content, str):
+            content = str(content)
 
         # Try to parse the content as JSON
         try:
@@ -74,7 +120,7 @@ class GoogleGeminiProvider(ModelProvider):
 
             # If it's a simple content response, return it directly without wrapping in tool_calls
             if isinstance(parsed, dict) and "content" in parsed and "tool_calls" not in parsed:
-                return parsed["content"]
+                return str(parsed["content"])
             return content
         except json.JSONDecodeError:
             # If it's not JSON, return the content directly

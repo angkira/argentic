@@ -13,7 +13,10 @@ class LlamaCppCLIProvider(ModelProvider):
         self.logger = get_logger(self.__class__.__name__)
         self.cli_binary = os.path.expanduser(self._get_config_value("llama_cpp_cli_binary", ""))
         self.model_path = os.path.expanduser(self._get_config_value("llama_cpp_cli_model_path", ""))
-        self.cli_args = self._get_config_value("llama_cpp_cli_args", [])
+        self.cli_args = self._get_config_value("llama_cpp_cli_args", []) or []
+
+        # Get advanced parameters from config
+        self.cli_params = self._get_config_value("llama_cpp_cli_parameters", {}) or {}
 
         if not self.cli_binary or not os.path.isfile(self.cli_binary):
             raise ValueError(f"Llama.cpp CLI binary not found or not specified: {self.cli_binary}")
@@ -23,9 +26,44 @@ class LlamaCppCLIProvider(ModelProvider):
             f"Initialized LlamaCppCLIProvider with binary: {self.cli_binary}, model: {self.model_path}"
         )
 
+        # Log key parameters
+        self.logger.debug(
+            f"Parameters: temperature={self.cli_params.get('temperature', 'default')}, "
+            f"ctx_size={self.cli_params.get('ctx_size', 'default')}, "
+            f"n_gpu_layers={self.cli_params.get('n_gpu_layers', 'default')}"
+        )
+
     def _build_command(self, prompt: str, **kwargs: Any) -> List[str]:
         cmd = [self.cli_binary, "-m", self.model_path, "-p", prompt]
-        cmd.extend([str(arg) for arg in self.cli_args])  # Add default args from config
+        cmd.extend(
+            [str(arg) for arg in self.cli_args if arg is not None]
+        )  # Add default args from config
+
+        # Add configured parameters as CLI arguments
+        if "temperature" in self.cli_params:
+            cmd.extend(["--temp", str(self.cli_params["temperature"])])
+        if "top_k" in self.cli_params:
+            cmd.extend(["--top-k", str(self.cli_params["top_k"])])
+        if "top_p" in self.cli_params:
+            cmd.extend(["--top-p", str(self.cli_params["top_p"])])
+        if "repeat_penalty" in self.cli_params:
+            cmd.extend(["--repeat-penalty", str(self.cli_params["repeat_penalty"])])
+        if "ctx_size" in self.cli_params:
+            cmd.extend(["--ctx-size", str(self.cli_params["ctx_size"])])
+        if "batch_size" in self.cli_params:
+            cmd.extend(["--batch-size", str(self.cli_params["batch_size"])])
+        if "threads" in self.cli_params and self.cli_params["threads"] != -1:
+            cmd.extend(["--threads", str(self.cli_params["threads"])])
+        if "n_gpu_layers" in self.cli_params:
+            cmd.extend(["--n-gpu-layers", str(self.cli_params["n_gpu_layers"])])
+        if "seed" in self.cli_params and self.cli_params["seed"] != -1:
+            cmd.extend(["--seed", str(self.cli_params["seed"])])
+        if "n_predict" in self.cli_params:
+            cmd.extend(["--n-predict", str(self.cli_params["n_predict"])])
+        if self.cli_params.get("mlock", False):
+            cmd.append("--mlock")
+        if self.cli_params.get("no_mmap", False):
+            cmd.append("--no-mmap")
 
         # Override/add specific args from kwargs if needed
         if "n_predict" in kwargs:  # llama.cpp uses --n-predict

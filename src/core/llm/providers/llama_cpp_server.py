@@ -43,17 +43,31 @@ class LlamaCppServerProvider(ModelProvider):
         self.use_langchain = self._get_config_value("llama_cpp_use_langchain", False)
         self.model_path = self._get_config_value("llama_cpp_model_path", "")
 
+        # Get advanced parameters from config
+        self.server_params = self._get_config_value("llama_cpp_server_parameters", {}) or {}
+
         # Initialize Langchain LLM if requested and available
         self.langchain_llm: Optional[Any] = None
         if self.use_langchain and LANGCHAIN_AVAILABLE and self.model_path and LlamaCpp is not None:
             try:
+                # Use langchain parameters if available, otherwise fall back to server params
+                langchain_params = (
+                    self._get_config_value("llama_cpp_langchain_parameters", {}) or {}
+                )
+
                 self.langchain_llm = LlamaCpp(
                     model_path=self.model_path,
-                    temperature=self._get_config_value("temperature", 0.7),
-                    max_tokens=self._get_config_value("max_tokens", 256),
-                    n_ctx=self._get_config_value("n_ctx", 2048),
-                    n_gpu_layers=self._get_config_value("n_gpu_layers", 0),
-                    verbose=False,
+                    temperature=langchain_params.get(
+                        "temperature", self.server_params.get("temperature", 0.7)
+                    ),
+                    max_tokens=langchain_params.get(
+                        "max_tokens", self.server_params.get("n_predict", 256)
+                    ),
+                    n_ctx=langchain_params.get("n_ctx", self.server_params.get("n_ctx", 2048)),
+                    n_gpu_layers=langchain_params.get(
+                        "n_gpu_layers", self.server_params.get("n_gpu_layers", 0)
+                    ),
+                    verbose=langchain_params.get("verbose", False),
                 )
                 self.logger.info(f"Initialized Langchain LlamaCpp with model: {self.model_path}")
             except Exception as e:
@@ -135,9 +149,16 @@ class LlamaCppServerProvider(ModelProvider):
 
         # Fallback to HTTP server approach
         # llama.cpp server /completion endpoint
-        payload = {"prompt": prompt, "n_predict": kwargs.get("n_predict", 128), **kwargs}
+        # Start with configured parameters, then override with kwargs
+        payload: Dict[str, Any] = dict(self.server_params)  # Copy configured parameters
+        payload.update(
+            {"prompt": prompt, "n_predict": kwargs.get("n_predict", payload.get("n_predict", 128))}
+        )
+        payload.update(kwargs)  # Override with any additional kwargs
+
         # Remove known chat params if any passed via kwargs to avoid issues with /completion
         payload.pop("messages", None)
+
         loop = asyncio.get_event_loop()
         if loop.is_running():
             # If in async context, run sync in executor
@@ -158,8 +179,14 @@ class LlamaCppServerProvider(ModelProvider):
                 self.logger.error(f"Langchain LlamaCpp ainvoke failed: {e}, falling back to HTTP")
 
         # Fallback to HTTP server approach
-        payload = {"prompt": prompt, "n_predict": kwargs.get("n_predict", 128), **kwargs}
+        # Start with configured parameters, then override with kwargs
+        payload: Dict[str, Any] = dict(self.server_params)  # Copy configured parameters
+        payload.update(
+            {"prompt": prompt, "n_predict": kwargs.get("n_predict", payload.get("n_predict", 128))}
+        )
+        payload.update(kwargs)  # Override with any additional kwargs
         payload.pop("messages", None)
+
         response_data = await self._make_request("/completion", payload)
         return response_data.get("content", "")
 
@@ -175,7 +202,11 @@ class LlamaCppServerProvider(ModelProvider):
 
         # Fallback to HTTP server approach
         # llama.cpp server /v1/chat/completions endpoint (OpenAI compatible)
-        payload = {"messages": messages, **kwargs}
+        # Start with configured parameters, then override with kwargs
+        payload: Dict[str, Any] = dict(self.server_params)  # Copy configured parameters
+        payload.update({"messages": messages})
+        payload.update(kwargs)  # Override with any additional kwargs
+
         loop = asyncio.get_event_loop()
         if loop.is_running():
             future = asyncio.run_coroutine_threadsafe(
@@ -200,7 +231,11 @@ class LlamaCppServerProvider(ModelProvider):
                 self.logger.error(f"Langchain LlamaCpp achat failed: {e}, falling back to HTTP")
 
         # Fallback to HTTP server approach
-        payload = {"messages": messages, **kwargs}
+        # Start with configured parameters, then override with kwargs
+        payload: Dict[str, Any] = dict(self.server_params)  # Copy configured parameters
+        payload.update({"messages": messages})
+        payload.update(kwargs)  # Override with any additional kwargs
+
         response_data = await self._make_request("/v1/chat/completions", payload)
         if response_data.get("choices") and response_data["choices"][0].get("message"):
             return response_data["choices"][0]["message"].get("content", "")

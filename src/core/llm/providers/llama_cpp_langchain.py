@@ -37,22 +37,25 @@ class LlamaCppLangchainProvider(ModelProvider):
                 "Please specify the path to your GGUF model file in the config."
             )
 
+        # Get advanced parameters from config
+        params = self._get_config_value("llama_cpp_langchain_parameters", {}) or {}
+
         # LlamaCpp specific parameters
         llm_params = {
             "model_path": self.model_path,
-            "temperature": self._get_config_value("temperature", 0.7),
-            "max_tokens": self._get_config_value("max_tokens", 256),
-            "top_p": self._get_config_value("top_p", 0.95),
-            "top_k": self._get_config_value("top_k", 40),
-            "repeat_penalty": self._get_config_value("repeat_penalty", 1.1),
-            "n_ctx": self._get_config_value("n_ctx", 2048),
-            "n_batch": self._get_config_value("n_batch", 8),
-            "n_threads": self._get_config_value("n_threads", None),
-            "n_gpu_layers": self._get_config_value("n_gpu_layers", 0),
-            "f16_kv": self._get_config_value("f16_kv", True),
-            "use_mlock": self._get_config_value("use_mlock", False),
-            "use_mmap": self._get_config_value("use_mmap", True),
-            "verbose": self._get_config_value("verbose", False),
+            "temperature": params.get("temperature", 0.7),
+            "max_tokens": params.get("max_tokens", 256),
+            "top_p": params.get("top_p", 0.95),
+            "top_k": params.get("top_k", 40),
+            "repeat_penalty": params.get("repeat_penalty", 1.1),
+            "n_ctx": params.get("n_ctx", 2048),
+            "n_batch": params.get("n_batch", 8),
+            "n_threads": params.get("n_threads", None),
+            "n_gpu_layers": params.get("n_gpu_layers", 0),
+            "f16_kv": params.get("f16_kv", True),
+            "use_mlock": params.get("use_mlock", False),
+            "use_mmap": params.get("use_mmap", True),
+            "verbose": params.get("verbose", False),
         }
 
         # Remove None values to use LlamaCpp defaults
@@ -65,6 +68,14 @@ class LlamaCppLangchainProvider(ModelProvider):
             # Log GPU usage if configured
             if llm_params.get("n_gpu_layers", 0) > 0:
                 self.logger.info(f"Using GPU acceleration with {llm_params['n_gpu_layers']} layers")
+
+            # Log key parameters
+            self.logger.debug(
+                f"Parameters: temperature={llm_params['temperature']}, "
+                f"max_tokens={llm_params['max_tokens']}, "
+                f"n_ctx={llm_params['n_ctx']}, "
+                f"n_gpu_layers={llm_params['n_gpu_layers']}"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to initialize LlamaCpp: {e}")
