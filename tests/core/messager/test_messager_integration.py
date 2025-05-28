@@ -15,6 +15,7 @@ from src.core.protocol.message import BaseMessage
 class TestMessage(BaseMessage):
     """Test message for integration tests"""
 
+    type: str = "TestMessage"  # Required field
     message: str = "test_message"
     value: int = 42
 
@@ -61,7 +62,7 @@ class TestMessagerIntegration:
 
         # Test message to be passed between the two
         test_topic = "test/integration"
-        test_message = TestMessage(message="Hello between protocols", value=100)
+        test_message = TestMessage(type="TestMessage", message="Hello between protocols", value=100)
 
         # Set up the captured handler on the MQTT driver
         test_handler = AsyncMock()
@@ -164,7 +165,7 @@ class TestMessagerIntegration:
         await rabbitmq_messager.subscribe(test_topic, rabbitmq_handler, TestMessage)
 
         # Create test message
-        test_message = TestMessage(message="Multi-protocol message", value=999)
+        test_message = TestMessage(type="TestMessage", message="Multi-protocol message", value=999)
         encoded_message = test_message.model_dump_json().encode("utf-8")
 
         # Simulate each handler receiving the message
