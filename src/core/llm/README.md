@@ -1,14 +1,22 @@
-# Advanced LLM Configuration
+# LLM Module - Advanced Configuration
 
-This document explains the advanced LLM configuration system in Argentic, which allows fine-tuning of model parameters for each provider.
+This document explains the advanced LLM configuration system in Argentic's LLM module, which provides fine-tuned control over model parameters for each provider.
 
 ## Overview
 
-The advanced configuration system provides granular control over LLM parameters for each provider. Parameters are organized in provider-specific sections within the `config.yaml` file, allowing you to optimize performance, quality, and behavior for your specific use case.
+The LLM module supports multiple providers with provider-specific parameter configuration. Each provider has its own parameter section in the `config.yaml` file, allowing you to optimize performance, quality, and behavior for your specific use case.
+
+## Supported Providers
+
+- **Google Gemini** (`google_gemini`) - Google's Gemini API
+- **Ollama** (`ollama`) - Local Ollama server
+- **llama.cpp Server** (`llama_cpp_server`) - HTTP server mode
+- **llama.cpp CLI** (`llama_cpp_cli`) - Command-line interface
+- **llama.cpp Langchain** (`llama_cpp_langchain`) - Langchain integration
 
 ## Configuration Structure
 
-Each provider has its own parameter section in the format `{provider}_parameters`. For example:
+Each provider has its own parameter section in the format `{provider}_parameters`:
 
 ```yaml
 llm:
@@ -287,6 +295,31 @@ llm:
     mirostat: 2
     mirostat_tau: 3.0
 ```
+
+## Implementation Details
+
+### Provider Factory
+
+The `LLMFactory` class in `llm_factory.py` handles provider instantiation based on configuration:
+
+```python
+from core.llm.llm_factory import LLMFactory
+
+# Create provider from config
+provider = LLMFactory.create(config)
+```
+
+### Provider Base Class
+
+All providers inherit from `ModelProvider` in `providers/base.py`, ensuring consistent interface across different LLM backends.
+
+### Parameter Validation
+
+Each provider validates its parameters and logs warnings for:
+
+- Values outside recommended ranges
+- Incompatible parameter combinations
+- Provider-specific limitations
 
 ## Best Practices
 
