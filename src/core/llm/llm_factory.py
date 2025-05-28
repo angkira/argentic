@@ -10,7 +10,7 @@ from core.llm.providers.google_gemini import GoogleGeminiProvider
 from core.logger import get_logger
 
 # Define a mapping from provider names to classes
-PROVIDER_MAP = {
+PROVIDER_MAP: dict[str, type[ModelProvider]] = {
     "ollama": OllamaProvider,
     "llama_cpp_server": LlamaCppServerProvider,
     "llama_cpp_cli": LlamaCppCLIProvider,
@@ -50,8 +50,8 @@ class LLMFactory:
             provider_class = PROVIDER_MAP[provider_name]
             logger.debug(f"Found provider class: {provider_class.__name__}")
             return provider_class(config, messager)
-        except KeyError:
+        except KeyError as e:
             logger.error(f"Unsupported LLM provider: {provider_name}")
             raise ValueError(
                 f"Unsupported LLM provider: {provider_name}. Supported providers are: {list(PROVIDER_MAP.keys())}"
-            )
+            ) from e

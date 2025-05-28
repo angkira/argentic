@@ -1,23 +1,47 @@
 import asyncio
 import re
 import json
-import traceback
-from typing import Any, List, Optional, Union, Tuple, Dict
+from typing import Any, List, Optional, Union, Tuple, Dict, Literal
 
 from langchain.prompts import PromptTemplate
+from pydantic import BaseModel, ValidationError
 
-# Assuming Messager and ToolManager are updated for asyncio
 from core.messager.messager import Messager
-from core.protocol.message import AnswerMessage
-from core.tools.tool_manager import ToolManager
-from core.logger import get_logger, LogLevel, parse_log_level
-from core.llm.providers.base import ModelProvider  # Import ModelProvider
-from core.protocol.tool import ToolCallRequest  # Import the new request type
+from core.protocol.message import (
+    BaseMessage,
+    AgentSystemMessage,
+    AgentLLMRequestMessage,
+    AgentLLMResponseMessage,
+    AskQuestionMessage,
+    AnswerMessage,
+    MinimalToolCallRequest,
+)
+from core.protocol.enums import MessageSource, LLMRole
+from core.protocol.tool import ToolCallRequest
 from core.protocol.task import (
     TaskResultMessage,
     TaskErrorMessage,
-    TaskStatus,
-)  # Import for result handling
+)
+from core.tools.tool_manager import ToolManager
+from core.logger import get_logger, LogLevel, parse_log_level
+from core.llm.providers.base import ModelProvider
+
+
+# Pydantic Models for LLM JSON Response Parsing
+class LLMResponseToolCall(BaseModel):
+    type: Literal["tool_call"]
+    tool_calls: List[ToolCallRequest]
+
+
+class LLMResponseDirect(BaseModel):
+    type: Literal["direct"]
+    content: str
+
+
+class LLMResponseToolResult(BaseModel):
+    type: Literal["tool_result"]
+    tool_id: str
+    result: str
 
 
 class Agent:
@@ -25,15 +49,16 @@ class Agent:
 
     def __init__(
         self,
-        llm: ModelProvider,  # Changed type hint from Any to ModelProvider
+        llm: ModelProvider,
         messager: Messager,
         log_level: Union[str, LogLevel] = LogLevel.INFO,
         register_topic: str = "agent/tools/register",
-        answer_topic: str = "agent/response/answer",  # Added for clarity
+        answer_topic: str = "agent/response/answer",
     ):
         self.llm = llm
         self.messager = messager
-        self.answer_topic = answer_topic  # Store answer topic
+        self.answer_topic = answer_topic
+        self.raw_template: Optional[str] = None
 
         if isinstance(log_level, str):
             self.log_level = parse_log_level(log_level)
@@ -47,9 +72,16 @@ class Agent:
             messager, log_level=self.log_level, register_topic=register_topic
         )
         self.prompt_template = self._build_prompt_template()
+        if not self.raw_template:
+            raise ValueError(
+                "Agent raw_template was not set during _build_prompt_template initialization."
+            )
         self.max_tool_iterations = 10
 
-        self.logger.info("Agent initialized (Async Version)")
+        self.history: List[BaseMessage] = []
+        self.logger.info(
+            "Agent initialized with consistent message pattern: direct fields + data=None."
+        )
 
     async def async_init(self):
         """Async initialization for Agent, including tool manager subscriptions."""
@@ -104,9 +136,7 @@ WHEN TO USE EACH FORMAT:
 3. Use "tool_result" ONLY when:
    - You have just received results from a tool call (role: tool messages in history).
    - You are providing the final answer to the original question.
-   - Incorporate the tool results into your answer *if they are relevant and\
-       helpful*. If the tool results are not helpful or empty, state that \
-        briefly and answer using your general knowledge.
+   - Incorporate the tool results into your answer *if they are relevant and helpful*. If the tool results are not helpful or empty, state that briefly and answer using your general knowledge.
 
 STRICT RULES:
 1. ALWAYS wrap your response in a markdown code block (```json ... ```).
@@ -123,15 +153,9 @@ HANDLING TOOL RESULTS:
 - If you receive successful tool results (role: tool):
     - Analyze the results.
     - If the results help answer the original question, incorporate them into your final answer and use the "tool_result" format.
-    - If the results are empty or not relevant to the original question, \
-        briefly state that the tool didn't provide useful information, then \
-            answer the original question using your general knowledge, still \
-                using the "tool_result" format but explaining the situation in \
-                    the 'result' field.
-- If you're unsure after getting tool results, use the "tool_result" format and \
-    explain your reasoning in the 'result' field.
-- Never make another tool call immediately after receiving tool results unless \
-    absolutely necessary and clearly justified."""
+    - If the results are empty or not relevant to the original question, briefly state that the tool didn't provide useful information, then answer the original question using your general knowledge, still using the "tool_result" format but explaining the situation in the 'result' field.
+- If you're unsure after getting tool results, use the "tool_result" format and explain your reasoning in the 'result' field.
+- Never make another tool call immediately after receiving tool results unless absolutely necessary and clearly justified."""
 
         # Main prompt that includes the system prompt and current context
         template = f"""{system_prompt}
@@ -274,77 +298,40 @@ ANSWER:"""
             )
 
     async def _execute_tool_calls(
-        self, tool_calls_dicts: List[Dict[str, Any]]
-    ) -> Tuple[List[Dict[str, str]], bool]:
+        self, tool_call_requests: List[ToolCallRequest]
+    ) -> Tuple[List[BaseMessage], bool]:
         """
         Executes tool calls parsed from LLM output.
         tool_calls_dicts: List of dictionaries, each representing a tool call,
                           e.g., {'tool_id': 'some_tool', 'arguments': {...}}
         Returns a list of history-formatted messages and a boolean indicating errors.
         """
-        if not tool_calls_dicts:
+        if not tool_call_requests:
             return [], False
-
-        # Convert dicts to ToolCallRequest objects
-        tool_call_requests: List[ToolCallRequest] = []
-        for call_dict in tool_calls_dicts:
-            try:
-                # Ensure 'tool_id' is present, 'arguments' defaults to {} if missing by Pydantic model
-                if "tool_id" not in call_dict:
-                    self.logger.error(f"Tool call dictionary missing 'tool_id': {call_dict}")
-                    continue  # Skip malformed call
-                tool_call_requests.append(ToolCallRequest(**call_dict))
-            except Exception as e:  # Catch Pydantic validation errors or others
-                self.logger.error(
-                    f"Failed to parse tool call dict into ToolCallRequest: {call_dict}, Error: {e}"
-                )
-                continue
-
-        if not tool_call_requests:  # If all calls were malformed
-            self.logger.warning("No valid tool call requests to execute after parsing.")
-            return [], True  # Indicate error as no valid calls could be processed
 
         # execution_outcomes is List[Union[TaskResultMessage, TaskErrorMessage]]
         execution_outcomes, any_errors_from_manager = await self._tool_manager.get_tool_results(
             tool_call_requests
         )
 
-        history_messages: List[Dict[str, str]] = []
-        final_any_errors = any_errors_from_manager  # Start with manager's error flag
-
-        for (
-            outcome
-        ) in (
-            execution_outcomes
-        ):  # execution_outcomes is List[Union[TaskResultMessage, TaskErrorMessage]]
-            content_str = ""
-            tool_name = (
-                outcome.tool_name
-            )  # This is correct, as both TaskResultMessage and TaskErrorMessage have tool_name
-            history_tool_call_id = (
-                outcome.task_id if outcome.task_id else outcome.tool_id
-            )  # Also correct
-
-            if isinstance(outcome, TaskResultMessage):
-                if outcome.status in [TaskStatus.COMPLETED, TaskStatus.SUCCESS]:
-                    # ... (logic for successful result)
-                    pass
-                else:  # FAILED, TIMEOUT, etc. status on TaskResultMessage
-                    content_str = f"Error: Tool '{outcome.tool_name}' failed with status {outcome.status}. Detail: {outcome.error or 'No additional error detail.'}"
-                    final_any_errors = True
-            elif isinstance(outcome, TaskErrorMessage):
-                content_str = f"Error: Tool '{outcome.tool_name}' reported error: {outcome.error}"
-                final_any_errors = True
-
-            history_messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": history_tool_call_id,  # This should align with what the LLM expects
-                    "name": tool_name,  # This is the tool's actual name
-                    "content": content_str,
-                }
-            )
-        return history_messages, final_any_errors
+        processed_outcomes: List[BaseMessage] = []
+        for outcome in execution_outcomes:
+            if isinstance(outcome, (TaskResultMessage, TaskErrorMessage)):
+                processed_outcomes.append(outcome)
+            else:
+                self.logger.error(f"Unexpected outcome type from ToolManager: {type(outcome)}")
+                # Create a generic error message with direct fields + data=None
+                processed_outcomes.append(
+                    TaskErrorMessage(
+                        tool_id=getattr(outcome, "tool_id", "unknown_id"),
+                        tool_name=getattr(outcome, "tool_name", "unknown_name"),
+                        task_id=getattr(outcome, "task_id", "unknown_task_id"),
+                        error=f"Unexpected outcome type from ToolManager: {type(outcome)}",
+                        source=MessageSource.AGENT,
+                        data=None,
+                    )
+                )
+        return processed_outcomes, any_errors_from_manager
 
     async def query(
         self, question: str, user_id: Optional[str] = None, max_iterations: Optional[int] = None
@@ -355,197 +342,221 @@ ANSWER:"""
         if max_iterations is None:
             max_iterations = self.max_tool_iterations
 
-        history: List[Dict[str, str]] = []
-        original_question = question  # Store the original question
-        current_question = question
+        self.history = []
+
+        if not self.raw_template:
+            self.logger.error(
+                "Agent raw_template is not initialized before query! This should not happen if __init__ completed."
+            )
+            return "Error: Agent prompt template not initialized. Critical error."
+
+        # 1. Add System Prompt to history
+        system_prompt_content = self.raw_template.split("Available Tools:")[0].strip()
+        self.history.append(
+            AgentSystemMessage(
+                content=system_prompt_content, source=MessageSource.SYSTEM, data=None
+            )
+        )
+
+        # 2. Add original user question to history
+        user_source = MessageSource.USER if user_id else MessageSource.CLIENT
+        self.history.append(
+            AskQuestionMessage(question=question, user_id=user_id, source=user_source, data=None)
+        )
+
+        current_question_for_llm_turn = question
 
         for i in range(max_iterations):
             self.logger.info(
-                f"Query Iteration: {i+1}/{max_iterations} for user '{user_id or 'Unknown'}'... Current prompt/question: {current_question[:100]}..."
+                f"Query Iteration: {i+1}/{max_iterations} for user '{user_id or 'Unknown'}'... Current prompt: {current_question_for_llm_turn[:100]}..."
             )
 
             tools_description_str = self._tool_manager.get_tools_description()
-            tool_names_list = self._tool_manager.get_tool_names()
 
-            # Build messages for LLM, including system prompt on first turn
-            messages_for_llm: List[Dict[str, str]] = []
-            system_prompt_content = (
-                self._build_prompt_template().template.split("Available Tools:")[0].strip()
+            # Format the user prompt for THIS specific turn, including tools and current question
+            current_turn_formatted_prompt = self.prompt_template.format(
+                tool_descriptions=tools_description_str, question=current_question_for_llm_turn
             )
-            messages_for_llm.append({"role": "system", "content": system_prompt_content})
 
-            if not history:
-                # First turn: Add the initial user question formatted with tools
-                user_prompt_content = (
-                    self.prompt_template.format(
-                        tool_descriptions=tools_description_str, question=current_question
-                    ).split("ANSWER:")[0]
-                    + "ANSWER:"
-                )
-                messages_for_llm.append({"role": "user", "content": user_prompt_content})
-            else:
-                # Subsequent turns: Add initial question, history, and current follow-up
-                initial_user_prompt_content = (
-                    self.prompt_template.format(
-                        tool_descriptions=tools_description_str,
-                        question=original_question,  # Always refer to the original question here
-                    ).split("ANSWER:")[0]
-                    + "ANSWER:"
-                )
-                messages_for_llm.append({"role": "user", "content": initial_user_prompt_content})
-                messages_for_llm.extend(history)  # Add previous assistant/tool turns
-                # Add the follow-up instruction/question if it exists
-                if current_question != original_question:
-                    messages_for_llm.append({"role": "user", "content": current_question})
+            # Create AgentLLMRequestMessage for this turn's interaction (not added to history before conversion)
+            llm_input_messages = self._convert_protocol_history_to_llm_format(self.history)
+            # Append the specifically formatted user message for the current turn
+            llm_input_messages.append(
+                {"role": LLMRole.USER.value, "content": current_turn_formatted_prompt}
+            )
 
-            llm_response_text = await self._call_llm(messages_for_llm)
-            self.logger.debug(f"LLM response (Iter {i+1}): {llm_response_text[:300]}...")
+            llm_response_raw_text = await self._call_llm(llm_input_messages)
+            self.logger.debug(f"LLM raw response (Iter {i+1}): {llm_response_raw_text[:300]}...")
 
-            # Append assistant response to history *before* parsing
-            history.append({"role": "assistant", "content": llm_response_text})
+            # Instantiate AgentLLMResponseMessage with direct fields + data=None
+            llm_response_msg = AgentLLMResponseMessage(
+                raw_content=llm_response_raw_text, source=MessageSource.LLM, data=None
+            )
 
             try:
-                # Extract JSON from markdown code block
-                json_str = None
-                if "```json" in llm_response_text:
-                    json_str = llm_response_text.split("```json")[1].split("```")[0].strip()
-                elif "```" in llm_response_text:
-                    # Handle cases where ``` is used without json marker
-                    json_str = llm_response_text.split("```")[1].split("```")[0].strip()
-                else:
-                    # Assume raw JSON if no markdown fences
-                    json_str = llm_response_text.strip()
-
-                if not json_str:
+                cleaned_json_str = await self._clean_and_extract_json_str(llm_response_raw_text)
+                if not cleaned_json_str:
                     self.logger.error(
-                        f"Could not extract JSON from LLM response: {llm_response_text}"
+                        f"Could not extract JSON from LLM response: {llm_response_raw_text}"
                     )
-                    return "Error: Could not parse JSON response from AI assistant."
+                    # Assign to direct fields of the message object
+                    llm_response_msg.parsed_type = "error_parsing"
+                    llm_response_msg.error_details = "Could not extract JSON from LLM response."
+                    self.history.append(llm_response_msg)
+                    current_question_for_llm_turn = f"Prev response not valid JSON: {llm_response_raw_text}. Resubmit in JSON. Original Q: {question}"
+                    continue
 
-                parsed_response = json.loads(json_str)
-                response_type = parsed_response.get("type")
+                parsed_dict = json.loads(cleaned_json_str)
+                response_type = parsed_dict.get("type")
 
-                # Handle direct response
                 if response_type == "direct":
-                    return parsed_response.get(
-                        "content", "Error: Missing content in direct response."
-                    )
-
-                # Handle tool result response (treat as final answer)
+                    validated_response = LLMResponseDirect.model_validate(parsed_dict)
+                    llm_response_msg.parsed_type = "direct"
+                    llm_response_msg.parsed_direct_content = validated_response.content
+                    self.history.append(llm_response_msg)
+                    self.logger.debug(f"LLM direct response: {validated_response.content[:100]}...")
+                    return validated_response.content
                 elif response_type == "tool_result":
-                    return parsed_response.get(
-                        "result", "Error: Missing result in tool_result response."
+                    validated_response = LLMResponseToolResult.model_validate(parsed_dict)
+                    llm_response_msg.parsed_type = "tool_result"
+                    llm_response_msg.parsed_tool_result_content = validated_response.result
+                    self.history.append(llm_response_msg)
+                    self.logger.debug(
+                        f"LLM tool_result response: {validated_response.result[:100]}..."
                     )
-
-                # Handle tool call
+                    return validated_response.result
                 elif response_type == "tool_call":
-                    tool_calls = parsed_response.get("tool_calls", [])
-                    if tool_calls:
-                        tool_results_history, had_error = await self._execute_tool_calls(tool_calls)
+                    validated_response = LLMResponseToolCall.model_validate(parsed_dict)
+                    llm_response_msg.parsed_type = "tool_call"
+                    # Convert ToolCallRequest to MinimalToolCallRequest for storage
+                    llm_response_msg.parsed_tool_calls = [
+                        MinimalToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
+                        for tc in validated_response.tool_calls
+                    ]
+                    self.history.append(llm_response_msg)
 
-                        if tool_results_history:
-                            for res in tool_results_history:
-                                history.append(res)  # Append tool results to history
+                    if not llm_response_msg.parsed_tool_calls:
+                        self.logger.warning(
+                            "'tool_call' type with no tool_calls. Asking LLM to clarify."
+                        )
+                        current_question_for_llm_turn = f"Indicated 'tool_call' but provided no tools. Please clarify or answer directly for: {question}"
+                        continue
 
-                        if had_error:
-                            self.logger.warning(
-                                "Tool execution had errors. Asking LLM to summarize."
-                            )
-                            current_question = f"There were errors during tool execution (see tool messages above). Please explain the error to the user based on the original question: '{original_question}'. Use the 'direct' format."
-                        else:
-                            # No errors, ask LLM to process results and answer original question
-                            self.logger.info(
-                                "Tool execution successful. Asking LLM to process results."
-                            )
-                            current_question = f"The tool execution finished (see results above). Please analyze the results. If they are helpful, incorporate them into your answer to the original question: '{original_question}'. If the tool results were empty or not helpful, state that briefly and answer using your general knowledge. Respond using the 'tool_result' format."
-                        continue  # Continue loop for LLM to process results/errors
+                    # Convert back to ToolCallRequest for execution
+                    tool_call_requests = [
+                        ToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
+                        for tc in llm_response_msg.parsed_tool_calls
+                    ]
+                    tool_outcome_messages, had_error = await self._execute_tool_calls(
+                        tool_call_requests
+                    )
+                    for outcome_msg in tool_outcome_messages:
+                        self.history.append(outcome_msg)
+
+                    if had_error:
+                        self.logger.warning(
+                            "Tool execution had errors. Asking LLM to summarize for user."
+                        )
+                        current_question_for_llm_turn = f"Errors occurred during tool execution (see history). Explain this to the user and answer the original question: '{question}' if possible. Use 'direct' format."
                     else:
-                        self.logger.warning("'tool_call' type received but no tool_calls found.")
-                        return "Error: Received tool call request with no specific tools listed."
+                        self.logger.info(
+                            "Tool execution successful. Asking LLM to process results."
+                        )
+                        current_question_for_llm_turn = f"Tool execution finished (see history). Analyze results and answer the original question: '{question}'. Use 'tool_result' format."
+                    continue
                 else:
-                    self.logger.error(f"Invalid response type: {response_type}")
-                    return f"Error: Invalid response type '{response_type}' from AI assistant. Expected 'direct', 'tool_call', or 'tool_result'."
-
+                    self.logger.error(
+                        f"Invalid response type from LLM: {response_type}. Raw: {cleaned_json_str}"
+                    )
+                    llm_response_msg.parsed_type = "error_validation"
+                    llm_response_msg.error_details = f"Invalid response type '{response_type}'. Use 'direct', 'tool_call', or 'tool_result'."
+                    self.history.append(llm_response_msg)
+                    current_question_for_llm_turn = (
+                        f"Invalid response type '{response_type}'. Resubmit. Original Q: {question}"
+                    )
+                    continue
             except json.JSONDecodeError as e:
+                self.logger.error(f"Invalid JSON from LLM: {e}. Response: {cleaned_json_str}")
+                llm_response_msg.parsed_type = "error_parsing"
+                llm_response_msg.error_details = f"Invalid JSON: {e}"
+                self.history.append(llm_response_msg)
+                current_question_for_llm_turn = (
+                    f"Malformed JSON response: {e}. Resubmit. Original Q: {question}"
+                )
+                continue
+            except ValidationError as e:
                 self.logger.error(
-                    f"Invalid JSON response from LLM: {e}. Response: {json_str}"
-                )  # Log the extracted string
-                return f"Error: Invalid JSON response format from AI assistant: {e}"
-
+                    f"LLM response structure validation error: {e}. JSON: {cleaned_json_str}"
+                )
+                llm_response_msg.parsed_type = "error_validation"
+                llm_response_msg.error_details = f"JSON structure invalid: {e}"
+                self.history.append(llm_response_msg)
+                current_question_for_llm_turn = (
+                    f"Invalid JSON structure: {e}. Match formats. Original Q: {question}"
+                )
+                continue
             except Exception as e:
                 self.logger.error(f"Error processing LLM response: {e}", exc_info=True)
+                llm_response_msg.parsed_type = "error_llm"
+                llm_response_msg.error_details = f"Unexpected error: {e}"
+                self.history.append(llm_response_msg)
                 return f"Error: Failed to process AI response: {str(e)}"
 
-        self.logger.warning(f"Max iterations ({max_iterations}) reached.")
-        # Fallback logic remains the same
-        last_response = (
-            history[-1]["content"] if history and history[-1]["role"] == "assistant" else ""
-        )
-        if last_response:
-            try:
-                json_str = None
-                if "```json" in last_response:
-                    json_str = last_response.split("```json")[1].split("```")[0].strip()
-                elif "```" in last_response:
-                    json_str = last_response.split("```")[1].split("```")[0].strip()
-                else:
-                    json_str = last_response.strip()
+        self.logger.warning(f"Max iterations ({max_iterations}) reached for: {question}")
+        if self.history:
+            last_msg = self.history[-1]
+            if isinstance(last_msg, AgentLLMResponseMessage):
+                if last_msg.parsed_type == "direct" and last_msg.parsed_direct_content:
+                    return last_msg.parsed_direct_content
+                elif last_msg.parsed_type == "tool_result" and last_msg.parsed_tool_result_content:
+                    return last_msg.parsed_tool_result_content
+        return "Max iterations reached. Unable to provide a conclusive answer."
 
-                if json_str:
-                    parsed = json.loads(json_str)
-                    if parsed.get("type") == "direct":
-                        return parsed.get("content", "Max iterations reached.")
-                    if parsed.get("type") == "tool_result":
-                        return parsed.get("result", "Max iterations reached.")
-            except Exception:
-                pass
-            return f"Error: Maximum interaction depth reached. Last response: {last_response}"
-        else:
-            return "Error: Maximum interaction depth reached without reaching a final answer."
-
-    async def handle_ask_question(self, message):
+    async def handle_ask_question(self, message: AskQuestionMessage):
         """
         MQTT handler for incoming questions.
         - message: the parsed AskQuestionMessage or dict
         """
         try:
-            question: Optional[str] = None
-            user_id: Optional[str] = None
+            # Access fields directly from the message object
+            question: str = message.question
+            user_id: Optional[str] = message.user_id
 
-            if hasattr(message, "question"):
-                question = message.question
-                user_id = getattr(message, "user_id", None)
-            elif isinstance(message, dict):
-                question = message.get("question")
-                user_id = message.get("user_id")
-            else:
-                self.logger.error(f"Unknown message type for ask_question: {type(message)}")
-                return
-
-            if not question:
-                self.logger.error("Received ask_question message without a question field.")
-                return
-
-            self.logger.info(f"Received question from user '{user_id or 'Unknown'}': {question}")
+            self.logger.info(
+                f"Received question from user '{user_id or 'Unknown'} via {message.source}': {question}"
+            )
 
             answer_text = await self.query(question, user_id=user_id)
 
+            # Create AnswerMessage with direct fields + data=None
             answer_msg = AnswerMessage(
-                source=self.messager.client_id,
                 question=question,
                 answer=answer_text,
                 user_id=user_id,
+                source=MessageSource.AGENT,
+                data=None,
             )
-            await self.messager.publish(self.answer_topic, answer_msg.model_dump_json())
+            await self.messager.publish(self.answer_topic, answer_msg)
             self.logger.info(
                 f"Published answer to {self.answer_topic} for user '{user_id or 'Unknown'}'"
             )
 
         except Exception as e:
             self.logger.error(f"Error handling ask_question: {e}", exc_info=True)
+            try:
+                error_msg = AnswerMessage(
+                    question=getattr(message, "question", "Unknown question"),
+                    error=f"Agent error: {str(e)}",
+                    user_id=getattr(message, "user_id", None),
+                    source=MessageSource.AGENT,
+                    data=None,
+                )
+                await self.messager.publish(self.answer_topic, error_msg)
+            except Exception as pub_e:
+                self.logger.error(f"Failed to publish error answer: {pub_e}")
 
     async def _publish_answer(
-        self, question: str, response: Any, user_id: Optional[str] = None
+        self, question: str, response_content: str, user_id: Optional[str] = None
     ) -> None:
         """
         DEPRECATED or REPURPOSED: This method's original purpose of extracting content
@@ -554,32 +565,70 @@ ANSWER:"""
         For now, it's kept but likely unused by the main flow.
         """
         try:
-            answer_text: str
-            if isinstance(response, str):
-                answer_text = response
-            elif hasattr(response, "content") and isinstance(response.content, str):
-                self.logger.warning(
-                    "Received non-string response with .content, direct ModelProvider usage preferred."
-                )
-                answer_text = response.content
-            else:
-                self.logger.warning(
-                    f"Publishing unexpected response type as string: {type(response)}"
-                )
-                answer_text = str(response)
-
-            publisher_client_id = (
-                self.messager.client_id if hasattr(self.messager, "client_id") else "agent_client"
-            )
-
             answer = AnswerMessage(
                 question=question,
-                answer=answer_text,
+                answer=response_content,
                 user_id=user_id,
-                source=publisher_client_id,
+                source=MessageSource.AGENT,
+                data=None,
             )
-
-            await self.messager.publish(self.answer_topic, answer.model_dump_json())
+            await self.messager.publish(self.answer_topic, answer)
             self.logger.info(f"Published answer (via _publish_answer) to {self.answer_topic}")
         except Exception as e:
             self.logger.error(f"Error in _publish_answer: {e}", exc_info=True)
+
+    def _convert_protocol_history_to_llm_format(
+        self, history_messages: List[BaseMessage]
+    ) -> List[Dict[str, str]]:
+        llm_formatted_messages: List[Dict[str, str]] = []
+        for msg in history_messages:
+            if isinstance(msg, AgentSystemMessage):
+                llm_formatted_messages.append(
+                    {"role": LLMRole.SYSTEM.value, "content": msg.content}
+                )
+            elif isinstance(msg, AskQuestionMessage):
+                llm_formatted_messages.append({"role": LLMRole.USER.value, "content": msg.question})
+            elif isinstance(msg, AgentLLMRequestMessage):
+                llm_formatted_messages.append({"role": LLMRole.USER.value, "content": msg.prompt})
+            elif isinstance(msg, AgentLLMResponseMessage):
+                llm_formatted_messages.append(
+                    {"role": LLMRole.ASSISTANT.value, "content": msg.raw_content}
+                )
+            elif isinstance(msg, TaskResultMessage):
+                content = ""
+                if msg.result is not None:
+                    if isinstance(msg.result, (str, int, float, bool)):
+                        content = str(msg.result)
+                    elif isinstance(msg.result, (dict, list)):
+                        try:
+                            content = json.dumps(msg.result)
+                        except TypeError:
+                            content = f"Tool returned complex object: {str(msg.result)[:100]}..."
+                    else:
+                        content = f"Tool returned unhandled type: {type(msg.result)}"
+                else:
+                    content = "Tool executed successfully but returned no content."
+
+                llm_formatted_messages.append(
+                    {
+                        "role": LLMRole.TOOL.value,
+                        "tool_call_id": msg.task_id or msg.tool_id or "unknown_tool_call_id",
+                        "name": msg.tool_name or "unknown_tool",
+                        "content": content,
+                    }
+                )
+            elif isinstance(msg, TaskErrorMessage):
+                error_content = f"Error executing tool {msg.tool_name or 'unknown'}: {msg.error}"
+                llm_formatted_messages.append(
+                    {
+                        "role": LLMRole.TOOL.value,
+                        "tool_call_id": msg.task_id or msg.tool_id or "unknown_tool_call_id",
+                        "name": msg.tool_name or "unknown_tool",
+                        "content": error_content,
+                    }
+                )
+            else:
+                self.logger.warning(
+                    f"Unrecognized message type in history for LLM conversion: {type(msg)}"
+                )
+        return llm_formatted_messages
