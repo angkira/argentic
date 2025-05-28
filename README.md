@@ -1,10 +1,10 @@
 # Argentic
+
 Microframework for building and running local AI agents.
 
 ![Argentic Logo](./assets/logo.jpg){: .styled-logo }
 
 [![Python application](https://github.com/angkira/argentic/actions/workflows/python-app.yml/badge.svg)](https://github.com/angkira/argentic/actions/workflows/python-app.yml)
-
 
 Argentic provides a lightweight, configurable framework designed to simplify the setup and operation of local AI agents. It integrates with various Large Language Model (LLM) backends and utilizes a messaging protocol (currently MQTT) for flexible communication between the core agent, tools, and clients.
 
@@ -108,21 +108,34 @@ The `config.yaml` file controls the application's behavior:
   - `provider: ollama`
     - `ollama_model_name`: (Required) The name of the model served by Ollama (e.g., `gemma3:12b-it-qat`).
     - `ollama_use_chat_model`: (Optional, boolean, default: `true`) Whether to use Ollama's chat completion endpoint.
+    - `ollama_parameters`: (Optional) Advanced parameters for fine-tuning model behavior. See [Advanced LLM Configuration](docs/advanced_llm_configuration.md) for details.
   - `provider: llama_cpp_server`
     - `llama_cpp_server_binary`: (Optional) Path to the `llama-server` executable (needed if `auto_start` is true).
     - `llama_cpp_server_args`: (Optional, list) Arguments to pass when auto-starting the server (e.g., model path, host, port).
     - `llama_cpp_server_host`: (Required) Hostname or IP address of the running llama.cpp server (e.g., `127.0.0.1`).
     - `llama_cpp_server_port`: (Required) Port number of the running llama.cpp server (e.g., `5000`).
     - `llama_cpp_server_auto_start`: (Optional, boolean, default: `false`) Whether Argentic should try to start the `llama-server` process itself.
+    - `llama_cpp_server_parameters`: (Optional) Advanced parameters for HTTP requests. See [Advanced LLM Configuration](docs/advanced_llm_configuration.md) for details.
   - `provider: llama_cpp_cli`
     - `llama_cpp_cli_binary`: (Required) Path to the `llama.cpp` main CLI executable (e.g., `~/llama.cpp/build/bin/llama-gemma3-cli`).
     - `llama_cpp_cli_model_path`: (Required) Path to the GGUF model file.
     - `llama_cpp_cli_args`: (Optional, list) Additional arguments to pass to the CLI (e.g., `--temp 0.7`, `--n-predict 128`).
+    - `llama_cpp_cli_parameters`: (Optional) Advanced parameters automatically converted to CLI arguments. See [Advanced LLM Configuration](docs/advanced_llm_configuration.md) for details.
   - `provider: google_gemini`
     - `google_gemini_api_key`: (Required) Your Google Gemini API key. **It is strongly recommended to set this via the `GOOGLE_GEMINI_API_KEY` environment variable instead of directly in the file.** Argentic uses `python-dotenv` to load variables from a `.env` file.
     - `google_gemini_model_name`: (Required) The specific Gemini model to use (e.g., `gemini-2.0-flash`).
-- `messaging`: Configures the messaging protocol (e.g., `mqtt`) and connection details (broker address, port, credentials).
-- `topics`: Defines the MQTT topics used for commands, responses, logging, and tool communication.
+    - `google_gemini_parameters`: (Optional) Advanced parameters including safety settings and structured output. See [Advanced LLM Configuration](docs/advanced_llm_configuration.md) for details.
+
+### Advanced LLM Configuration
+
+For detailed information about fine-tuning LLM parameters for performance, quality, and behavior, see the [Advanced LLM Configuration Guide](docs/advanced_llm_configuration.md). This includes:
+
+- Provider-specific parameter reference
+- Performance vs quality trade-offs
+- GPU acceleration settings
+- Memory optimization techniques
+- Example configurations for different use cases
+- Troubleshooting guide
 
 ## Tools
 
@@ -222,5 +235,7 @@ Several scripts are available in the `bin/` directory to run different types of 
   ```
 
 Each script accepts additional pytest arguments. For example, to run tests with higher verbosity:
+
+```
 
 ```

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Optional, Dict
 import uuid
-from core.protocol.message import BaseMessage, MessageType
+from core.protocol.message import BaseMessage
 from pydantic import Field
 
 
@@ -16,7 +16,7 @@ class TaskStatus(str, Enum):
     TIMEOUT = "timeout"
 
 
-class TaskMessage(BaseMessage):
+class TaskMessage(BaseMessage[None]):
     type: str = Field(default="TASK")
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tool_id: str

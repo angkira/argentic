@@ -3,6 +3,39 @@ llm:
   # Ollama specific settings
   ollama_model_name: gemma3:12b-it-qat # Example: if provider is ollama
   ollama_use_chat_model: true # To distinguish between OllamaLLM and ChatOllama
+  ollama_base_url: http://localhost:11434
+
+  # Ollama Advanced Parameters
+  ollama_parameters:
+    # Core sampling parameters
+    temperature: 0.7
+    top_p: 0.9
+    top_k: 40
+    num_predict: 128
+    repeat_penalty: 1.1
+    repeat_last_n: 64
+
+    # Advanced sampling
+    tfs_z: 1.0
+    typical_p: 1.0
+    presence_penalty: 0.0
+    frequency_penalty: 0.0
+
+    # Context and performance
+    num_ctx: 2048
+    num_batch: 512
+    num_gpu: 0
+    main_gpu: 0
+    num_thread: -1 # -1 for auto
+
+    # Control parameters
+    seed: -1 # -1 for random
+    stop: [] # List of stop sequences
+
+    # Performance optimizations
+    numa: false
+    use_mmap: true
+    use_mlock: false
 
   # Llama.cpp Server specific settings
   llama_cpp_server_binary: ~/llama.cpp/build/bin/llama-server
@@ -17,6 +50,44 @@ llm:
   llama_cpp_server_port: 5000
   llama_cpp_server_auto_start: false
 
+  # Llama.cpp Server Advanced Parameters
+  llama_cpp_server_parameters:
+    # Core sampling parameters
+    temperature: 0.8
+    top_k: 40
+    top_p: 0.95
+    min_p: 0.05
+    n_predict: 128
+    repeat_penalty: 1.1
+    repeat_last_n: 64
+
+    # Advanced sampling
+    tfs_z: 1.0
+    typical_p: 1.0
+    presence_penalty: 0.0
+    frequency_penalty: 0.0
+
+    # Mirostat sampling
+    mirostat: 0 # 0=disabled, 1=Mirostat, 2=Mirostat 2.0
+    mirostat_tau: 5.0
+    mirostat_eta: 0.1
+
+    # Context management
+    n_ctx: 2048
+    n_keep: 0
+    n_batch: 512
+    cache_prompt: false
+
+    # Control parameters
+    seed: -1
+    stop: []
+    ignore_eos: false
+    penalize_nl: true
+
+    # Performance
+    n_threads: -1 # -1 for auto
+    n_gpu_layers: 0
+
   # Llama.cpp CLI specific settings
   llama_cpp_cli_binary: ~/llama.cpp/build/bin/llama-gemma3-cli
   llama_cpp_cli_model_path: ~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf # Added for clarity
@@ -26,10 +97,76 @@ llm:
     - --n-predict # llama.cpp uses --n-predict, not --n
     - 128
 
+  # Llama.cpp CLI Advanced Parameters (converted to CLI args automatically)
+  llama_cpp_cli_parameters:
+    # Core sampling
+    temperature: 0.8
+    top_k: 40
+    top_p: 0.95
+    repeat_penalty: 1.1
+
+    # Context and performance
+    ctx_size: 2048
+    batch_size: 512
+    threads: -1
+    n_gpu_layers: 0
+
+    # Control
+    seed: -1
+    n_predict: 128
+
+    # Performance optimizations
+    mlock: false
+    no_mmap: false
+
+  # Llama.cpp Langchain specific settings
+  llama_cpp_model_path: ~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf
+
+  # Llama.cpp Langchain Advanced Parameters
+  llama_cpp_langchain_parameters:
+    temperature: 0.7
+    max_tokens: 256
+    top_p: 0.95
+    top_k: 40
+    repeat_penalty: 1.1
+    n_ctx: 2048
+    n_batch: 8
+    n_threads: -1 # -1 for auto
+    n_gpu_layers: 0
+    f16_kv: true
+    use_mlock: false
+    use_mmap: true
+    verbose: false
+
   # Google Gemini specific settings
   provider: google_gemini
-  google_gemini_api_key: "YOUR_GEMINI_API_KEY" # Store securely, e.g., via environment variable
-  google_gemini_model_name: "gemini-2.0-flash" # Updated to match official example
+  google_gemini_api_key: YOUR_GEMINI_API_KEY # Store securely, e.g., via environment variable
+  google_gemini_model_name: gemini-2.0-flash # Updated to match official example
+
+  # Google Gemini Advanced Parameters
+  google_gemini_parameters:
+    # Core sampling
+    temperature: 0.7
+    top_p: 0.95
+    top_k: 40
+    max_output_tokens: 2048
+    # candidate_count: 1  # Uncomment only if you need multiple response candidates (1-8)
+
+    # Control
+    stop_sequences: []
+
+    # Safety settings (optional)
+    safety_settings: []
+    # Example safety settings:
+    # safety_settings:
+    #   - category: HARM_CATEGORY_HARASSMENT
+    #     threshold: BLOCK_MEDIUM_AND_ABOVE
+    #   - category: HARM_CATEGORY_HATE_SPEECH
+    #     threshold: BLOCK_MEDIUM_AND_ABOVE
+
+    # Structured output (optional)
+    response_mime_type: null # e.g., "application/json"
+    response_schema: null # JSON schema for structured output
 
 messaging:
   # Connection settings

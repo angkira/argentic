@@ -16,6 +16,7 @@ from src.core.logger import LogLevel
 class MockBaseMessage(BaseMessage):
     """Mock implementation of BaseMessage for testing"""
 
+    type: str = "MockBaseMessage"  # Required field
     message: str = "test_message"
 
 
@@ -192,7 +193,7 @@ class TestMessager:
 
         messager = Messager(**messager_config)
         test_topic = "test/topic"
-        test_message = MockBaseMessage()
+        test_message = MockBaseMessage(type="MockBaseMessage", message="test_message")
         test_qos = 1
         test_retain = True
 
@@ -231,7 +232,7 @@ class TestMessager:
         handler_adapter = self.driver.subscribe.call_args[0][1]
 
         # Create a mock message payload
-        message = MockBaseMessage(message="test message")
+        message = MockBaseMessage(type="MockBaseMessage", message="test message")
         payload = message.model_dump_json().encode("utf-8")
 
         # Call the handler_adapter with the mock payload
@@ -503,7 +504,7 @@ class TestMessager:
 
         messager = Messager(**messager_config)
         test_topic = "test/topic"
-        test_message = MockBaseMessage()
+        test_message = MockBaseMessage(type="MockBaseMessage", message="test_message")
 
         # Publishing should re-raise the exception since there's no special handling
         with pytest.raises(Exception) as excinfo:
