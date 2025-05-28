@@ -39,21 +39,26 @@ plugins:
             show_root_heading: true
             show_source: true
   - macros:
-      include_dir: '..'
+      include_dir: ..
 
 nav:
   - Home: index.md
+  - Configuration:
+      - Overview: configuration.md
+      - Advanced LLM Configuration: advanced-llm-configuration.md
+      - Messaging Configuration: messaging-configuration.md
+      - Environment Variables: environment-variables.md
   - API Reference:
-    - Messager: api/messager.md
-    - Message Structures: api/messages.md
-    - Messaging Drivers: api/drivers.md
+      - Messager: api/messager.md
+      - Message Structures: api/messages.md
+      - Messaging Drivers: api/drivers.md
   # Add other pages and sections here
   # Example:
   # - User Guide:
-  #   - 'Getting Started': 'user-guide/getting-started.md'
-  #   - 'Configuration': 'user-guide/configuration.md'
+  #   - Getting Started: user-guide/getting-started.md
+  #   - Configuration: user-guide/configuration.md
   # - API:
-  #   - 'Core API': 'api/core.md'
+  #   - Core API: api/core.md
 
 # If you want to include your root README.md as the main page,
 # you'll copy it to docs/index.md. We'll do this in the GitHub Action.
@@ -77,4 +82,4 @@ markdown_extensions:
   - md_in_html
 
 # site_dir: ../_site # Let CLI arg --site-dir handle this
-docs_dir: . 
+docs_dir: .

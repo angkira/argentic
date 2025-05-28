@@ -108,27 +108,27 @@ The `config.yaml` file controls the application's behavior:
   - `provider: ollama`
     - `ollama_model_name`: (Required) The name of the model served by Ollama (e.g., `gemma3:12b-it-qat`).
     - `ollama_use_chat_model`: (Optional, boolean, default: `true`) Whether to use Ollama's chat completion endpoint.
-    - `ollama_parameters`: (Optional) Advanced parameters for fine-tuning model behavior. See [Advanced LLM Configuration](src/core/llm/README.md) for details.
+    - `ollama_parameters`: (Optional) Advanced parameters for fine-tuning model behavior. See [Advanced LLM Configuration](advanced-llm-configuration.md) for details.
   - `provider: llama_cpp_server`
     - `llama_cpp_server_binary`: (Optional) Path to the `llama-server` executable (needed if `auto_start` is true).
     - `llama_cpp_server_args`: (Optional, list) Arguments to pass when auto-starting the server (e.g., model path, host, port).
     - `llama_cpp_server_host`: (Required) Hostname or IP address of the running llama.cpp server (e.g., `127.0.0.1`).
     - `llama_cpp_server_port`: (Required) Port number of the running llama.cpp server (e.g., `5000`).
     - `llama_cpp_server_auto_start`: (Optional, boolean, default: `false`) Whether Argentic should try to start the `llama-server` process itself.
-    - `llama_cpp_server_parameters`: (Optional) Advanced parameters for HTTP requests. See [Advanced LLM Configuration](src/core/llm/README.md) for details.
+    - `llama_cpp_server_parameters`: (Optional) Advanced parameters for HTTP requests. See [Advanced LLM Configuration](advanced-llm-configuration.md) for details.
   - `provider: llama_cpp_cli`
     - `llama_cpp_cli_binary`: (Required) Path to the `llama.cpp` main CLI executable (e.g., `~/llama.cpp/build/bin/llama-gemma3-cli`).
     - `llama_cpp_cli_model_path`: (Required) Path to the GGUF model file.
     - `llama_cpp_cli_args`: (Optional, list) Additional arguments to pass to the CLI (e.g., `--temp 0.7`, `--n-predict 128`).
-    - `llama_cpp_cli_parameters`: (Optional) Advanced parameters automatically converted to CLI arguments. See [Advanced LLM Configuration](src/core/llm/README.md) for details.
+    - `llama_cpp_cli_parameters`: (Optional) Advanced parameters automatically converted to CLI arguments. See [Advanced LLM Configuration](advanced-llm-configuration.md) for details.
   - `provider: google_gemini`
     - `google_gemini_api_key`: (Required) Your Google Gemini API key. **It is strongly recommended to set this via the `GOOGLE_GEMINI_API_KEY` environment variable instead of directly in the file.** Argentic uses `python-dotenv` to load variables from a `.env` file.
     - `google_gemini_model_name`: (Required) The specific Gemini model to use (e.g., `gemini-2.0-flash`).
-    - `google_gemini_parameters`: (Optional) Advanced parameters including safety settings and structured output. See [Advanced LLM Configuration](src/core/llm/README.md) for details.
+    - `google_gemini_parameters`: (Optional) Advanced parameters including safety settings and structured output. See [Advanced LLM Configuration](advanced-llm-configuration.md) for details.
 
 ### Advanced LLM Configuration
 
-For detailed information about fine-tuning LLM parameters for performance, quality, and behavior, see the [Advanced LLM Configuration Guide](src/core/llm/README.md). This includes:
+For detailed information about fine-tuning LLM parameters for performance, quality, and behavior, see the [Advanced LLM Configuration Guide](advanced-llm-configuration.md). This includes:
 
 - Provider-specific parameter reference
 - Performance vs quality trade-offs
