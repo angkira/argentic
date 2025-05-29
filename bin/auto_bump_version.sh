@@ -27,6 +27,9 @@ case $bump_exit_code in
     echo "  3. Push your commits again."
     echo "  4. Push the new tags (e.g., 'git push --tags' or 'git push --follow-tags')."
     echo ""
+    echo "💡 TIP: After pushing, you can create a GitHub release with:"
+    echo "   ./bin/create_github_release.sh"
+    echo ""
     echo "Aborting current push to allow you to commit version changes."
     exit 1 # Abort the current push
     ;;

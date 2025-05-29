@@ -39,6 +39,26 @@ This directory contains various utility scripts for the project.
 - Provides clear feedback for each step
 - Uses shared `activate_venv.sh` for environment setup
 
+## GitHub Release Scripts
+
+### `create_github_release.sh`
+
+**GitHub release creation**
+
+- Creates GitHub releases from the latest git tag
+- Extracts release notes from CHANGELOG.md
+- Handles existing releases (with confirmation)
+- Requires GitHub CLI authentication
+
+### `release_workflow.sh`
+
+**Complete release workflow**
+
+- End-to-end release automation
+- Performs version bump, commit, push, and GitHub release creation
+- Checks for uncommitted changes
+- Provides comprehensive feedback
+
 ## Usage
 
 ### Direct execution:
@@ -52,7 +72,34 @@ This directory contains various utility scripts for the project.
 
 # Safe push (runs all pre-push checks)
 ./bin/safe_push.sh
+
+# Create GitHub release for latest tag
+./bin/create_github_release.sh
+
+# Complete release workflow
+./bin/release_workflow.sh
 ```
+
+### Release Workflow:
+
+For a complete release (recommended):
+
+```bash
+# Make your commits with conventional commit messages
+git commit -m "feat: add new feature"
+git commit -m "fix: resolve bug"
+
+# Run complete release workflow
+./bin/release_workflow.sh
+```
+
+This will:
+
+1. Analyze commits and bump version
+2. Update CHANGELOG.md
+3. Commit changes
+4. Push to GitHub
+5. Create GitHub release
 
 ### As part of git hooks:
 
@@ -63,6 +110,8 @@ These scripts are automatically called by git pre-push hooks configured in `.pre
 - Virtual environment at `.venv/`
 - Python packages: pytest, commitizen
 - Git repository with conventional commits
+- GitHub CLI (gh) for release creation
+- Authenticated GitHub account
 
 # Testing Scripts for Argentic Messaging System
 
