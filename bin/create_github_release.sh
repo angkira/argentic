@@ -13,11 +13,11 @@ setup_project_env
 
 echo "🚀 Creating GitHub Release..."
 
-# Get the latest version tag
-LATEST_TAG=$(git tag --sort=-version:refname | head -n 1)
+# Get the latest version tag (only semantic version tags)
+LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
 
 if [ -z "$LATEST_TAG" ]; then
-    echo "❌ No version tags found. Please create a version tag first."
+    echo "❌ No semantic version tags found. Please create a version tag first (e.g., 1.0.0)."
     exit 1
 fi
 
