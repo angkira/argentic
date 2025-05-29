@@ -236,7 +236,7 @@ wheels = [
 
 [[package]]
 name = "argentic"
-version = "0.5.3"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiomqtt" },

@@ -1,0 +1,47 @@
+# Environment Tool Configuration File
+
+# Base configuration for environment storage
+environment_storage:
+  base_directory: ./environment_db
+  default_collection: spatial_environment
+
+# Collection configurations for different environment types
+collections:
+  spatial_environment:
+    # Collection-specific settings
+    max_entries: 10000
+    max_distance_query: 100.0
+
+  visual_perception:
+    # For objects detected via visual perception
+    max_entries: 5000
+    max_distance_query: 50.0
+
+  obstacles:
+    # For obstacle detection and avoidance
+    max_entries: 2000
+    max_distance_query: 20.0
+
+  landmarks:
+    # For navigation landmarks
+    max_entries: 1000
+    max_distance_query: 200.0
+
+# Default query settings
+default_query:
+  max_results: 10
+  default_radius: 5.0
+  distance_metric: euclidean
+
+# Coordinate system settings
+coordinate_system:
+  # Coordinate bounds for validation
+  min_x: -1000.0
+  max_x: 1000.0
+  min_y: -1000.0
+  max_y: 1000.0
+  min_z: -100.0
+  max_z: 100.0
+
+  # Precision for coordinate storage (decimal places)
+  coordinate_precision: 6
