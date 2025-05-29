@@ -204,13 +204,120 @@
 }
 
 /* Optional: Adjust specific Material components if needed */
-/* Example: Header */
-/* [data-md-color-scheme="slate"] .md-header {
-  background-color: var(--nord0); 
+/* Example: Header*/
+.md-header--shadow {
+  opacity: 0.8;
 }
-:root .md-header {
-  background-color: var(--nord6);
-} */
+
+body[data-md-color-scheme="default"] {
+  background-color: var(--nord4);
+}
+
+body[data-md-color-scheme="slate"] {
+  background-color: var(--nord3);
+}
+
+.md-nav__item {
+  padding: 10px 0;
+  font-size: 16px;
+}
+
+/* Custom List Styling with Vertical Line and Custom Disc Markers - Only for Secondary Nav */
+.md-nav--secondary .md-nav__list {
+  list-style: none;
+  padding-left: 20px;
+  position: relative;
+  margin: 0;
+}
+
+/* Vertical line through the whole list */
+.md-nav--secondary .md-nav__list::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--nord8);
+  z-index: 1;
+}
+
+/* Dark theme vertical line */
+[data-md-color-scheme="slate"] .md-nav--secondary .md-nav__list::before {
+  background-color: var(--nord8);
+}
+
+/* Custom disc markers for list items */
+.md-nav--secondary .md-nav__item {
+  position: relative;
+  z-index: 2;
+}
+
+.md-nav--lifted>.md-nav__list>.md-nav__item--active>.md-nav__link {
+  background: none !important;
+  box-shadow: none !important;
+  font-size: 20px;
+  font-weight: 600;
+  pointer-events: all;
+}
+
+.md-nav--secondary .md-nav__item::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 55%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--nord8);
+  border-radius: 50%;
+  background-color: var(--nord4);
+  z-index: 3;
+}
+
+.md-nav--integrated>.md-nav__list>.md-nav__item--active .md-nav--secondary>.md-nav__list {
+  padding-left: 21px;
+}
+
+[dir=ltr] .md-nav--integrated>.md-nav__list>.md-nav__item--active .md-nav--secondary {
+  border: none;
+}
+
+/* Dark theme disc markers */
+[data-md-color-scheme="slate"] .md-nav--secondary .md-nav__item::before {
+  border-color: var(--nord8);
+}
+
+/* Active item styling - filled disc */
+.md-nav--secondary .md-nav__item--active::before + .md-nav__link--active {
+  background-color: var(--nord8);
+}
+
+/* Nested lists */
+.md-nav--secondary .md-nav__list .md-nav__list {
+  padding-left: 22px;
+}
+
+.md-nav--secondary .md-nav__list .md-nav__list::before {
+  left: 8px;
+}
+
+.md-nav--secondary .md-nav__list .md-nav__list .md-nav__item::before {
+  left: -16px;
+  width: 6px;
+  height: 6px;
+  border-width: 1px;
+}
+
+/* Hover effects */
+.md-nav--secondary .md-nav__item:hover::before {
+  border-color: var(--nord7);
+  transition: border-color 0.2s ease;
+}
+
+[data-md-color-scheme="slate"] .md-nav--secondary .md-nav__item:hover::before {
+  border-color: var(--nord7);
+}
 
 /* Example: Tabs */
 /* [data-md-color-scheme="slate"] .md-tabs {
