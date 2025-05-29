@@ -19,35 +19,54 @@ stop_event = asyncio.Event()
 messager: Optional[Messager] = None
 agent: Optional[Agent] = None
 llm_provider: Optional[ModelProvider] = None  # Add global for llm_provider
+cleanup_started = False  # Add cleanup flag
 logger = get_logger("main")
 load_dotenv()
 
 
 async def shutdown_handler(sig):
     """Graceful shutdown handler."""
+    global cleanup_started
     logger.info(f"Received exit signal {sig.name}...")
     stop_event.set()
+
+    if cleanup_started:
+        logger.info("Cleanup already in progress, skipping signal handler cleanup")
+        return
+
+    cleanup_started = True
 
     if llm_provider:  # Stop LLM provider first
         logger.info("Stopping LLM provider...")
         try:
-            await llm_provider.stop()
+            await asyncio.wait_for(llm_provider.stop(), timeout=5.0)
             logger.info("LLM provider stopped.")
+        except asyncio.TimeoutError:
+            logger.warning("LLM provider stop timed out")
         except Exception as e:
             logger.error(f"Error stopping LLM provider: {e}")
 
     if messager and messager.is_connected():
         logger.info("Stopping messager...")
         try:
-            await messager.stop()
+            await asyncio.wait_for(messager.stop(), timeout=10.0)
             logger.info("Messager stopped.")
+        except asyncio.TimeoutError:
+            logger.warning("Messager stop timed out")
         except Exception as e:
             logger.error(f"Error stopping messager: {e}")
 
+    # Cancel remaining tasks
     remaining = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    for task in remaining:
-        task.cancel()
-    await asyncio.gather(*remaining, return_exceptions=True)
+    if remaining:
+        logger.info(f"Cancelling {len(remaining)} remaining tasks...")
+        for task in remaining:
+            task.cancel()
+        try:
+            await asyncio.wait_for(asyncio.gather(*remaining, return_exceptions=True), timeout=3.0)
+        except asyncio.TimeoutError:
+            logger.warning("Some tasks did not cancel within timeout")
+
     logger.info("Shutdown handler complete.")
 
 
@@ -186,20 +205,32 @@ async def main():
             except Exception as log_e:
                 logger.error(f"Failed to log critical error via Messager: {log_e}")
     finally:
+        global cleanup_started
         logger.info("Main function finished or errored. Cleaning up...")
+
+        if cleanup_started:
+            logger.info("Cleanup already completed by signal handler")
+            return
+
+        cleanup_started = True
+
         if llm_provider:  # Ensure LLM provider is stopped
             logger.info("Ensuring LLM provider is stopped in finally block...")
             try:
-                await llm_provider.stop()
+                await asyncio.wait_for(llm_provider.stop(), timeout=5.0)
                 logger.info("LLM provider stopped in finally block.")
+            except asyncio.TimeoutError:
+                logger.warning("LLM provider stop timed out in finally block")
             except Exception as e:
                 logger.error(f"Error stopping LLM provider in finally block: {e}")
 
         if messager and messager.is_connected():
             logger.info("Ensuring messager is stopped in finally block...")
             try:
-                await messager.stop()
+                await asyncio.wait_for(messager.stop(), timeout=10.0)
                 logger.info("Messager stopped in finally block.")
+            except asyncio.TimeoutError:
+                logger.warning("Messager stop timed out in finally block")
             except Exception as e:
                 logger.error(f"Error stopping messager in finally block: {e}")
         logger.info("AI Agent cleanup complete.")
