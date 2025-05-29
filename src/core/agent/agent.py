@@ -455,6 +455,13 @@ ANSWER:"""
 
             answer_text = await self.query(question, user_id=user_id)
 
+            # Create user-specific answer topic
+            if user_id:
+                user_answer_topic = f"{self.answer_topic}/{user_id}"
+            else:
+                # Fallback to global topic for clients without user_id
+                user_answer_topic = self.answer_topic
+
             # Create AnswerMessage with direct fields + data=None
             answer_msg = AnswerMessage(
                 question=question,
@@ -463,22 +470,29 @@ ANSWER:"""
                 source=MessageSource.AGENT,
                 data=None,
             )
-            await self.messager.publish(self.answer_topic, answer_msg)
+            await self.messager.publish(user_answer_topic, answer_msg)
             self.logger.info(
-                f"Published answer to {self.answer_topic} for user '{user_id or 'Unknown'}'"
+                f"Published answer to {user_answer_topic} for user '{user_id or 'Unknown'}'"
             )
 
         except Exception as e:
             self.logger.error(f"Error handling ask_question: {e}", exc_info=True)
             try:
+                # Also use user-specific topic for error messages
+                user_id = getattr(message, "user_id", None)
+                if user_id:
+                    error_topic = f"{self.answer_topic}/{user_id}"
+                else:
+                    error_topic = self.answer_topic
+
                 error_msg = AnswerMessage(
                     question=getattr(message, "question", "Unknown question"),
                     error=f"Agent error: {str(e)}",
-                    user_id=getattr(message, "user_id", None),
+                    user_id=user_id,
                     source=MessageSource.AGENT,
                     data=None,
                 )
-                await self.messager.publish(self.answer_topic, error_msg)
+                await self.messager.publish(error_topic, error_msg)
             except Exception as pub_e:
                 self.logger.error(f"Failed to publish error answer: {pub_e}")
 
@@ -492,6 +506,12 @@ ANSWER:"""
         For now, it's kept but likely unused by the main flow.
         """
         try:
+            # Use user-specific topic if user_id is provided
+            if user_id:
+                publish_topic = f"{self.answer_topic}/{user_id}"
+            else:
+                publish_topic = self.answer_topic
+
             answer = AnswerMessage(
                 question=question,
                 answer=response_content,
@@ -499,8 +519,8 @@ ANSWER:"""
                 source=MessageSource.AGENT,
                 data=None,
             )
-            await self.messager.publish(self.answer_topic, answer)
-            self.logger.info(f"Published answer (via _publish_answer) to {self.answer_topic}")
+            await self.messager.publish(publish_topic, answer)
+            self.logger.info(f"Published answer (via _publish_answer) to {publish_topic}")
         except Exception as e:
             self.logger.error(f"Error in _publish_answer: {e}", exc_info=True)
 
