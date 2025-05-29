@@ -1,6 +1,6 @@
 [project]
 name = "argentic"
-version = "0.5.0"
+version = "0.6.0"
 description = ""
 authors = [{ name = "Iurii", email = "angkira0@gmail.com" }]
 requires-python = ">=3.10"
@@ -97,7 +97,7 @@ max_line_length = 150
 name = "cz_conventional_commits"
 tag_format = "$version"
 version_scheme = "semver2"
-version_provider = "uv"
+version_provider = "pep621"
 update_changelog_on_bump = true
 major_version_zero = true
 
