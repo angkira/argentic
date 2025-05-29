@@ -1,3 +1,69 @@
+# Scripts Directory
+
+This directory contains various utility scripts for the project.
+
+## Core Scripts
+
+### `activate_venv.sh`
+
+**Shared virtual environment activation utility**
+
+- Reusable script that handles virtual environment activation
+- Can be sourced by other scripts or run directly
+- Provides functions: `activate_venv()` and `setup_project_env()`
+- Sets up project root, PYTHONPATH, and activates virtual environment
+
+### `run_unit_tests.sh`
+
+**Unit test runner**
+
+- Runs pytest with virtual environment activated
+- Excludes e2e tests by default
+- Uses shared `activate_venv.sh` for environment setup
+
+### `auto_bump_version.sh`
+
+**Automatic version bumping with Commitizen**
+
+- Analyzes conventional commits and bumps version accordingly
+- Creates changelog and git tags
+- Handles different exit codes appropriately
+- Uses shared `activate_venv.sh` for environment setup
+
+### `safe_push.sh`
+
+**Safe git push with pre-push checks**
+
+- Alternative to using Cursor's git GUI
+- Runs unit tests and version bumping before pushing
+- Provides clear feedback for each step
+- Uses shared `activate_venv.sh` for environment setup
+
+## Usage
+
+### Direct execution:
+
+```bash
+# Activate virtual environment
+./bin/activate_venv.sh
+
+# Run unit tests
+./bin/run_unit_tests.sh
+
+# Safe push (runs all pre-push checks)
+./bin/safe_push.sh
+```
+
+### As part of git hooks:
+
+These scripts are automatically called by git pre-push hooks configured in `.pre-commit-config.yaml`.
+
+## Dependencies
+
+- Virtual environment at `.venv/`
+- Python packages: pytest, commitizen
+- Git repository with conventional commits
+
 # Testing Scripts for Argentic Messaging System
 
 This directory contains scripts to help with testing the Argentic messaging system.

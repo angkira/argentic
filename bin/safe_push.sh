@@ -5,6 +5,12 @@
 
 set -e  # Exit on any error
 
+# Source the shared virtual environment activation script
+source "$(dirname "$0")/activate_venv.sh"
+
+# Setup project environment (activate venv, change directory, set PYTHONPATH)
+setup_project_env
+
 echo "🔍 Running pre-push checks..."
 
 # Run unit tests first

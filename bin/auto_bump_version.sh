@@ -1,5 +1,12 @@
 #!/bin/sh
 
+# Source the shared virtual environment activation script
+# Note: Using bash instead of sh for better compatibility with sourcing
+. "$(dirname "$0")/activate_venv.sh"
+
+# Setup project environment (activate venv, change directory, set PYTHONPATH)
+setup_project_env
+
 echo "Attempting to bump version with commitizen..."
 # Run cz bump non-interactively and capture its output and exit code.
 # We expect cz bump to create a tag automatically if a bump occurs.
@@ -16,7 +23,7 @@ case $bump_exit_code in
     echo "These changes are NOT included in the current push."
     echo "Please:"
     echo "  1. Stage the modified files (e.g., 'git add pyproject.toml CHANGELOG.md')."
-    echo "  2. Commit these changes (e.g., 'git commit -m "chore: bump version"')."
+    echo "  2. Commit these changes (e.g., 'git commit -m \"chore: bump version\"')."
     echo "  3. Push your commits again."
     echo "  4. Push the new tags (e.g., 'git push --tags' or 'git push --follow-tags')."
     echo ""
