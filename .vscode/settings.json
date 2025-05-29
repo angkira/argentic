@@ -1,0 +1,18 @@
+{
+  "git.confirmSync": false,
+  "git.autofetch": true,
+  "git.showPushSuccessNotification": true,
+  "git.allowForcePush": false,
+  "git.alwaysShowStagedChangesResourceGroup": true,
+  "git.showProgress": true,
+  "git.verboseCommit": true,
+  "terminal.integrated.defaultProfile.osx": "zsh",
+  "terminal.integrated.profiles.osx": {
+    "zsh": {
+      "path": "/opt/homebrew/bin/zsh",
+      "args": ["-l"]
+    }
+  },
+  "git.terminalAuthentication": true,
+  "git.useIntegratedAskPass": false
+}
