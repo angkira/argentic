@@ -83,6 +83,72 @@ Argentic provides a lightweight, configurable framework designed to simplify the
      ./start.sh cli
      ```
 
+## Running as Python Module
+
+Alternatively, you can run Argentic as a Python module using the modern `python -m` interface. This method provides the same functionality as the shell scripts but integrates better with Python packaging conventions.
+
+### Module Command Interface
+
+After installation (either via `./install.sh` or manual setup), you can use:
+
+```bash
+# Run the main agent
+python -m argentic agent --config-path config.yaml --log-level INFO
+
+# Run the RAG tool service
+python -m argentic rag --config-path config.yaml
+
+# Run the environment tool service
+python -m argentic environment --config-path config.yaml
+
+# Run the CLI client
+python -m argentic cli --config-path config.yaml
+
+# Get help
+python -m argentic --help
+python -m argentic agent --help
+```
+
+### Console Script (After Installation)
+
+When installed in a Python environment, you can also use the shorter console command:
+
+```bash
+# All the same commands work without 'python -m'
+argentic agent --config-path config.yaml --log-level INFO
+argentic rag --config-path config.yaml
+argentic environment --config-path config.yaml
+argentic cli --config-path config.yaml
+argentic --help
+```
+
+### Configuration Options
+
+Both interfaces support the same global options:
+
+- `--config-path`: Path to configuration file (default: `config.yaml` or `$CONFIG_PATH`)
+- `--log-level`: Logging level - DEBUG, INFO, WARNING, ERROR, CRITICAL (default: `INFO` or `$LOG_LEVEL`)
+
+### Available Subcommands
+
+- **`agent`**: Start the main AI agent service
+- **`rag`**: Start the RAG (Retrieval-Augmented Generation) tool service
+- **`environment`**: Start the environment tool service
+- **`cli`**: Start the interactive command-line client
+
+### Examples
+
+```bash
+# Start agent with custom config and debug logging
+python -m argentic agent --config-path prod-config.yaml --log-level DEBUG
+
+# Start RAG service with default settings
+python -m argentic rag
+
+# Interactive CLI session
+python -m argentic cli
+```
+
 ## Using as a Python Package
 
 After installation, you can import the Argentic components in your Python code using simplified imports:
