@@ -145,12 +145,22 @@ async def main():
     register_topic = tools_cfg.get("register", "agent/tools/register")
     answer_topic = topic_cfg.get("responses", {}).get("answer", "agent/response/answer")
 
+    # Extract system prompt from config (optional)
+    agent_cfg = config.get("agent", {})
+    system_prompt = agent_cfg.get("system_prompt")
+
+    if system_prompt:
+        logger.info("Using custom system prompt from config")
+    else:
+        logger.info("Using default system prompt")
+
     agent = Agent(
         llm=llm_provider,  # Pass the provider instance
         messager=messager,
         log_level=log_level_enum,  # Use the enum parsed from args
         register_topic=register_topic,
         answer_topic=answer_topic,  # Pass answer_topic directly
+        system_prompt=system_prompt,  # Pass system prompt from config
     )
     logger.info("Agent initialized.")
 

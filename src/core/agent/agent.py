@@ -67,11 +67,13 @@ class Agent:
         log_level: Union[str, LogLevel] = LogLevel.INFO,
         register_topic: str = "agent/tools/register",
         answer_topic: str = "agent/response/answer",
+        system_prompt: Optional[str] = None,
     ):
         self.llm = llm
         self.messager = messager
         self.answer_topic = answer_topic
         self.raw_template: Optional[str] = None
+        self.system_prompt = system_prompt  # Store the system prompt
 
         if isinstance(log_level, str):
             self.log_level = parse_log_level(log_level)
@@ -110,8 +112,79 @@ class Agent:
         self.logger.info("Agent: ToolManager initialized via async_init")
 
     def _build_prompt_template(self) -> PromptTemplate:
-        # System prompt that defines the response format and rules
-        system_prompt = """You are a highly capable AI assistant that MUST follow these strict response format rules:
+        # Use provided system prompt or default
+        system_prompt = (
+            self.system_prompt
+            if self.system_prompt is not None
+            else self._get_default_system_prompt()
+        )
+
+        # Main prompt that includes the system prompt and current context
+        template = f"""{system_prompt}
+
+Available Tools:
+{{tool_descriptions}}
+
+QUESTION: {{question}}
+
+ANSWER:"""
+        self.raw_template = template
+        return PromptTemplate.from_template(template)
+
+    def set_log_level(self, level: Union[str, LogLevel]) -> None:
+        """
+        Set the logger level
+
+        Args:
+            level: New log level (string or LogLevel enum)
+        """
+        if isinstance(level, str):
+            self.log_level = parse_log_level(level)
+        else:
+            self.log_level = level
+
+        self.logger.setLevel(self.log_level.value)
+        self.logger.info(f"Agent log level changed to {self.log_level.name}")
+
+        # Update handlers
+        for handler in self.logger.handlers:
+            handler.setLevel(self.log_level.value)
+
+        # Update tool manager log level
+        self._tool_manager.set_log_level(self.log_level)
+
+    def set_system_prompt(self, system_prompt: str) -> None:
+        """
+        Update the system prompt and rebuild the prompt template.
+
+        Args:
+            system_prompt: New system prompt to use
+        """
+        self.system_prompt = system_prompt
+        self.prompt_template = self._build_prompt_template()
+        self.logger.info("System prompt updated and prompt template rebuilt")
+
+    def get_system_prompt(self) -> str:
+        """
+        Get the current system prompt (either custom or default).
+
+        Returns:
+            The current system prompt being used
+        """
+        if self.system_prompt is not None:
+            return self.system_prompt
+        else:
+            # Return the default prompt by calling _build_prompt_template logic
+            return self._get_default_system_prompt()
+
+    def _get_default_system_prompt(self) -> str:
+        """
+        Returns the default system prompt.
+
+        Returns:
+            The default system prompt string
+        """
+        return """You are a highly capable AI assistant that MUST follow these strict response format rules:
 
 RESPONSE FORMATS:
 1. Tool Call Format (use when you need to use a tool):
@@ -178,40 +251,6 @@ HANDLING TOOL RESULTS:
 - Never make another tool call immediately after receiving tool results unless absolutely necessary and clearly justified.
 
 {format_instructions}"""
-
-        # Main prompt that includes the system prompt and current context
-        template = f"""{system_prompt}
-
-Available Tools:
-{{tool_descriptions}}
-
-QUESTION: {{question}}
-
-ANSWER:"""
-        self.raw_template = template
-        return PromptTemplate.from_template(template)
-
-    def set_log_level(self, level: Union[str, LogLevel]) -> None:
-        """
-        Set the logger level
-
-        Args:
-            level: New log level (string or LogLevel enum)
-        """
-        if isinstance(level, str):
-            self.log_level = parse_log_level(level)
-        else:
-            self.log_level = level
-
-        self.logger.setLevel(self.log_level.value)
-        self.logger.info(f"Agent log level changed to {self.log_level.name}")
-
-        # Update handlers
-        for handler in self.logger.handlers:
-            handler.setLevel(self.log_level.value)
-
-        # Update tool manager log level
-        self._tool_manager.set_log_level(self.log_level)
 
     async def _call_llm(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
