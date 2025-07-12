@@ -22,7 +22,7 @@ config = yaml.safe_load(open("config.yaml"))
 messaging_cfg = config["messaging"]
 topic_cfg = config.get("topics", {})
 
-rag_config_path = os.path.join("src", "tools", "RAG", "rag_config.yaml")
+rag_config_path = os.path.join("src", "argentic", "tools", "RAG", "rag_config.yaml")
 rag_config = yaml.safe_load(open(rag_config_path))
 embed_cfg = rag_config["embedding"]
 vec_cfg = rag_config["vector_store"]
