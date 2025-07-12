@@ -7,6 +7,7 @@ repos:
         language: script
         stages: [post-commit]
         pass_filenames: false
+        always_run: true
       - id: run-unit-tests
         name: Run unit tests
         entry: ./bin/run_unit_tests.sh
