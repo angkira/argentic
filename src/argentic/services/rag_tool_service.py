@@ -4,11 +4,12 @@ import signal
 import os
 import chromadb
 from typing import Optional
+import logging
 
 from argentic.core.messager.messager import Messager
 from argentic.tools.RAG.rag import RAGManager
 from argentic.tools.RAG.knowledge_base_tool import KnowledgeBaseTool
-from argentic.core.logger import get_logger, parse_log_level
+from argentic.core.logger import get_logger, parse_log_level, LogLevel  # Import LogLevel
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.embeddings.base import Embeddings
@@ -17,43 +18,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- Configuration Loading ---
-config = yaml.safe_load(open("config.yaml"))
-messaging_cfg = config["messaging"]
-topic_cfg = config.get("topics", {})
-
-rag_config_path = os.path.join("src", "argentic", "tools", "RAG", "rag_config.yaml")
-rag_config = yaml.safe_load(open(rag_config_path))
-embed_cfg = rag_config["embedding"]
-vec_cfg = rag_config["vector_store"]
-default_retriever_cfg = rag_config["default_retriever"]
-collections_cfg = rag_config.get("collections", {})
-
-log_level_str = config.get("logging", {}).get("level", "debug")
-log_level = parse_log_level(log_level_str)
-logger = get_logger("rag_tool_service", log_level)
-
-logger.info("Configuration loaded successfully.")
-logger.info(f"MQTT Broker: {messaging_cfg['broker_address']}, Port: {messaging_cfg['port']}")
-logger.info(f"Vector Store Directory: {vec_cfg['base_directory']}")
-logger.info(f"Default Collection: {vec_cfg['default_collection']}")
-logger.info(f"Embedding Model: {embed_cfg['model_name']}, Device: {embed_cfg['device']}")
-logger.info(f"Log level: {log_level.name}")
-logger.info("Initializing messager and RAG components...")
-
 # --- Global Variables ---
 messager: Optional[Messager] = None
 kb_tool: Optional[KnowledgeBaseTool] = None
 rag_manager: Optional[RAGManager] = None
 stop_event = asyncio.Event()
 
+# Initialize a basic logger globally; it will be reconfigured in main()
+logger = logging.getLogger("rag_tool_service")
+logger.setLevel(logging.INFO)  # Default level, will be updated in main()
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(handler)
+
 
 async def shutdown_handler():
     """Graceful shutdown handler."""
     logger.info("Shutdown initiated...")
 
-    await kb_tool.unregister()
-    logger.info("KnowledgeBaseTool unregistered.")
+    if kb_tool:
+        await kb_tool.unregister()
+        logger.info("KnowledgeBaseTool unregistered.")
     stop_event.set()
     if messager and messager.is_connected():
         logger.info("Stopping messager...")
@@ -76,7 +61,39 @@ async def shutdown_handler():
 
 async def main():
     """Main async function for the RAG Tool Service."""
-    global messager, kb_tool, rag_manager
+    global messager, kb_tool, rag_manager, logger
+
+    # --- Configuration Loading ---
+    # Open config.yaml using a context manager to ensure it's closed
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
+
+    messaging_cfg = config["messaging"]
+    topic_cfg = config.get("topics", {})
+
+    rag_config_path = os.path.join("src", "argentic", "tools", "RAG", "rag_config.yaml")
+    # Open rag_config.yaml using a context manager to ensure it's closed
+    with open(rag_config_path) as f:
+        rag_config = yaml.safe_load(f)
+
+    embed_cfg = rag_config["embedding"]
+    vec_cfg = rag_config["vector_store"]
+    default_retriever_cfg = rag_config["default_retriever"]
+    collections_cfg = rag_config.get("collections", {})
+
+    log_level_str = config.get("logging", {}).get("level", "debug")
+    log_level = parse_log_level(log_level_str)
+    # Re-initialize the global logger with the proper configuration
+    # Convert LogLevel enum to its integer value for setLevel
+    logger.setLevel(log_level.value)
+
+    logger.info("Configuration loaded successfully.")
+    logger.info(f"MQTT Broker: {messaging_cfg['broker_address']}, Port: {messaging_cfg['port']}")
+    logger.info(f"Vector Store Directory: {vec_cfg['base_directory']}")
+    logger.info(f"Default Collection: {vec_cfg['default_collection']}")
+    logger.info(f"Embedding Model: {embed_cfg['model_name']}, Device: {embed_cfg['device']}")
+    logger.info(f"Log level: {log_level.name}")
+    logger.info("Initializing messager and RAG components...")
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
