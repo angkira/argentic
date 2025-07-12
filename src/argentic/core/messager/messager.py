@@ -5,11 +5,11 @@ import ssl
 
 from pydantic import ValidationError
 
-from core.messager.drivers import create_driver, DriverConfig, MessageHandler
+from argentic.core.messager.drivers import create_driver, DriverConfig, MessageHandler
 
-from core.logger import get_logger, LogLevel, parse_log_level
-from core.messager.protocols import MessagerProtocol
-from core.protocol.message import BaseMessage
+from argentic.core.logger import get_logger, LogLevel, parse_log_level
+from argentic.core.messager.protocols import MessagerProtocol
+from argentic.core.protocol.message import BaseMessage
 
 
 class Messager:

@@ -3,8 +3,8 @@ from typing import Any, Callable, Coroutine, Optional
 import importlib
 
 from pydantic import BaseModel, Field
-from core.messager.protocols import MessagerProtocol
-from core.protocol.message import BaseMessage
+from argentic.core.messager.protocols import MessagerProtocol
+from argentic.core.protocol.message import BaseMessage
 
 
 # Configuration for any driver

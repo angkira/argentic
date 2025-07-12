@@ -6,9 +6,9 @@ import os
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
-from src.core.messager.messager import Messager
-from src.core.messager.protocols import MessagerProtocol
-from src.core.protocol.message import BaseMessage
+from argentic.core.messager.messager import Messager
+from argentic.core.messager.protocols import MessagerProtocol
+from argentic.core.protocol.message import BaseMessage
 
 
 # Use model_config instead of inheritance to avoid pytest collection
@@ -27,7 +27,7 @@ class TestMessage(BaseMessage):
 class TestMessagerIntegration:
     """Integration tests for using multiple Messager instances with different protocols"""
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_message_passing_between_protocols(self, mock_create_driver):
         """Test that messages can be passed between different protocol drivers"""
         # Create a mock for each driver type
@@ -93,7 +93,7 @@ class TestMessagerIntegration:
         assert received_message.message == "Hello between protocols"
         assert received_message.value == 100
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_multiple_subscribers_different_protocols(self, mock_create_driver):
         """Test multiple subscribers with different protocols"""
         # Create mocks for three different protocol drivers

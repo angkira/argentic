@@ -7,12 +7,12 @@ import argparse
 import os
 
 # Core components
-from core.messager.messager import Messager
-from core.agent.agent import Agent
-from core.logger import get_logger, parse_log_level
-from core.protocol.message import AskQuestionMessage
-from core.llm.llm_factory import LLMFactory  # Import LLMFactory
-from core.llm.providers.base import ModelProvider  # Import ModelProvider for type hinting
+from argentic.core.messager.messager import Messager
+from argentic.core.agent.agent import Agent
+from argentic.core.logger import get_logger, parse_log_level
+from argentic.core.protocol.message import AskQuestionMessage
+from argentic.core.llm.llm_factory import LLMFactory  # Import LLMFactory
+from argentic.core.llm.providers.base import ModelProvider  # Import ModelProvider for type hinting
 
 # --- Global Variables ---
 stop_event = asyncio.Event()

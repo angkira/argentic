@@ -1,14 +1,14 @@
 from typing import Any, Dict, Optional
 
 # Import provider classes
-from core.llm.providers.base import ModelProvider
-from core.llm.providers.ollama import OllamaProvider
-from core.llm.providers.llama_cpp_server import LlamaCppServerProvider
-from core.llm.providers.llama_cpp_cli import LlamaCppCLIProvider
-from core.llm.providers.llama_cpp_langchain import LlamaCppLangchainProvider
-from core.llm.providers.google_gemini import GoogleGeminiProvider
+from argentic.core.llm.providers.base import ModelProvider
+from argentic.core.llm.providers.ollama import OllamaProvider
+from argentic.core.llm.providers.llama_cpp_server import LlamaCppServerProvider
+from argentic.core.llm.providers.llama_cpp_cli import LlamaCppCLIProvider
+from argentic.core.llm.providers.llama_cpp_langchain import LlamaCppLangchainProvider
+from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
 
-from core.logger import get_logger
+from argentic.core.logger import get_logger
 
 # Define a mapping from provider names to classes
 PROVIDER_MAP: dict[str, type[ModelProvider]] = {

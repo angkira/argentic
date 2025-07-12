@@ -4,7 +4,7 @@ import subprocess
 from typing import Any, Dict, List, Optional
 
 from .base import ModelProvider
-from core.logger import get_logger
+from argentic.core.logger import get_logger
 
 
 class LlamaCppCLIProvider(ModelProvider):

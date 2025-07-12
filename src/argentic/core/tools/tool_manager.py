@@ -6,15 +6,15 @@ from datetime import datetime, timezone
 from logging import Logger
 from typing import Any, Dict, Optional, Union, List, Tuple
 
-from core.logger import LogLevel, get_logger, parse_log_level
-from core.messager.messager import Messager
-from core.protocol.task import (
+from argentic.core.logger import LogLevel, get_logger, parse_log_level
+from argentic.core.messager.messager import Messager
+from argentic.core.protocol.task import (
     TaskMessage,
     TaskResultMessage,
     TaskErrorMessage,
     TaskStatus,
 )
-from core.protocol.tool import (
+from argentic.core.protocol.tool import (
     RegisterToolMessage,
     ToolRegisteredMessage,
     UnregisterToolMessage,

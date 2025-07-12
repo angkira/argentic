@@ -2,9 +2,9 @@ import uuid
 import asyncio
 from typing import Optional
 
-from core.messager.messager import Messager
-from core.protocol.message import AskQuestionMessage, AnswerMessage, BaseMessage
-from core.logger import get_logger, LogLevel
+from argentic.core.messager.messager import Messager
+from argentic.core.protocol.message import AskQuestionMessage, AnswerMessage, BaseMessage
+from argentic.core.logger import get_logger, LogLevel
 
 
 class Client:

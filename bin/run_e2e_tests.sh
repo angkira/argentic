@@ -188,13 +188,9 @@ done
 # Ensure the script stops if any command fails
 set -e
 
-# Install dependencies
-# python -m pip install -e ".[dev,kafka,redis,rabbitmq]"
-uv sync --all-extras
-
-# Set Python path to include the src directory
-PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
+# Install the package in editable mode along with all test dependencies
+echo "🔧 Installing package in editable mode with all test extras..."
+uv pip install -e ".[dev,kafka,redis,rabbitmq]"
 
 # Start Docker containers if requested
 if [ "$START_DOCKER" = true ]; then

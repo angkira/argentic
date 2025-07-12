@@ -129,12 +129,12 @@ examples:
             asyncio.run(agent_main())
 
         elif args.command == "rag":
-            from services.rag_tool_service import main as rag_main
+            from argentic.services.rag_tool_service import main as rag_main
 
             asyncio.run(rag_main())
 
         elif args.command == "environment":
-            from services.environment_tool_service import main as env_main
+            from argentic.services.environment_tool_service import main as env_main
 
             asyncio.run(env_main())
 

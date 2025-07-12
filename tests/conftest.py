@@ -21,4 +21,4 @@ def pytest_runtest_call(item):
         yield
 
 
-# This allows imports like 'from src.core...' to work correctly
+# This allows imports like 'from argentic...' to work correctly

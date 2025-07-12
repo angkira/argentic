@@ -5,10 +5,10 @@ import os
 import chromadb
 from typing import Optional
 
-from core.messager.messager import Messager
-from tools.RAG.rag import RAGManager
-from tools.RAG.knowledge_base_tool import KnowledgeBaseTool
-from core.logger import get_logger, parse_log_level
+from argentic.core.messager.messager import Messager
+from argentic.tools.RAG.rag import RAGManager
+from argentic.tools.RAG.knowledge_base_tool import KnowledgeBaseTool
+from argentic.core.logger import get_logger, parse_log_level
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.embeddings.base import Embeddings

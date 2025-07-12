@@ -5,8 +5,8 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, ValidationError
 
-from core.protocol.task import TaskErrorMessage
-from core.protocol.tool import (
+from argentic.core.protocol.task import TaskErrorMessage
+from argentic.core.protocol.tool import (
     RegisterToolMessage,
     ToolRegisteredMessage,
     ToolRegistrationErrorMessage,
@@ -14,7 +14,7 @@ from core.protocol.tool import (
 )
 from ..messager.messager import Messager
 
-from core.protocol.task import TaskMessage, TaskResultMessage, TaskStatus
+from argentic.core.protocol.task import TaskMessage, TaskResultMessage, TaskStatus
 
 
 class BaseTool(ABC):

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Optional, Dict
 import uuid
-from core.protocol.message import BaseMessage
+from argentic.core.protocol.message import BaseMessage
 from pydantic import Field
 
 

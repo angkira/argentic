@@ -7,10 +7,10 @@ from pydantic import BaseModel, Field
 from langchain.docstore.document import Document
 
 # Assuming RAGManager and Messager are accessible or passed during initialization
-from tools.RAG.rag import RAGManager
-from core.messager.messager import Messager
-from core.tools.tool_base import BaseTool  # Import BaseTool
-from core.logger import get_logger, LogLevel, parse_log_level
+from argentic.tools.RAG.rag import RAGManager
+from argentic.core.messager.messager import Messager
+from argentic.core.tools.tool_base import BaseTool  # Import BaseTool
+from argentic.core.logger import get_logger, LogLevel, parse_log_level
 
 
 # --- Argument Schema --- Define actions

@@ -2,7 +2,7 @@
 
 # Re-export key service classes
 try:
-    from services.rag_tool_service import KnowledgeBaseTool
+    from argentic.services.rag_tool_service import KnowledgeBaseTool
 
     __all__ = ["KnowledgeBaseTool"]
 except ImportError:

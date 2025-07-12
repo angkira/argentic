@@ -8,7 +8,7 @@ except ImportError:
     LANGCHAIN_AVAILABLE = False
 
 from .base import ModelProvider
-from core.logger import get_logger
+from argentic.core.logger import get_logger
 
 
 class LlamaCppLangchainProvider(ModelProvider):

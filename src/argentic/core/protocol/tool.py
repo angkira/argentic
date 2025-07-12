@@ -1,4 +1,4 @@
-from core.protocol.message import BaseMessage
+from argentic.core.protocol.message import BaseMessage
 from typing import Literal, Optional, Dict, Any
 from pydantic import BaseModel, Field
 

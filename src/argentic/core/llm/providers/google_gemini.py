@@ -6,7 +6,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 
 from .base import ModelProvider
-from core.logger import get_logger
+from argentic.core.logger import get_logger
 
 
 class GoogleGeminiProvider(ModelProvider):

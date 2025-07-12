@@ -9,8 +9,8 @@ import ssl
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
 
-from src.core.messager.drivers import DriverConfig
-from src.core.messager.drivers.MQTTDriver import MQTTDriver
+from argentic.core.messager.drivers import DriverConfig
+from argentic.core.messager.drivers.MQTTDriver import MQTTDriver
 
 
 # Mock for aiomqtt message
@@ -60,7 +60,7 @@ class TestMQTTDriver:
         self.messages_iter = AsyncMock()
         self.mock_client.messages = self.messages_iter
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_init(self, mock_client_class, driver_config):
         """Test driver initialization"""
         mock_client_class.return_value = self.mock_client
@@ -81,7 +81,7 @@ class TestMQTTDriver:
         assert isinstance(driver._listeners, dict)
         assert len(driver._listeners) == 0
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_init_with_tls(self, mock_client_class, driver_config, tls_config):
         """Test driver initialization with TLS configuration"""
         mock_client_class.return_value = self.mock_client
@@ -97,7 +97,7 @@ class TestMQTTDriver:
             # Replace the client creation if tls_params provided
             if tls_params:
                 # Use imported MQTTDriver.aiomqtt to avoid import errors
-                mock_aiomqtt = sys.modules["src.core.messager.drivers.MQTTDriver"].aiomqtt
+                mock_aiomqtt = sys.modules["argentic.core.messager.drivers.MQTTDriver"].aiomqtt
                 self._client = mock_aiomqtt.Client(
                     hostname=config.url,
                     port=config.port,
@@ -113,8 +113,8 @@ class TestMQTTDriver:
             # Verify TLS configuration was stored correctly
             assert driver._tls_params == tls_config
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
-    @patch("src.core.messager.drivers.MQTTDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.asyncio.create_task")
     async def test_connect(self, mock_create_task, mock_client_class, driver_config):
         """Test connect method"""
         mock_client_class.return_value = self.mock_client
@@ -129,8 +129,8 @@ class TestMQTTDriver:
         mock_create_task.assert_called_once()
         assert mock_create_task.call_args[0][0].__name__ == "_listen"
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
-    @patch("src.core.messager.drivers.MQTTDriver.asyncio")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.asyncio")
     async def test_disconnect(self, mock_asyncio, mock_client_class, driver_config):
         """Test disconnect method - minimal version that just tests the client exit"""
         mock_client_class.return_value = self.mock_client
@@ -150,8 +150,8 @@ class TestMQTTDriver:
         # Verify client was disconnected
         self.mock_client.__aexit__.assert_awaited_once_with(None, None, None)
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
-    @patch("src.core.messager.drivers.MQTTDriver.json.dumps")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.json.dumps")
     async def test_publish_base_message(self, mock_json_dumps, mock_client_class, driver_config):
         """Test publishing a BaseMessage"""
         mock_client_class.return_value = self.mock_client
@@ -194,7 +194,7 @@ class TestMQTTDriver:
                 mock_dump.assert_called_once()
                 assert data == '{"id":"test-id","type":"test-type"}'.encode("utf-8")
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_publish_string(self, mock_client_class, driver_config):
         """Test publishing a string payload"""
         mock_client_class.return_value = self.mock_client
@@ -212,7 +212,7 @@ class TestMQTTDriver:
         # Verify payload was encoded correctly
         assert kwargs["payload"] == test_message.encode("utf-8")
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_publish_dict(self, mock_client_class, driver_config):
         """Test publishing a dictionary payload"""
         mock_client_class.return_value = self.mock_client
@@ -231,7 +231,7 @@ class TestMQTTDriver:
         expected_payload = json.dumps(test_message).encode("utf-8")
         assert kwargs["payload"] == expected_payload
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_publish_bytes(self, mock_client_class, driver_config):
         """Test publishing a bytes payload"""
         mock_client_class.return_value = self.mock_client
@@ -249,7 +249,7 @@ class TestMQTTDriver:
         # Verify bytes payload was used as-is
         assert kwargs["payload"] == test_message
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_subscribe(self, mock_client_class, driver_config):
         """Test subscribing to a topic"""
         mock_client_class.return_value = self.mock_client
@@ -280,9 +280,9 @@ class TestMQTTDriver:
         assert test_handler in driver._listeners[test_topic]
         assert test_handler2 in driver._listeners[test_topic]
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
-    @patch("src.core.messager.drivers.MQTTDriver.topic_matches_sub")
-    @patch("src.core.messager.drivers.MQTTDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.topic_matches_sub")
+    @patch("argentic.core.messager.drivers.MQTTDriver.asyncio.create_task")
     async def test_listen_task_creation(
         self, mock_create_task, mock_topic_matches, mock_client_class, driver_config
     ):
@@ -318,7 +318,7 @@ class TestMQTTDriver:
         # Verify create_task was called for both handlers (one for each pattern)
         assert mock_create_task.call_count == 2
 
-    @patch("src.core.messager.drivers.MQTTDriver.aiomqtt.Client")
+    @patch("argentic.core.messager.drivers.MQTTDriver.aiomqtt.Client")
     async def test_is_connected(self, mock_client_class, driver_config):
         """Test is_connected method"""
         mock_client_class.return_value = self.mock_client

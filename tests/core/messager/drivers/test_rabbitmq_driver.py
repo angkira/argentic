@@ -14,8 +14,8 @@ sys.modules["aio_pika"].Message = MagicMock()
 sys.modules["aio_pika"].ExchangeType = MagicMock()
 sys.modules["aio_pika"].connect_robust = AsyncMock()
 
-from src.core.messager.drivers import DriverConfig
-from src.core.messager.drivers.RabbitMQDriver import RabbitMQDriver
+from argentic.core.messager.drivers import DriverConfig
+from argentic.core.messager.drivers.RabbitMQDriver import RabbitMQDriver
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ class TestRabbitMQDriver:
         self.mock_queue.bind = AsyncMock()
         self.mock_queue.consume = AsyncMock()
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
     async def test_init(self, mock_connect, driver_config):
         """Test driver initialization"""
         driver = RabbitMQDriver(driver_config)
@@ -61,7 +61,7 @@ class TestRabbitMQDriver:
         assert isinstance(driver._queues, dict)
         assert len(driver._queues) == 0
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
     async def test_connect(self, mock_connect, driver_config):
         """Test connect method"""
         mock_connect.return_value = self.mock_connection
@@ -84,7 +84,7 @@ class TestRabbitMQDriver:
         assert driver._connection == self.mock_connection
         assert driver._channel == self.mock_channel
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
     async def test_disconnect(self, mock_connect, driver_config):
         """Test disconnect method"""
         mock_connect.return_value = self.mock_connection
@@ -97,10 +97,10 @@ class TestRabbitMQDriver:
         # Verify connection was closed
         self.mock_connection.close.assert_awaited_once()
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.Message")
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
-    @patch("src.core.messager.drivers.RabbitMQDriver.json.dumps")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.Message")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.json.dumps")
     async def test_publish(
         self, mock_json_dumps, mock_exchange_type, mock_message_class, mock_connect, driver_config
     ):
@@ -156,8 +156,8 @@ class TestRabbitMQDriver:
         mock_message_class.assert_called_once()
         self.mock_exchange.publish.assert_awaited_once_with(mock_message, routing_key="")
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
     async def test_subscribe(self, mock_exchange_type, mock_connect, driver_config):
         """Test subscribe method"""
         mock_connect.return_value = self.mock_connection
@@ -198,7 +198,7 @@ class TestRabbitMQDriver:
         assert test_topic in driver._queues
         assert driver._queues[test_topic] == self.mock_queue
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
     async def test_is_connected(self, mock_connect, driver_config):
         """Test is_connected method"""
         mock_connect.return_value = self.mock_connection
@@ -217,8 +217,8 @@ class TestRabbitMQDriver:
         self.mock_connection.is_closed = True
         assert driver.is_connected() is False
 
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
-    @patch("src.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
+    @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
     async def test_message_processing(self, mock_exchange_type, mock_connect, driver_config):
         """Test message processing through the internal _reader function"""
         mock_connect.return_value = self.mock_connection

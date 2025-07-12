@@ -1,5 +1,5 @@
-from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
-from core.protocol.message import BaseMessage
+from argentic.core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
+from argentic.core.protocol.message import BaseMessage
 
 from typing import Optional, List, Dict, Any
 

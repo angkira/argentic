@@ -5,9 +5,9 @@ from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
 from langchain.embeddings.base import Embeddings
 from pydantic import field_validator
-from core.protocol.message import BaseMessage
+from argentic.core.protocol.message import BaseMessage
 
-from core.messager.messager import Messager
+from argentic.core.messager.messager import Messager
 
 DEFAULT_COLLECTION_NAME = "default_rag_collection"
 

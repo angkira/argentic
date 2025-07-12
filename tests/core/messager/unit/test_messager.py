@@ -7,10 +7,10 @@ import os
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
-from src.core.messager.messager import Messager
-from src.core.messager.protocols import MessagerProtocol
-from src.core.protocol.message import BaseMessage
-from src.core.logger import LogLevel
+from argentic.core.messager.messager import Messager
+from argentic.core.messager.drivers import DriverConfig, BaseDriver
+from argentic.core.protocol.message import BaseMessage
+from argentic.core.logger import LogLevel
 
 
 class MockBaseMessage(BaseMessage):
@@ -26,7 +26,7 @@ def messager_config() -> Dict[str, Any]:
     return {
         "broker_address": "localhost",
         "port": 1883,
-        "protocol": MessagerProtocol.MQTT,
+        "protocol": "MQTT",  # Changed from MessagerProtocol to "MQTT" for consistency with new_code
         "client_id": "test-client",
         "username": "test_user",
         "password": "test_pass",
@@ -56,7 +56,7 @@ class TestMessager:
         self.driver.subscribe.return_value = None
         self.driver.unsubscribe.return_value = None
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_init(self, mock_create_driver, messager_config):
         """Test Messager initialization"""
         mock_create_driver.return_value = self.driver
@@ -72,8 +72,8 @@ class TestMessager:
         assert messager.password == messager_config["password"]
         assert messager.log_level == messager_config["log_level"]
 
-    @patch("src.core.messager.messager.create_driver")
-    @patch("src.core.messager.messager.ssl")
+    @patch("argentic.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.ssl")
     async def test_init_with_tls(self, mock_ssl, mock_create_driver, messager_config):
         """Test Messager initialization with TLS configuration"""
         mock_create_driver.return_value = self.driver
@@ -103,8 +103,8 @@ class TestMessager:
         assert messager._tls_params["tls_version"] == "PROTOCOL_TLS_VALUE"
         assert messager._tls_params["ciphers"] == "HIGH:!aNULL:!MD5"
 
-    @patch("src.core.messager.messager.create_driver")
-    @patch("src.core.messager.messager.ssl")
+    @patch("argentic.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.ssl")
     async def test_init_with_invalid_tls(self, mock_ssl, mock_create_driver, messager_config):
         """Test Messager initialization with invalid TLS configuration"""
         mock_create_driver.return_value = self.driver
@@ -121,7 +121,7 @@ class TestMessager:
             return default
 
         # Patch the getattr function that's used in the TLS params code
-        with patch("src.core.messager.messager.getattr", side_effect=getattr_side_effect):
+        with patch("argentic.core.messager.messager.getattr", side_effect=getattr_side_effect):
             # Add invalid TLS parameters to config
             invalid_tls_config = messager_config.copy()
             invalid_tls_config["tls_params"] = {
@@ -136,7 +136,7 @@ class TestMessager:
             # Verify error message contains useful information
             assert "Invalid TLS configuration" in str(excinfo.value)
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_is_connected(self, mock_create_driver, messager_config):
         """Test is_connected method"""
         mock_create_driver.return_value = self.driver
@@ -147,7 +147,7 @@ class TestMessager:
         assert messager.is_connected() is True
         self.driver.is_connected.assert_called_once()
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_connect_success(self, mock_create_driver, messager_config):
         """Test successful connection"""
         mock_create_driver.return_value = self.driver
@@ -159,7 +159,7 @@ class TestMessager:
         assert result is True
         self.driver.connect.assert_called_once()
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_connect_failure(self, mock_create_driver, messager_config):
         """Test failed connection"""
         mock_create_driver.return_value = self.driver
@@ -171,7 +171,7 @@ class TestMessager:
         assert result is False
         self.driver.connect.assert_called_once()
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_disconnect(self, mock_create_driver, messager_config):
         """Test disconnect method"""
         mock_create_driver.return_value = self.driver
@@ -186,7 +186,7 @@ class TestMessager:
 
         self.driver.disconnect.assert_called_once()
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_publish(self, mock_create_driver, messager_config):
         """Test publish method"""
         mock_create_driver.return_value = self.driver
@@ -203,8 +203,8 @@ class TestMessager:
             test_topic, test_message, qos=test_qos, retain=test_retain
         )
 
-    @patch("src.core.messager.messager.create_driver")
-    @patch("src.core.messager.messager.asyncio.create_task")
+    @patch("argentic.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.asyncio.create_task")
     async def test_subscribe(self, mock_create_task, mock_create_driver, messager_config):
         """Test subscribe method"""
         mock_create_driver.return_value = self.driver
@@ -241,8 +241,8 @@ class TestMessager:
         # Verify create_task was called with the handler and message
         mock_create_task.assert_called_once()
 
-    @patch("src.core.messager.messager.create_driver")
-    @patch("src.core.messager.messager.asyncio.create_task")
+    @patch("argentic.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.asyncio.create_task")
     @pytest.mark.parametrize(
         "payload,should_match_specific",
         [
@@ -298,8 +298,8 @@ class TestMessager:
         # Reset for next test
         specific_handler.reset_mock()
 
-    @patch("src.core.messager.messager.create_driver")
-    @patch("src.core.messager.messager.asyncio.create_task")
+    @patch("argentic.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.asyncio.create_task")
     async def test_subscribe_with_invalid_json(
         self, mock_create_task, mock_create_driver, messager_config
     ):
@@ -359,7 +359,7 @@ class TestMessager:
         # Now the handler should have been called
         handler.assert_awaited_once()
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_unsubscribe(self, mock_create_driver, messager_config):
         """Test unsubscribe method"""
         mock_create_driver.return_value = self.driver
@@ -376,7 +376,7 @@ class TestMessager:
 
         self.driver.unsubscribe.assert_called_once_with(test_topic)
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_log_with_topic(self, mock_create_driver, messager_config):
         """Test log method with pub_log_topic set"""
         mock_create_driver.return_value = self.driver
@@ -397,7 +397,7 @@ class TestMessager:
         assert payload["source"] == messager_config["client_id"]
         assert payload["message"] == test_message
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_log_without_topic(self, mock_create_driver, messager_config):
         """Test log method without pub_log_topic set"""
         mock_create_driver.return_value = self.driver
@@ -414,7 +414,7 @@ class TestMessager:
         # Verify publish was not called since no log topic is set
         self.driver.publish.assert_not_called()
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_stop(self, mock_create_driver, messager_config):
         """Test stop method"""
         mock_create_driver.return_value = self.driver
@@ -433,14 +433,14 @@ class TestMessager:
 
         # No need to verify driver.disconnect since we're testing at messager level
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     @pytest.mark.parametrize(
         "protocol,expected_driver",
         [
-            (MessagerProtocol.MQTT, "MQTTDriver"),
-            (MessagerProtocol.KAFKA, "KafkaDriver"),
-            (MessagerProtocol.REDIS, "RedisDriver"),
-            (MessagerProtocol.RABBITMQ, "RabbitMQDriver"),
+            ("MQTT", "MQTTDriver"),
+            ("KAFKA", "KafkaDriver"),
+            ("REDIS", "RedisDriver"),
+            ("RABBITMQ", "RabbitMQDriver"),
         ],
     )
     async def test_protocol_selection(
@@ -463,7 +463,7 @@ class TestMessager:
         assert mock_create_driver.call_args[0][0] == protocol
         assert messager._driver.__class__.__name__ == expected_driver
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_reconnect_handling(self, mock_create_driver, messager_config):
         """Test handling of reconnection after a disconnection"""
         mock_create_driver.return_value = self.driver
@@ -494,7 +494,7 @@ class TestMessager:
         assert result is False
         assert self.driver.connect.call_count == 1
 
-    @patch("src.core.messager.messager.create_driver")
+    @patch("argentic.core.messager.messager.create_driver")
     async def test_exception_handling_during_publish(self, mock_create_driver, messager_config):
         """Test handling of exceptions during message publishing"""
         mock_create_driver.return_value = self.driver

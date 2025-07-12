@@ -8,16 +8,16 @@ from typing import Optional, Any, Dict
 import yaml
 import uuid
 
-from core.client import Client
-from core.messager.messager import Messager
-from core.protocol.message import (
+from argentic.core.client import Client
+from argentic.core.messager.messager import Messager
+from argentic.core.protocol.message import (
     BaseMessage,
     AnswerMessage,
     AskQuestionMessage,
     AgentLLMResponseMessage,
 )
-from core.protocol.task import TaskResultMessage, TaskErrorMessage
-from core.logger import LogLevel, get_logger
+from argentic.core.protocol.task import TaskResultMessage, TaskErrorMessage
+from argentic.core.logger import LogLevel, get_logger
 
 CONFIG_PATH = "config.yaml"
 config: Dict[str, Any] = {}

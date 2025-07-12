@@ -5,7 +5,7 @@ from langchain_ollama.chat_models import ChatOllama
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 
 from .base import ModelProvider
-from core.logger import get_logger
+from argentic.core.logger import get_logger
 
 
 class OllamaProvider(ModelProvider):

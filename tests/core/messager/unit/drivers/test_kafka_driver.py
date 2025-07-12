@@ -1,5 +1,6 @@
-from src.core.messager.drivers import DriverConfig
-from src.core.messager.drivers.KafkaDriver import KafkaDriver
+from argentic.core.messager.drivers import DriverConfig
+from argentic.core.protocol.message import BaseMessage
+from argentic.core.messager.drivers.KafkaDriver import KafkaDriver
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -71,7 +72,7 @@ class TestKafkaDriver:
         self.mock_consumer.__aiter__.return_value = self.mock_consumer
         self.mock_consumer.__anext__ = AsyncMock()
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
     async def test_init(self, mock_producer_class, driver_config):
         """Test driver initialization"""
         # No need to mock consumer here as it's only created during subscribe
@@ -85,7 +86,7 @@ class TestKafkaDriver:
         assert len(driver._listeners) == 0
         assert driver._reader_task is None
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
     async def test_connect(self, mock_producer_class, driver_config):
         """Test connect method"""
         mock_producer_class.return_value = self.mock_producer
@@ -103,7 +104,7 @@ class TestKafkaDriver:
         self.mock_producer.start.assert_awaited_once()
         assert driver._producer == self.mock_producer
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
     async def test_disconnect_with_producer_only(self, mock_producer_class, driver_config):
         """Test disconnect method with only producer initialized"""
         mock_producer_class.return_value = self.mock_producer
@@ -117,8 +118,8 @@ class TestKafkaDriver:
         # Verify producer was stopped
         self.mock_producer.stop.assert_awaited_once()
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
     async def test_disconnect_with_producer_and_consumer(
         self, mock_consumer_class, mock_producer_class, driver_config
     ):
@@ -136,7 +137,7 @@ class TestKafkaDriver:
         self.mock_producer.stop.assert_awaited_once()
         self.mock_consumer.stop.assert_awaited_once()
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
     async def test_publish_base_message(self, mock_producer_class, driver_config):
         """Test publishing a BaseMessage"""
         mock_producer_class.return_value = self.mock_producer
@@ -162,9 +163,9 @@ class TestKafkaDriver:
         assert call_args[0] == test_topic
         assert call_args[1] == test_message.model_dump_json().encode()
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
-    @patch("src.core.messager.drivers.KafkaDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.asyncio.create_task")
     async def test_subscribe_first_topic(
         self, mock_create_task, mock_consumer_class, mock_producer_class, driver_config
     ):
@@ -205,8 +206,8 @@ class TestKafkaDriver:
         assert test_topic in driver._listeners
         assert test_handler in driver._listeners[test_topic]
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
     async def test_subscribe_additional_topic(
         self, mock_consumer_class, mock_producer_class, driver_config
     ):
@@ -239,7 +240,7 @@ class TestKafkaDriver:
         assert second_topic in driver._listeners
         assert second_handler in driver._listeners[second_topic]
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
     async def test_is_connected(self, mock_producer_class, driver_config):
         """Test is_connected method"""
         mock_producer_class.return_value = self.mock_producer
@@ -258,9 +259,9 @@ class TestKafkaDriver:
         self.mock_producer._closed = True
         assert driver.is_connected() is False
 
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
-    @patch("src.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
-    @patch("src.core.messager.drivers.KafkaDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaProducer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
+    @patch("argentic.core.messager.drivers.KafkaDriver.asyncio.create_task")
     async def test_reader(
         self, mock_create_task, mock_consumer_class, mock_producer_class, driver_config
     ):

@@ -46,8 +46,8 @@ class RedisMock:
 sys.modules["aioredis"] = RedisMock
 
 # Import after mocking to avoid the real aioredis being imported
-from src.core.messager.drivers import DriverConfig  # noqa: E402
-from src.core.messager.drivers.RedisDriver import RedisDriver  # noqa: E402
+from argentic.core.messager.drivers import DriverConfig  # noqa: E402
+from argentic.core.messager.drivers.RedisDriver import RedisDriver  # noqa: E402
 
 
 @pytest.fixture
@@ -108,7 +108,7 @@ class TestRedisDriver:
         # Make redis.pubsub() return our mock_pubsub directly, not as a coroutine
         self.mock_redis.pubsub = MagicMock(return_value=self.mock_pubsub)
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_init(self, mock_from_url, driver_config):
         """Test driver initialization"""
         driver = RedisDriver(driver_config)
@@ -154,7 +154,7 @@ class TestRedisDriver:
             ),
         ],
     )
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_connect_with_different_configs(self, mock_from_url, config, expected_url):
         """Test connect method with different configurations"""
         mock_from_url.return_value = self.mock_redis
@@ -170,7 +170,7 @@ class TestRedisDriver:
 
         assert driver._redis == self.mock_redis
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_disconnect(self, mock_from_url, driver_config):
         """Test disconnect method"""
         mock_from_url.return_value = self.mock_redis
@@ -183,7 +183,7 @@ class TestRedisDriver:
         # Verify Redis connection was closed
         self.mock_redis.close.assert_awaited_once()
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_disconnect_handles_no_connection(self, mock_from_url, driver_config):
         """Test disconnect method with no active connection"""
         driver = RedisDriver(driver_config)
@@ -209,7 +209,7 @@ class TestRedisDriver:
             {"id": "empty-id", "type": "empty"},
         ],
     )
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_publish_with_different_message_types(
         self, mock_from_url, driver_config, message_data
     ):
@@ -243,8 +243,8 @@ class TestRedisDriver:
         actual_json = test_message.model_dump_json()
         assert actual_json == expected_json
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
-    @patch("src.core.messager.drivers.RedisDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.asyncio.create_task")
     async def test_subscribe_first_topic(
         self, mock_create_task, mock_from_url, driver_config, mock_redis
     ):
@@ -278,8 +278,8 @@ class TestRedisDriver:
         assert test_topic in driver._listeners
         assert test_handler in driver._listeners[test_topic]
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
-    @patch("src.core.messager.drivers.RedisDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.asyncio.create_task")
     async def test_subscribe_multiple_handlers_same_topic(
         self, mock_create_task, mock_from_url, driver_config, mock_redis
     ):
@@ -322,8 +322,8 @@ class TestRedisDriver:
         assert handler2 in driver._listeners[test_topic]
         assert handler3 in driver._listeners[test_topic]
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
-    @patch("src.core.messager.drivers.RedisDriver.asyncio.create_task")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.asyncio.create_task")
     async def test_subscribe_additional_topic(self, mock_create_task, mock_from_url, driver_config):
         """Test subscribing to additional topic - reuses pubsub and reader task"""
         # Set up the mock from_url to return our mock_redis
@@ -365,7 +365,7 @@ class TestRedisDriver:
         assert first_topic in driver._listeners
         assert first_handler in driver._listeners[first_topic]
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_is_connected(self, mock_from_url, driver_config):
         """Test is_connected method"""
         mock_from_url.return_value = self.mock_redis
@@ -384,7 +384,7 @@ class TestRedisDriver:
         self.mock_redis.closed = True
         assert driver.is_connected() is False
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_reader_processes_messages(self, mock_from_url, driver_config):
         """Test _reader method that processes incoming messages"""
         # Set up the mock from_url to return our mock_redis
@@ -438,7 +438,7 @@ class TestRedisDriver:
         for i, call in enumerate(handler1.await_args_list):
             assert call.args[0] == expected_calls[i]
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_reader_ignores_non_message_types(self, mock_from_url, driver_config):
         """Test _reader method ignores non-message type events"""
         # Set up the mock from_url to return our mock_redis
@@ -469,7 +469,7 @@ class TestRedisDriver:
         # Verify handler was NOT called for any non-message event
         handler.assert_not_awaited()
 
-    @patch("src.core.messager.drivers.RedisDriver.aioredis.from_url")
+    @patch("argentic.core.messager.drivers.RedisDriver.aioredis.from_url")
     async def test_exception_handling_during_message_processing(self, mock_from_url, driver_config):
         """Test that exceptions in message handlers don't break the processing loop"""
         mock_from_url.return_value = self.mock_redis

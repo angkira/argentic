@@ -7,8 +7,8 @@ from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel
 
-from core.messager.messager import Messager
-from core.protocol.message import (
+from argentic.core.messager.messager import Messager
+from argentic.core.protocol.message import (
     BaseMessage,
     AgentSystemMessage,
     AgentLLMRequestMessage,
@@ -17,15 +17,15 @@ from core.protocol.message import (
     AnswerMessage,
     MinimalToolCallRequest,
 )
-from core.protocol.enums import MessageSource, LLMRole
-from core.protocol.tool import ToolCallRequest
-from core.protocol.task import (
+from argentic.core.protocol.enums import MessageSource, LLMRole
+from argentic.core.protocol.tool import ToolCallRequest
+from argentic.core.protocol.task import (
     TaskResultMessage,
     TaskErrorMessage,
 )
-from core.tools.tool_manager import ToolManager
-from core.logger import get_logger, LogLevel, parse_log_level
-from core.llm.providers.base import ModelProvider
+from argentic.core.tools.tool_manager import ToolManager
+from argentic.core.logger import get_logger, LogLevel, parse_log_level
+from argentic.core.llm.providers.base import ModelProvider
 
 
 # Pydantic Models for LLM JSON Response Parsing

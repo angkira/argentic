@@ -3,8 +3,8 @@ import time
 import chromadb
 from pydantic import BaseModel, Field
 
-from core.protocol.message import BaseMessage
-from core.messager.messager import Messager
+from argentic.core.protocol.message import BaseMessage
+from argentic.core.messager.messager import Messager
 
 DEFAULT_ENVIRONMENT_COLLECTION = "default_environment"
 

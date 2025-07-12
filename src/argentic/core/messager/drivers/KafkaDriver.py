@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
-from core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
-from core.protocol.message import BaseMessage
+from argentic.core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
+from argentic.core.protocol.message import BaseMessage
 import asyncio  # Ensure asyncio is imported for Event
 
 # Attempt to import aiokafka. If it fails, an ImportError will be raised,

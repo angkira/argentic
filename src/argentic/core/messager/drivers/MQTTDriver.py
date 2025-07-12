@@ -1,5 +1,5 @@
-from core.messager.drivers import BaseDriver, DriverConfig
-from core.protocol.message import BaseMessage
+from argentic.core.messager.drivers import BaseDriver, DriverConfig
+from argentic.core.protocol.message import BaseMessage
 
 
 from paho.mqtt.client import topic_matches_sub

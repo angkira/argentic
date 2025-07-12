@@ -2,9 +2,9 @@ from functools import wraps
 from typing import Callable, Any, Optional, Coroutine
 import inspect
 
-from core.messager.messager import Messager
-from core.agent.agent import Agent
-from core.protocol.message import BaseMessage
+from argentic.core.messager.messager import Messager
+from argentic.core.agent.agent import Agent
+from argentic.core.protocol.message import BaseMessage
 
 
 def mqtt_handler_decorator(

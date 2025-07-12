@@ -1,13 +1,10 @@
 #!/bin/bash
 
 # --- Common Setup ---
-echo "Ensuring test dependencies are installed..."
-uv sync --all-extras
-echo "Dependencies checked/installed."
+echo "🔧 Installing package in editable mode with all test extras..."
+uv pip install -e ".[dev,kafka,redis,rabbitmq]"
+echo "✅ Package and dependencies installed."
 
-PROJECT_ROOT=$(pwd)
-export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
-echo "PYTHONPATH configured: $PYTHONPATH"
 # --- End Common Setup ---
 
 # ANSI Color Codes
