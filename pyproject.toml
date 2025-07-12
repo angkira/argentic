@@ -105,3 +105,8 @@ project_excludes = [
     "**/*__pycache__/**/*",
     "**/tests/**/*",
 ]
+
+[dependency-groups]
+dev = [
+    "build>=1.2.2.post1",
+]

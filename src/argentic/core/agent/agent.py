@@ -120,16 +120,25 @@ class Agent:
         )
 
         # Main prompt that includes the system prompt and current context
-        template = f"""{system_prompt}
+        template = """{system_prompt_content}
 
 Available Tools:
-{{tool_descriptions}}
+{tool_descriptions}
 
-QUESTION: {{question}}
+QUESTION: {question}
 
-ANSWER:"""
+ANSWER:{format_instructions}"""
         self.raw_template = template
-        return PromptTemplate.from_template(template)
+
+        return PromptTemplate.from_template(
+            template,
+            partial_variables={
+                "system_prompt_content": system_prompt,
+                "format_instructions": self.response_parser.get_format_instructions()
+                .replace("{", "{{")
+                .replace("}", "}}"),
+            },
+        )
 
     def set_log_level(self, level: Union[str, LogLevel]) -> None:
         """
@@ -249,8 +258,7 @@ HANDLING TOOL RESULTS:
     - If the results are empty or not relevant to the original question, briefly state that the tool didn't provide useful information, then answer the original question using your general knowledge, still using the "tool_result" format but explaining the situation in the 'result' field.
 - If you're unsure after getting tool results, use the "tool_result" format and explain your reasoning in the 'result' field.
 - Never make another tool call immediately after receiving tool results unless absolutely necessary and clearly justified.
-
-{format_instructions}"""
+"""
 
     async def _call_llm(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
@@ -370,12 +378,15 @@ HANDLING TOOL RESULTS:
             )
 
             tools_description_str = self._tool_manager.get_tools_description()
+            # Escape curly braces in the JSON string for literal interpretation by PromptTemplate's formatter
+            escaped_tool_descriptions_str = tools_description_str.replace("{", "{{").replace(
+                "}", "}}"
+            )
 
             # Format the user prompt for THIS specific turn, including tools and current question
             current_turn_formatted_prompt = self.prompt_template.format(
-                tool_descriptions=tools_description_str,
+                tool_descriptions=escaped_tool_descriptions_str,
                 question=current_question_for_llm_turn,
-                format_instructions=self.response_parser.get_format_instructions(),
             )
 
             # Create AgentLLMRequestMessage for this turn's interaction (not added to history before conversion)

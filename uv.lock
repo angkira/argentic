@@ -236,7 +236,7 @@ wheels = [
 
 [[package]]
 name = "argentic"
-version = "0.7.0"
+version = "0.8.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiomqtt" },
@@ -284,6 +284,11 @@ redis = [
     { name = "aioredis" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aio-pika", marker = "extra == 'rabbitmq'", specifier = ">=9.5.5" },
@@ -319,6 +324,9 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=4.1.0,<5" },
 ]
 provides-extras = ["dev", "docs", "kafka", "redis", "rabbitmq"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "build", specifier = ">=1.2.2.post1" }]
 
 [[package]]
 name = "asgiref"
