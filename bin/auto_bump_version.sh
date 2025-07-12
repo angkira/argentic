@@ -52,9 +52,10 @@ case $bump_exit_code in
     echo "Aborting current push to allow you to commit version changes."
     exit 1 # Abort the current push
     ;;
-  16|19)
+  16|19|21)
     # Exit code 16: NO_COMMITS_FOUND (No commits found since last release)
     # Exit code 19: NO_BUMP (No commits meet the criteria to bump the version)
+    # Exit code 21: NO_COMMITS_TO_BUMP (The commits found are not eligible to be bumped)
     echo "No bump-worthy keywords found. Forcing a PATCH bump by default..."
     
     # Re-run the bump, but force a patch increment without generating a changelog
