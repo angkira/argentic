@@ -145,7 +145,7 @@ class ToolManager:
             message=f"Tool '{tool_name}' registered successfully by agent.",
             source=self.messager.client_id,
         )
-        await self.messager.publish(self.status_topic, confirmation_msg.model_dump_json())
+        await self.messager.publish(self.status_topic, confirmation_msg)
         self.logger.info(
             f"Sent registration confirmation for '{tool_name}' to {reg_msg.source} via {self.status_topic}"
         )
@@ -207,7 +207,7 @@ class ToolManager:
         task_topic = f"{self.tool_call_topic_base}/{tool_id}"
 
         try:
-            await self.messager.publish(task_topic, task_msg.model_dump_json())
+            await self.messager.publish(task_topic, task_msg)
             self.logger.info(
                 f"Sent task message to {task_topic} (tool: {actual_tool_name}, task_id: {task_id}, timeout: {effective_timeout}s)"
             )

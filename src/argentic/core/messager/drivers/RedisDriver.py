@@ -1,4 +1,4 @@
-from argentic.core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
+from argentic.core.messager.drivers.base_definitions import BaseDriver, DriverConfig, MessageHandler
 from argentic.core.protocol.message import BaseMessage
 
 import asyncio

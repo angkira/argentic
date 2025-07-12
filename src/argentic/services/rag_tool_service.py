@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- Global Variables ---
+# --- Global Variables (initialized to None or basic defaults to avoid module-level file I/O) ---
 messager: Optional[Messager] = None
 kb_tool: Optional[KnowledgeBaseTool] = None
 rag_manager: Optional[RAGManager] = None
@@ -63,7 +63,7 @@ async def main():
     """Main async function for the RAG Tool Service."""
     global messager, kb_tool, rag_manager, logger
 
-    # --- Configuration Loading ---
+    # --- Configuration Loading (moved inside main()) ---
     # Open config.yaml using a context manager to ensure it's closed
     with open("config.yaml") as f:
         config = yaml.safe_load(f)

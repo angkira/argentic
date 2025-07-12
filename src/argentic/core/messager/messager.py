@@ -1,11 +1,12 @@
 import time
 import asyncio
-from typing import Dict, Optional, Union, Any
+from typing import Dict, Optional, Union, Any, Type
 import ssl
 
 from pydantic import ValidationError
 
-from argentic.core.messager.drivers import create_driver, DriverConfig, MessageHandler
+from argentic.core.messager.drivers import create_driver
+from argentic.core.messager.drivers.base_definitions import DriverConfig, MessageHandler
 
 from argentic.core.logger import get_logger, LogLevel, parse_log_level
 from argentic.core.messager.protocols import MessagerProtocol
@@ -74,7 +75,7 @@ class Messager:
         # Use client_id in logger name for clarity if multiple clients run
         self.logger = get_logger(f"messager.{self.client_id}", level=self.log_level)
 
-        self._tls_params = None
+        self._tls_params: Optional[Dict[str, Any]] = None
         if tls_params:
             try:
                 self._tls_params = {
@@ -154,7 +155,11 @@ class Messager:
         await self._driver.publish(topic, payload, qos=qos, retain=retain)
 
     async def subscribe(
-        self, topic: str, handler: MessageHandler, message_cls: BaseMessage = BaseMessage, **kwargs
+        self,
+        topic: str,
+        handler: MessageHandler,
+        message_cls: Type[BaseMessage] = BaseMessage,
+        **kwargs,
     ) -> None:
         """Subscribe to a topic with the specified message handler.
 
@@ -169,24 +174,43 @@ class Messager:
             f"message_cls: {message_cls.__name__}"
         )
 
-        # Make handler_adapter async and handle task creation properly
-        async def handler_adapter(payload: bytes) -> None:
-            try:
-                # parse raw payload into BaseMessage
-                base_msg = BaseMessage.model_validate_json(payload.decode("utf-8"))
-            except Exception as e:
-                self.logger.error(f"Failed to parse BaseMessage: {e}", exc_info=True)
-                return
-
+        # Create a handler that validates message type and parses accordingly
+        async def handler_adapter(payload: BaseMessage) -> None:
             if message_cls is not BaseMessage:
-                # Check if the message is of the expected type
+                # Check if the message type matches what we expect
+                expected_type = getattr(message_cls, "type", None)
+                if hasattr(message_cls, "__annotations__"):
+                    # Get the type field default value for Literal types
+                    type_annotation = message_cls.__annotations__.get("type")
+                    if (
+                        type_annotation
+                        and hasattr(type_annotation, "__args__")
+                        and type_annotation.__args__
+                    ):
+                        expected_type = type_annotation.__args__[0]
+
+                # If we have an expected type and it doesn't match, ignore this message
+                if expected_type and payload.type != expected_type:
+                    self.logger.debug(
+                        f"Message type '{payload.type}' doesn't match expected '{expected_type}' for {message_cls.__name__}"
+                    )
+                    return
+
+                # Try to parse the message as the specific type
                 try:
-                    specific = message_cls.model_validate_json(payload.decode("utf-8"))
-                    # Create and forget task - don't return it
-                    asyncio.create_task(handler(specific))
+                    # Use the original JSON if available, otherwise fall back to model_dump
+                    original_json = getattr(payload, "_original_json", None)
+                    if original_json:
+                        specific = message_cls.model_validate_json(original_json)
+                    else:
+                        # Fallback to converting from BaseMessage
+                        raw_data = payload.model_dump()
+                        specific = message_cls.model_validate(raw_data)
+
+                    await handler(specific)
                     return
                 except ValidationError as e:
-                    # extract error fields and ignore if only 'type' field is invalid
+                    # Only log errors if it's not just a type mismatch
                     errors = e.errors()
                     fields = {err.get("loc", (None,))[0] for err in errors}
                     if fields != {"type"}:
@@ -200,9 +224,8 @@ class Messager:
                     )
                     return
 
-            # Create and forget task for generic subscription
-            asyncio.create_task(handler(base_msg))
-            # Don't return the task
+            # Call handler for generic BaseMessage subscription
+            await handler(payload)
 
         await self._driver.subscribe(topic, handler_adapter, **kwargs)
 
@@ -227,12 +250,15 @@ class Messager:
             return
 
         try:
-            log_payload = {
-                "timestamp": time.time(),
-                "level": level,
-                "source": self.client_id,
-                "message": message,
-            }
+            log_payload = BaseMessage(
+                type="log",
+                source=self.client_id,
+                data={
+                    "timestamp": time.time(),
+                    "level": level,
+                    "message": message,
+                },
+            )
 
             # publish uses driver internally
             await self.publish(self.pub_log_topic, log_payload)

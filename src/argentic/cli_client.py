@@ -10,6 +10,7 @@ import uuid
 
 from argentic.core.client import Client
 from argentic.core.messager.messager import Messager
+from argentic.core.messager.protocols import MessagerProtocol
 from argentic.core.protocol.message import (
     BaseMessage,
     AnswerMessage,
@@ -39,7 +40,7 @@ except yaml.YAMLError as e:
 
 
 # --- MESSAGING Configuration with robust access ---
-def get_config_value(cfg_dict, path, default=None, required=True):
+def get_config_value(cfg_dict: dict, path: str, default: Any = None, required: bool = True) -> Any:
     keys = path.split(".")
     val = cfg_dict
     for key in keys:
@@ -54,19 +55,19 @@ def get_config_value(cfg_dict, path, default=None, required=True):
 
 
 messaging_config = get_config_value(config, "messaging", {}, required=True)
-MESSAGING_BROKER = get_config_value(messaging_config, "broker_address", required=True)
-MESSAGING_PORT = get_config_value(messaging_config, "port", 1883, required=False)
-MESSAGING_KEEPALIVE = get_config_value(messaging_config, "keepalive", 60, required=False)
-MESSAGING_CLIENT_ID = messaging_config.get("cli_client_id", f"cli_client_{uuid.uuid4()}")
+MESSAGING_BROKER: str = get_config_value(messaging_config, "broker_address", required=True)
+MESSAGING_PORT: int = get_config_value(messaging_config, "port", 1883, required=False)
+MESSAGING_KEEPALIVE: int = get_config_value(messaging_config, "keepalive", 60, required=False)
+MESSAGING_CLIENT_ID: str = f"{messaging_config.get('cli_client_id', 'cli_client')}_{uuid.uuid4()}"
 
-MESSAGING_TOPIC_ASK = get_config_value(config, "topics.commands.ask_question", required=True)
-MESSAGING_TOPIC_ANSWER = get_config_value(config, "topics.responses.answer", required=True)
-MESSAGING_PUB_LOG = get_config_value(config, "topics.log", required=False)
+MESSAGING_TOPIC_ASK: str = get_config_value(config, "topics.commands.ask_question", required=True)
+MESSAGING_TOPIC_ANSWER: str = get_config_value(config, "topics.responses.answer", required=True)
+MESSAGING_PUB_LOG: Optional[str] = get_config_value(config, "topics.log", required=False)
 
-MESSAGING_TOPIC_AGENT_LLM_RESPONSE = get_config_value(
+MESSAGING_TOPIC_AGENT_LLM_RESPONSE: Optional[str] = get_config_value(
     config, "topics.agent_events.llm_response", required=False
 )
-MESSAGING_TOPIC_AGENT_TOOL_RESULT = get_config_value(
+MESSAGING_TOPIC_AGENT_TOOL_RESULT: Optional[str] = get_config_value(
     config, "topics.agent_events.tool_result", required=False
 )
 
@@ -75,7 +76,17 @@ logger = get_logger("CliClient", LogLevel.INFO)
 
 class CliClient(Client):
     def __init__(self):
-        self.client_id = MESSAGING_CLIENT_ID
+        # Initialize a dummy Messager for the parent class init, it will be replaced in initialize()
+        # This is a workaround for the base Client expecting a Messager instance directly in __init__
+        # while CliClient needs async initialization for the real Messager.
+        dummy_messager = Messager(
+            broker_address="localhost",  # Placeholder
+            port=1883,  # Placeholder
+            client_id=f"dummy_client_{uuid.uuid4()}",  # Unique dummy client ID
+            log_level=LogLevel.CRITICAL,  # Suppress logs from dummy
+        )
+        super().__init__(messager=dummy_messager, client_id=MESSAGING_CLIENT_ID)
+
         self.ask_topic = MESSAGING_TOPIC_ASK
         self._shutdown_flag = asyncio.Event()
         self._input_task: Optional[asyncio.Task] = None
@@ -90,8 +101,13 @@ class CliClient(Client):
 
     async def initialize(self):
         """Initialize the client in async context"""
-        self.messager = Messager(
-            protocol=get_config_value(messaging_config, "protocol", "mqtt", required=False),
+        # Retrieve protocol as string and convert to enum
+        protocol_str: str = get_config_value(messaging_config, "protocol", "mqtt", required=False)
+        protocol_enum = MessagerProtocol(protocol_str)  # Convert to enum
+
+        # Create the real Messager instance
+        real_messager = Messager(
+            protocol=protocol_enum,  # Use the already converted enum
             broker_address=MESSAGING_BROKER,
             port=MESSAGING_PORT,
             client_id=self.client_id,
@@ -99,8 +115,8 @@ class CliClient(Client):
             pub_log_topic=MESSAGING_PUB_LOG,
             log_level=LogLevel.INFO,
         )
-        # Initialize parent class with the real messager
-        super().__init__(messager=self.messager, client_id=self.client_id)
+        self.messager = real_messager  # Assign the real messager
+
         self.answer_received_event = asyncio.Event()
 
         # Create user-specific answer topic
@@ -138,12 +154,16 @@ class CliClient(Client):
 
     def _setup_terminal(self):
         """Setup terminal for non-blocking input"""
+        self.logger.debug(
+            f"Attempting to set up terminal. sys.stdin.isatty(): {sys.stdin.isatty()}"
+        )
         try:
             if sys.stdin.isatty():
                 self._original_tty_settings = termios.tcgetattr(sys.stdin.fileno())
                 tty.setraw(sys.stdin.fileno())
                 # Ensure output works correctly in raw mode
                 sys.stdout.flush()
+                self.logger.debug("Terminal raw mode enabled.")
         except (OSError, termios.error) as e:
             self.logger.debug(f"Could not setup terminal raw mode: {e}")
             self._original_tty_settings = None
@@ -261,6 +281,7 @@ class CliClient(Client):
         try:
             # Check if we're in a TTY environment or using piped input
             is_tty = sys.stdin.isatty()
+            self.logger.debug(f"_read_user_input started. is_tty: {is_tty}")
 
             if is_tty:
                 self._setup_terminal()
@@ -411,26 +432,35 @@ class CliClient(Client):
         """Main interactive loop with improved shutdown handling"""
         success = False
         try:
+            self.logger.debug("Starting run_interactive")
             await self.initialize()
+            self.logger.debug("Initialization complete")
+
             if not self.messager:
                 self.logger.error("CLI Error: Messager failed to initialize.")
                 return False
 
+            self.logger.debug("About to connect to messager")
             if not await self.messager.connect():
                 self.logger.error("CLI Error: Failed to connect. Check logs for details.")
                 return False
+            self.logger.debug("Connected to messager successfully")
 
             # Subscribe to user-specific answer topic
             if not self.user_answer_topic:
                 self.logger.error("CLI Error: User answer topic not initialized.")
                 return False
 
+            self.logger.debug(f"About to subscribe to user answer topic: {self.user_answer_topic}")
             await self.messager.subscribe(
                 self.user_answer_topic, self.handle_answer, message_cls=AnswerMessage
             )
             self.logger.info(f"Subscribed to user-specific answer topic: {self.user_answer_topic}")
 
             if MESSAGING_TOPIC_AGENT_LLM_RESPONSE:
+                self.logger.debug(
+                    f"About to subscribe to LLM response topic: {MESSAGING_TOPIC_AGENT_LLM_RESPONSE}"
+                )
                 # For LLM responses, we might want user-specific topics too, but keeping global for now
                 await self.messager.subscribe(
                     MESSAGING_TOPIC_AGENT_LLM_RESPONSE,
@@ -442,6 +472,9 @@ class CliClient(Client):
                 )
 
             if MESSAGING_TOPIC_AGENT_TOOL_RESULT:
+                self.logger.debug(
+                    f"About to subscribe to tool result topic: {MESSAGING_TOPIC_AGENT_TOOL_RESULT}"
+                )
                 # For tool results, we might want user-specific topics too, but keeping global for now
                 await self.messager.subscribe(
                     MESSAGING_TOPIC_AGENT_TOOL_RESULT,
@@ -452,13 +485,19 @@ class CliClient(Client):
                     f"Subscribed to agent tool result topic: {MESSAGING_TOPIC_AGENT_TOOL_RESULT}"
                 )
 
+            self.logger.debug("All subscriptions complete, about to show interactive prompt")
             print("--- Agent CLI Client ---")
             print("Type your question and press Enter.")
             print("Type 'quit', 'exit', or press Ctrl+C to leave.")
             print("> ", end="", flush=True)
+            self.logger.debug("Interactive prompt shown")
 
             # Start the input reading task
+            self.logger.debug("About to start _read_user_input task")
             self._input_task = asyncio.create_task(self._read_user_input())
+            self.logger.debug(
+                "Started _read_user_input task, now waiting for shutdown or completion"
+            )
 
             # Wait for shutdown signal or input task completion
             try:
@@ -466,6 +505,7 @@ class CliClient(Client):
                     [asyncio.create_task(self._shutdown_flag.wait()), self._input_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
+                self.logger.debug("Finished waiting for shutdown or input task completion")
             except asyncio.CancelledError:
                 self.logger.info("Interactive loop was cancelled")
                 raise
@@ -486,7 +526,11 @@ class CliClient(Client):
 
         return success
 
-    def start(self) -> bool:
+    async def start(self) -> bool:
+        """Asynchronous entry point for the CLI - overrides parent Client.start"""
+        return await self.run_interactive()
+
+    def _start_sync(self) -> bool:
         """Synchronous entry point for the CLI - expected by main module"""
         # Setup signal handlers
         self._setup_signal_handlers()
@@ -496,16 +540,16 @@ class CliClient(Client):
         success = False
 
         try:
-            success = loop.run_until_complete(self.run_interactive())
+            success = loop.run_until_complete(self.start())  # Call the async start method
             # Ensure we return a boolean
             success = success if success is not None else False
         except KeyboardInterrupt:
-            self.logger.info("CLI: KeyboardInterrupt caught in start.")
+            self.logger.info("CLI: KeyboardInterrupt caught in _start_sync.")
             if not self._shutdown_flag.is_set():
                 self._shutdown_flag.set()
             success = False
         except Exception as e:
-            self.logger.error(f"CLI Error: An unexpected error in start: {e}", exc_info=True)
+            self.logger.error(f"CLI Error: An unexpected error in _start_sync: {e}", exc_info=True)
             success = False
         finally:
             self.logger.info("CLI: Cleaning up event loop...")
@@ -547,5 +591,5 @@ class CliClient(Client):
 
 if __name__ == "__main__":
     cli_client = CliClient()
-    exit_code = 0 if cli_client.start() else 1
+    exit_code = 0 if cli_client._start_sync() else 1  # Call the synchronous start method
     sys.exit(exit_code)

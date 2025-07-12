@@ -124,7 +124,7 @@ examples:
     try:
         # Route to appropriate module
         if args.command == "agent":
-            from main import main as agent_main
+            from argentic.main import main as agent_main
 
             asyncio.run(agent_main())
 
@@ -139,10 +139,10 @@ examples:
             asyncio.run(env_main())
 
         elif args.command == "cli":
-            from cli_client import CliClient
+            from argentic.cli_client import CliClient
 
             cli_client = CliClient()
-            exit_code = 0 if cli_client.start() else 1
+            exit_code = 0 if cli_client._start_sync() else 1
             sys.exit(exit_code)
 
         else:
