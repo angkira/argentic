@@ -50,6 +50,7 @@ dev = [
     "commitizen>=4.8.3,<5",
     "pre-commit>=4.2.0,<5",
     "pyrefly>=0.15.2",
+    "build>=1.2.2.post1",
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -104,9 +105,4 @@ project_excludes = [
     "**/*venv/**/*",
     "**/*__pycache__/**/*",
     "**/tests/**/*",
-]
-
-[dependency-groups]
-dev = [
-    "build>=1.2.2.post1",
 ]
