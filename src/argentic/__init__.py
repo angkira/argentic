@@ -1,7 +1,5 @@
 """Argentic - AI Agent Framework"""
 
-__version__ = "0.3.0"
-
 # Re-export key classes for simplified imports
 from .core import (
     Agent,
@@ -10,6 +8,8 @@ from .core import (
     AskQuestionMessage,
     ModelProvider,
 )
+from . import core
+from . import services
 
 __all__ = [
     "Agent",
@@ -17,4 +17,6 @@ __all__ = [
     "LLMFactory",
     "AskQuestionMessage",
     "ModelProvider",
+    "core",
+    "services",
 ]
