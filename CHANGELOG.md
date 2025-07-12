@@ -1,3 +1,13 @@
+## 0.8.0 (2025-07-12)
+
+### Feat
+
+- Test imports upgraded to the new structure
+
+### Fix
+
+- Version
+
 ## 0.7.0 (2025-07-12)
 
 ### Feat

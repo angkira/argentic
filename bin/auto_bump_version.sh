@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Source the shared virtual environment activation script
 # Note: Using bash instead of sh for better compatibility with sourcing
-. "$(dirname "$0")/activate_venv.sh"
+source "$(dirname "$0")/activate_venv.sh"
 
 # Setup project environment (activate venv, change directory, set PYTHONPATH)
 setup_project_env

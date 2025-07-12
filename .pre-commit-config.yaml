@@ -10,7 +10,7 @@ repos:
       - id: auto-bump-version
         name: Auto bump version with Commitizen
         entry: ./bin/auto_bump_version.sh
-        language: script
+        language: system
         stages: [pre-push]
         pass_filenames: false # This script doesn't need filenames
         verbose: true # Show output from the script
