@@ -57,6 +57,17 @@ Argentic provides a lightweight, configurable framework designed to simplify the
    pip install -e .
    ```
 
+   **Option 3: Installing from GitHub**
+   You can install Argentic directly from its GitHub repository. Replace `your_username` and `your_repository` with the actual GitHub details.
+
+   ```bash
+   # Using uv
+   uv pip install git+https://github.com/your_username/your_repository.git#egg=argentic
+
+   # Using pip
+   pip install git+https://github.com/your_username/your_repository.git#egg=argentic
+   ```
+
 3. **Configure:**
    - Copy or rename `config.yaml.example` to `config.yaml` (if an example exists) or edit `config.yaml` directly.
    - Set up your desired LLM provider (`llm` section).
