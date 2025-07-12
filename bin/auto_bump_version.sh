@@ -7,15 +7,24 @@ source "$(dirname "$0")/activate_venv.sh"
 # Setup project environment (activate venv, change directory, set PYTHONPATH)
 setup_project_env
 
-# Check if the last commit is a version bump commit.
-# If so, it means the bump has already happened (e.g., in a previous pre-push run),
-# and we should allow the current push to proceed without trying to bump again.
-LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
-if [[ "$LAST_COMMIT_MSG" == bump:* ]]; then
-  echo "Last commit is a version bump. Allowing push to proceed."
+# This script is run by pre-commit in a pre-push hook.
+# The pre-commit framework provides the range of commits being pushed
+# in the PRE_COMMIT_FROM_REF and PRE_COMMIT_TO_REF environment variables.
+
+# Get all commit messages in the range of commits being pushed.
+# We use '|| true' to avoid an error if PRE_COMMIT_FROM_REF is a new branch root (000000...).
+COMMIT_MSGS=$(git log --pretty=%B "$PRE_COMMIT_FROM_REF..$PRE_COMMIT_TO_REF" || true)
+
+# Check if there are any non-bump commits in the push range.
+# We use grep -v to filter out the bump commits and then check if anything remains.
+NON_BUMP_COMMITS=$(echo "$COMMIT_MSGS" | grep -v -E '^bump:' | grep -v -E '^\s*$' || true)
+
+# If NON_BUMP_COMMITS is empty, it means all commits being pushed are version bumps.
+# In this case, we should allow the push to proceed without trying to bump again.
+if [ -z "$NON_BUMP_COMMITS" ]; then
+  echo "No new non-bump commits to process. Allowing push to proceed."
   exit 0
 fi
-
 
 echo "Attempting to bump version with commitizen..."
 # Run cz bump non-interactively and capture its output and exit code.
