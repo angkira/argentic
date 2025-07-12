@@ -14,6 +14,12 @@ if [[ "$COMMIT_MSG" =~ ^bump: ]]; then
     exit 0
 fi
 
+# Skip if this commit already contains changes to version file to avoid infinite loop
+if git diff-tree --no-commit-id --name-only -r HEAD | grep -q '^pyproject.toml$'; then
+    echo "pyproject.toml already changed in this commit – skipping bump to avoid loop."
+    exit 0
+fi
+
 # Determine increment type from commit message
 INCREMENT="PATCH" # default
 if echo "$COMMIT_MSG" | grep -qE "BREAKING CHANGE|!:"; then
