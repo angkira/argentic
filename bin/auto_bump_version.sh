@@ -36,10 +36,32 @@ case $bump_exit_code in
   16|19)
     # Exit code 16: NO_COMMITS_FOUND (No commits found since last release)
     # Exit code 19: NO_BUMP (No commits meet the criteria to bump the version)
-    echo "No relevant commits found for a version bump, or no bump needed based on commits."
-    echo "$output"
-    echo "Proceeding with push."
-    exit 0 # Allow push
+    echo "No bump-worthy keywords found. Forcing a PATCH bump by default..."
+    
+    # Re-run the bump, but force a patch increment
+    output_patch=$(cz bump --increment PATCH --changelog --yes 2>&1)
+    patch_bump_exit_code=$?
+
+    if [ $patch_bump_exit_code -ne 0 ]; then
+        echo "Default PATCH bump failed with exit code $patch_bump_exit_code:"
+        echo "$output_patch"
+        exit 1 # Abort push on failure
+    fi
+
+    # If patch bump was successful, show message and abort push
+    echo "Default PATCH bump successful."
+    echo "$output_patch"
+    echo ""
+    echo "IMPORTANT: Files (like pyproject.toml, CHANGELOG.md) have been modified and a new tag created."
+    echo "These changes are NOT included in the current push."
+    echo "Please:"
+    echo "  1. Stage the modified files (e.g., 'git add pyproject.toml CHANGELOG.md')."
+    echo "  2. Commit these changes (e.g., 'git commit -m \"chore: bump version\"')."
+    echo "  3. Push your commits again."
+    echo "  4. Push the new tags (e.g., 'git push --tags' or 'git push --follow-tags')."
+    echo ""
+    echo "Aborting current push to allow you to commit version changes."
+    exit 1 # Abort the current push
     ;;
   17)
     # Exit code 17: NO_VERSION_SPECIFIED (The project has no version specified)
