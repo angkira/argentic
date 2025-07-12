@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field
 from argentic.core.messager.protocols import MessagerProtocol
 from argentic.core.protocol.message import BaseMessage
 
+from . import MQTTDriver
+from . import RedisDriver
+from . import KafkaDriver
+from . import RabbitMQDriver
+
 
 # Configuration for any driver
 class DriverConfig(BaseModel):
@@ -83,3 +88,15 @@ def create_driver(protocol: MessagerProtocol, config: DriverConfig) -> BaseDrive
     driver_cls = getattr(module, class_name)
 
     return driver_cls(config)
+
+
+__all__ = [
+    "DriverConfig",
+    "BaseDriver",
+    "MessageHandler",
+    "create_driver",
+    "MQTTDriver",
+    "RedisDriver",
+    "KafkaDriver",
+    "RabbitMQDriver",
+]
