@@ -38,8 +38,8 @@ case $bump_exit_code in
     # Exit code 19: NO_BUMP (No commits meet the criteria to bump the version)
     echo "No bump-worthy keywords found. Forcing a PATCH bump by default..."
     
-    # Re-run the bump, but force a patch increment
-    output_patch=$(cz bump --increment PATCH --changelog --yes 2>&1)
+    # Re-run the bump, but force a patch increment without generating a changelog
+    output_patch=$(cz bump --increment PATCH --yes 2>&1)
     patch_bump_exit_code=$?
 
     if [ $patch_bump_exit_code -ne 0 ]; then
