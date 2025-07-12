@@ -1,16 +1,15 @@
 repos:
   - repo: local
     hooks:
+      - id: bump-version
+        name: Bump version based on commit message
+        entry: ./bin/version_bump_commit_msg.sh
+        language: script
+        stages: [commit-msg]
+        pass_filenames: true
       - id: run-unit-tests
         name: Run unit tests
         entry: ./bin/run_unit_tests.sh
-        language: script # or system, if it's a system command
+        language: script
         stages: [pre-push]
-        pass_filenames: false # We don't need to pass any filenames to this script
-      - id: auto-bump-version
-        name: Auto bump version with Commitizen
-        entry: ./bin/auto_bump_version.sh
-        language: system
-        stages: [pre-push]
-        pass_filenames: false # This script doesn't need filenames
-        verbose: true # Show output from the script
+        pass_filenames: false
