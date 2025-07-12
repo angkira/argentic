@@ -1,3 +1,14 @@
+## 0.7.0 (2025-07-12)
+
+### Feat
+
+- Custom system prompt
+
+### Fix
+
+- GitHub release script now filters semantic version tags only
+- Github release workflow
+
 ## 0.6.0 (2025-05-29)
 
 ### Feat
