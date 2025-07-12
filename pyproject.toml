@@ -22,17 +22,17 @@ classifiers = [
 ]
 dependencies = [
     "ollama>=0.4.8,<0.5",
-    "chromadb>=1.0.7,<2",
-    "langchain-ollama>=0.3.2,<0.4",
+    "chromadb>=1.0.9,<2",
+    "langchain-ollama>=0.3.3,<0.4",
     "langchain-community>=0.3.23,<0.4",
-    "langchain>=0.3.24,<0.4",
+    "langchain>=0.3.25,<0.4",
     "sentence-transformers>=4.1.0,<5",
     "pyyaml>=6.0.2,<7",
     "paho-mqtt>=2.1.0,<3",
     "langchain-huggingface>=0.1.2,<0.2",
     "requests>=2.31.0,<3",
     "aiomqtt>=2.4.0",
-    "langchain-google-genai>=2.1.4",
+    "langchain-google-genai>=2.1.7",
     "python-dotenv",
 ]
 
@@ -43,17 +43,17 @@ argentic = "argentic.__main__:main"
 dev = [
     "black>=25.1.0,<26",
     "isort>=6.0.1,<7",
-    "pytest>=8.0.0,<9",
+    "pytest>=8.4.1,<9",
     "pytest-asyncio>=0.23.5,<0.24",
     "python-on-whales>=0.70.0",
     "flake8>=7.2.0",
-    "commitizen>=4.7.1,<5",
+    "commitizen>=4.8.3,<5",
     "pre-commit>=4.2.0,<5",
     "pyrefly>=0.15.2",
 ]
 docs = [
     "mkdocs>=1.6.0",
-    "mkdocs-material>=9.5.0",
+    "mkdocs-material>=9.6.14",
     "pymdown-extensions>=10.0",
     "mkdocstrings[python]>=0.24",
     "mkdocs-same-dir>=0.1.3",
