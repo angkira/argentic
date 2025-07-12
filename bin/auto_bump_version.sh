@@ -7,6 +7,16 @@ source "$(dirname "$0")/activate_venv.sh"
 # Setup project environment (activate venv, change directory, set PYTHONPATH)
 setup_project_env
 
+# Check if the last commit is a version bump commit.
+# If so, it means the bump has already happened (e.g., in a previous pre-push run),
+# and we should allow the current push to proceed without trying to bump again.
+LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+if [[ "$LAST_COMMIT_MSG" == bump:* ]]; then
+  echo "Last commit is a version bump. Allowing push to proceed."
+  exit 0
+fi
+
+
 echo "Attempting to bump version with commitizen..."
 # Run cz bump non-interactively and capture its output and exit code.
 # We expect cz bump to create a tag automatically if a bump occurs.
