@@ -24,17 +24,21 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      
     - name: Set up Python 3.12
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
       with:
         python-version: "3.12"
+        
     - name: Install uv
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    - name: Install documentation dependencies with uv
+        
+    - name: Install documentation dependencies
       run: |
-        uv pip install --system -e .[docs]
+        uv pip install --system -e ".[docs]"
+        
     - name: Prepare docs source
       run: |
         set -x # Print each command before executing
@@ -42,9 +46,7 @@ jobs:
         cp assets/logo.jpg docs/assets/logo.jpg # For theme and for the final path in docs/index.md
         
         cp README.md docs/index.md # Copy root README to docs/index.md
-        # sed command removed as README.md now has the correct final path for docs/index.md
-        # sed -i 's|!\[Argentic Logo\](./docs/assets/logo.jpg){: .styled-logo }|!\[Argentic Logo\](./assets/logo.jpg){: .styled-logo }|g' docs/index.md
-
+        
         # Find all README.md files, excluding .git, .github, docs, and virtual environment directories
         find . \( -path ./docs -o -path ./.git -o -path ./.github -o -path ./.venv -o -path ./venv \) -prune -o \( -name "README.md" -type f -print \) | while read -r file; do
           if [ -d "$file" ]; then
@@ -57,23 +59,22 @@ jobs:
           mkdir -p "$dest_dir"
           cp "$file" "$dest_dir/index.md"
         done
+        
         # Find all other .md files (excluding README.md as they are handled above, and excluding specified directories)
         # and copy them, maintaining their original names and directory structure within docs/
         find . \( -path ./docs -o -path ./.git -o -path ./.github -o -path ./.venv -o -path ./venv \) -prune -o \( -name "*.md" -not -name "README.md" -type f -print \) | while read -r file; do
           dest_path="docs/$(dirname "${file#./}")/$(basename "$file")"
           mkdir -p "$(dirname "$dest_path")"
-          cp "$file" "$dest_path" # Changed back from cp -r, as these are files
+          cp "$file" "$dest_path"
         done
-        # Add commands here to copy other READMEs or markdown files into the docs/ directory
-        # For example: 
-        # mkdir -p docs/module1
-        # cp src/module1/README.md docs/module1/index.md 
+        
     - name: Build MkDocs documentation
       env:
-        PYTHONPATH: ./src # Add src to Python's search path for mkdocstrings
+        PYTHONPATH: "./src" # Add src to Python's search path for mkdocstrings
       run: |
         echo "PYTHONPATH is: $PYTHONPATH"
-        mkdocs build --verbose --config-file docs/mkdocs.yml --site-dir _site
+        uv run mkdocs build --verbose --config-file docs/mkdocs.yml --site-dir _site
+        
     - name: Debug _site location
       run: |
         echo "--- Current directory: $(pwd)"
@@ -93,12 +94,15 @@ jobs:
         else
           echo "--- docs/_site directory NOT FOUND."
         fi
+        
     - name: Setup Pages
       uses: actions/configure-pages@v5
+      
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
         path: 'docs/_site' # Upload the docs/_site directory
+        
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4 

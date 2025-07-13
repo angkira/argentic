@@ -10,28 +10,38 @@ permissions:
   contents: read
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+    
     - name: Set up Python 3.12
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
       with:
         python-version: "3.12"
+        
     - name: Install uv
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-    - name: Install dependencies with uv
+        
+    - name: Install dependencies
       run: |
-        uv pip install --system -e .[dev,kafka,redis,rabbitmq]
-        uv pip install --system flake8 pytest pytest-asyncio
-    - name: Lint with flake8
+        uv pip install --system -e ".[dev,kafka,redis,rabbitmq]"
+        
+    - name: Lint with flake8 (only critical errors)
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv,tests
-    - name: Test with custom script
+        # Only check for critical syntax errors and undefined names
+        uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv,tests
+        
+    - name: Run unit tests
       run: |
-        sh ./bin/run_unit_tests.sh
+        # Set PYTHONPATH and run tests directly with uv
+        export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}$(pwd)/src"
+        uv run python -m pytest tests/core/messager/unit -m "not e2e" -v
+        
+    - name: Run integration tests
+      run: |
+        export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}$(pwd)/src"
+        uv run python -m pytest tests/core/messager/test_messager_integration.py -v
