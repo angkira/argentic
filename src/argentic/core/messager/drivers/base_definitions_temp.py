@@ -73,7 +73,7 @@ class BaseDriver(ABC):
 
     @abstractmethod
     async def unsubscribe(self, topic: str) -> None:
-        """Abstract method to unsubscribe from a topic."
+        """Abstract method to unsubscribe from a topic."""
         pass
 
     @abstractmethod
@@ -84,4 +84,4 @@ class BaseDriver(ABC):
     @abstractmethod
     def format_connection_error_details(self, error: Exception) -> Optional[str]:
         """Formats driver-specific connection error details."""
-        pass 
+        pass

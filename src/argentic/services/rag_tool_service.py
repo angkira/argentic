@@ -61,7 +61,7 @@ async def shutdown_handler():
 
 async def main():
     """Main async function for the RAG Tool Service."""
-    global messager, kb_tool, rag_manager, logger
+    global messager, kb_tool, rag_manager
 
     # --- Configuration Loading (moved inside main()) ---
     # Open config.yaml using a context manager to ensure it's closed

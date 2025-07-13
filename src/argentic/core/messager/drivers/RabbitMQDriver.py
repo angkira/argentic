@@ -3,38 +3,13 @@ from argentic.core.protocol.message import BaseMessage
 
 from typing import Optional, List, Dict, Any
 
-try:
-    import aio_pika
-
-    AIO_PIKA_INSTALLED = True
-except ImportError:
-    AIO_PIKA_INSTALLED = False
-    # Define dummy types for type hinting
-    aio_pika = type(
-        "aio_pika",
-        (object,),
-        {
-            "RobustConnection": type("RobustConnection", (object,), {}),
-            "Channel": type("Channel", (object,), {}),
-            "ExchangeType": type("ExchangeType", (object,), {"FANOUT": "fanout"}),
-            "Message": type("Message", (object,), {}),
-            "IncomingMessage": type("IncomingMessage", (object,), {}),
-            "Queue": type("Queue", (object,), {}),
-            "connect_robust": lambda _: None,  # Dummy function
-        },
-    )
-
+import aio_pika
 import json
 import logging
 
 
 class RabbitMQDriver(BaseDriver):
     def __init__(self, config: DriverConfig):
-        if not AIO_PIKA_INSTALLED:
-            raise ImportError(
-                "aio-pika is not installed. "
-                "Please install it with: uv pip install argentic[rabbitmq]"
-            )
         super().__init__(config)
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None
@@ -179,7 +154,11 @@ class RabbitMQDriver(BaseDriver):
                                     f"[_reader for {topic}] Invoking handler {i+1}/{len(topic_handlers)} ('{handler_name}') for message ID: {message.message_id}"
                                 )
                                 try:
-                                    await h(message.body)
+                                    # Deserialize message.body (bytes) to BaseMessage before passing to handler
+                                    deserialized_message = BaseMessage.model_validate_json(
+                                        message.body
+                                    )
+                                    await h(deserialized_message)
                                     self.logger.debug(
                                         f"[_reader for {topic}] Handler '{handler_name}' completed for message ID: {message.message_id}"
                                     )
@@ -225,9 +204,9 @@ class RabbitMQDriver(BaseDriver):
         """Extracts RabbitMQ specific Connection.Close frame details from an exception."""
         details = []
         details.append(f"Exception type: {type(exception)}")
+        # Use hasattr and getattr for safe attribute access
         if hasattr(exception, "args") and exception.args:
             details.append(f"Exception args: {exception.args!r}")
-            # The Connection.Close object is often in e.args[1] for specific aio_pika errors
             if (
                 len(exception.args) > 1
                 and hasattr(exception.args[1], "reply_code")
@@ -239,8 +218,6 @@ class RabbitMQDriver(BaseDriver):
                     f"reply_code={close_frame.reply_code}, reply_text='{close_frame.reply_text}'"
                 )
                 return "\n".join(details)
-            # Handle cases where the frame might be an attribute of the exception itself
-            # (e.g. aio_pika.exceptions.ProbableAuthenticationError might have a 'frame' attribute)
             elif (
                 hasattr(exception, "frame")
                 and hasattr(exception.frame, "reply_code")
@@ -253,18 +230,16 @@ class RabbitMQDriver(BaseDriver):
                 )
                 return "\n".join(details)
 
-        # If specific details were found and returned, this part is skipped.
-        # If not, but we still have some details, return them.
-        if len(details) > 1:  # More than just the type was added
+        if len(details) > 1:
             return "\n".join(details)
 
-        return None  # No specific details extracted or only type was available
+        return None
 
     async def unsubscribe(self, topic: str) -> None:
         """Unsubscribe from a RabbitMQ topic (queue)."""
         # RabbitMQ unsubscription is handled by closing the consumer
         # In practice, this is complex as it involves queue management
-        logger.warning(f"RabbitMQ driver unsubscribe not fully implemented for topic: {topic}")
+        self.logger.warning(f"RabbitMQ driver unsubscribe not fully implemented for topic: {topic}")
         # In a full implementation, you would need to:
         # 1. Find the consumer for this topic/queue
         # 2. Cancel the consumer
