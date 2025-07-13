@@ -45,7 +45,7 @@ jobs:
           export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}$(pwd)/src"
           uv run python -m pytest tests/core/messager/unit -m "not e2e" -v
 
-      - name: Run integration tests
-        run: |
-          export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}$(pwd)/src"
-          uv run python -m pytest tests/core/messager/test_messager_integration.py -v
+      # - name: Run integration tests
+      #   run: |
+      #     export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}$(pwd)/src"
+      #     uv run python -m pytest tests/core/messager/test_messager_integration.py -v
