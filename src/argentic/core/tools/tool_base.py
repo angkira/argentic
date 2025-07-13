@@ -229,9 +229,7 @@ class BaseTool(ABC):
                     )
                     return
 
-                await self.messager.publish(
-                    self.result_topic, result_message_to_publish.model_dump_json()
-                )
+                await self.messager.publish(self.result_topic, result_message_to_publish)
                 self.logger.info(
                     f"Tool '{self.name}': Published result for task {task.task_id} (Status: {result_message_to_publish.status}) to {self.result_topic}"
                 )

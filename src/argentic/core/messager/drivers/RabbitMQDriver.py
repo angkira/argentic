@@ -259,3 +259,14 @@ class RabbitMQDriver(BaseDriver):
             return "\n".join(details)
 
         return None  # No specific details extracted or only type was available
+
+    async def unsubscribe(self, topic: str) -> None:
+        """Unsubscribe from a RabbitMQ topic (queue)."""
+        # RabbitMQ unsubscription is handled by closing the consumer
+        # In practice, this is complex as it involves queue management
+        logger.warning(f"RabbitMQ driver unsubscribe not fully implemented for topic: {topic}")
+        # In a full implementation, you would need to:
+        # 1. Find the consumer for this topic/queue
+        # 2. Cancel the consumer
+        # 3. Potentially delete the queue if it was auto-created
+        pass

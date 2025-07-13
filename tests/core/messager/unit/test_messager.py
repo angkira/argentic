@@ -231,15 +231,14 @@ class TestMessager:
         # Test the handler_adapter by calling it with valid payload
         handler_adapter = self.driver.subscribe.call_args[0][1]
 
-        # Create a mock message payload
+        # Create a BaseMessage object (not bytes)
         message = MockBaseMessage(type="MockBaseMessage", message="test message")
-        payload = message.model_dump_json().encode("utf-8")
 
-        # Call the handler_adapter with the mock payload
-        await handler_adapter(payload)
+        # Call the handler_adapter with the BaseMessage object
+        await handler_adapter(message)
 
-        # Verify create_task was called with the handler and message
-        mock_create_task.assert_called_once()
+        # Verify the test handler was called with the message
+        test_handler.assert_called_once_with(message)
 
     @patch("argentic.core.messager.messager.create_driver")
     @patch("argentic.core.messager.messager.asyncio.create_task")
@@ -282,15 +281,21 @@ class TestMessager:
         # Subscribe with specific message type
         await messager.subscribe(test_topic, specific_handler, MockBaseMessage)
 
-        # Now we can call the handler_adapter directly with different payloads
-        await self.captured_handler(payload.encode("utf-8"))
+        # Create a BaseMessage from the JSON payload (simulating what the MQTT driver does)
+        try:
+            base_message = BaseMessage.model_validate_json(payload)
+            # Set the original JSON attribute as the MQTT driver does
+            setattr(base_message, "_original_json", payload)
+        except Exception:
+            # For invalid JSON, we still need to pass a BaseMessage object
+            # but it won't have the _original_json attribute
+            base_message = BaseMessage(type="unknown", source="test")
 
-        # The handler itself should not be called directly, but rather passed to create_task
+        # Call the handler_adapter with the BaseMessage object
+        await self.captured_handler(base_message)
+
+        # Check if the specific handler was called
         if should_match_specific:
-            assert len(created_tasks) > 0
-            # Execute the task that would have been created
-            for task in created_tasks:
-                await task
             specific_handler.assert_awaited_once()
         else:
             specific_handler.assert_not_awaited()
@@ -303,7 +308,7 @@ class TestMessager:
     async def test_subscribe_with_invalid_json(
         self, mock_create_task, mock_create_driver, messager_config
     ):
-        """Test subscribe method's handler_adapter with invalid JSON"""
+        """Test subscribe method's handler_adapter with non-matching message types"""
         mock_create_driver.return_value = self.driver
 
         # Save the task that would be created so we can examine it
@@ -327,34 +332,29 @@ class TestMessager:
         # Subscribe with specific message type
         await messager.subscribe(test_topic, handler, MockBaseMessage)
 
-        # Invalid JSON should be silently ignored (no exceptions)
-        invalid_payloads = [
-            b"This is not JSON",
-            b"{invalid: json}",
-            b"[]",  # Empty array
-            b"null",  # JSON null
-            b"",  # Empty string
+        # Test with messages that don't match the expected type (should not call handler)
+        non_matching_messages = [
+            BaseMessage(type="DifferentType", source="test"),
+            BaseMessage(type="AnotherType", source="test"),
+            BaseMessage(type="NotMockBaseMessage", source="test"),
         ]
 
-        for invalid_payload in invalid_payloads:
-            # This should not raise exceptions
-            await self.captured_handler(invalid_payload)
+        for base_message in non_matching_messages:
+            # Reset mock before each test
+            handler.reset_mock()
 
-            # Handler should not be called for invalid payloads
-            assert not created_tasks
+            # This should not raise exceptions
+            await self.captured_handler(base_message)
+
+            # Handler should not be called for non-matching message types
             handler.assert_not_awaited()
 
-        # Reset created tasks list
-        created_tasks.clear()
-
         # Valid payload should work
-        valid_payload = b'{"id":"123","type":"MockBaseMessage","message":"test_message"}'
-        await self.captured_handler(valid_payload)
+        valid_json = '{"id":"123","type":"MockBaseMessage","message":"test_message"}'
+        valid_base_message = BaseMessage.model_validate_json(valid_json)
+        setattr(valid_base_message, "_original_json", valid_json)
 
-        # Verify a task was created and execute it
-        assert len(created_tasks) > 0
-        for task in created_tasks:
-            await task
+        await self.captured_handler(valid_base_message)
 
         # Now the handler should have been called
         handler.assert_awaited_once()
@@ -392,10 +392,12 @@ class TestMessager:
 
         # Verify payload contains expected data
         payload = self.driver.publish.call_args[0][1]
-        assert "timestamp" in payload
-        assert payload["level"] == test_level
-        assert payload["source"] == messager_config["client_id"]
-        assert payload["message"] == test_message
+        assert isinstance(payload, BaseMessage)
+        assert payload.type == "log"
+        assert payload.source == messager_config["client_id"]
+        assert "timestamp" in payload.data
+        assert payload.data["level"] == test_level
+        assert payload.data["message"] == test_message
 
     @patch("argentic.core.messager.messager.create_driver")
     async def test_log_without_topic(self, mock_create_driver, messager_config):

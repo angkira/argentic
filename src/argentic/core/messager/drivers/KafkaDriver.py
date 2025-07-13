@@ -283,3 +283,18 @@ class KafkaDriver(BaseDriver):
 
     def is_connected(self) -> bool:
         return self._producer is not None and not self._producer._closed
+
+    async def unsubscribe(self, topic: str) -> None:
+        """Unsubscribe from a topic (Kafka doesn't support individual topic unsubscription easily)."""
+        logger.warning(
+            f"Kafka driver does not support unsubscribing from individual topics. Topic: {topic}"
+        )
+        # Kafka consumers are typically group-based and subscribe to multiple topics
+        # Individual topic unsubscription would require recreating the consumer
+        pass
+
+    def format_connection_error_details(self, error: Exception) -> Optional[str]:
+        """Format Kafka-specific connection error details."""
+        if "kafka" in str(type(error)).lower():
+            return f"Kafka error: {error}"
+        return None

@@ -76,3 +76,15 @@ class RedisDriver(BaseDriver):
 
     def is_connected(self) -> bool:
         return bool(self._redis and not getattr(self._redis, "closed", True))
+
+    async def unsubscribe(self, topic: str) -> None:
+        """Unsubscribe from a Redis topic."""
+        if self._pubsub and topic in self._listeners:
+            await self._pubsub.unsubscribe(topic)
+            del self._listeners[topic]
+
+    def format_connection_error_details(self, error: Exception) -> Optional[str]:
+        """Format Redis-specific connection error details."""
+        if "redis" in str(type(error)).lower():
+            return f"Redis error: {error}"
+        return None

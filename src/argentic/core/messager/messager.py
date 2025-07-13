@@ -178,9 +178,10 @@ class Messager:
         async def handler_adapter(payload: BaseMessage) -> None:
             if message_cls is not BaseMessage:
                 # Check if the message type matches what we expect
-                expected_type = getattr(message_cls, "type", None)
+                expected_type = None
+
+                # Method 1: Try to get type from Literal annotations (for real message classes)
                 if hasattr(message_cls, "__annotations__"):
-                    # Get the type field default value for Literal types
                     type_annotation = message_cls.__annotations__.get("type")
                     if (
                         type_annotation
@@ -188,6 +189,18 @@ class Messager:
                         and type_annotation.__args__
                     ):
                         expected_type = type_annotation.__args__[0]
+
+                # Method 2: Try to get type from class field defaults (for test classes)
+                if expected_type is None:
+                    # Try to get the default value from the class
+                    if hasattr(message_cls, "model_fields"):
+                        # Pydantic v2 style
+                        type_field = message_cls.model_fields.get("type")
+                        if type_field and hasattr(type_field, "default"):
+                            expected_type = type_field.default
+                    else:
+                        # Fallback: try to get from class attribute
+                        expected_type = getattr(message_cls, "type", None)
 
                 # If we have an expected type and it doesn't match, ignore this message
                 if expected_type and payload.type != expected_type:
