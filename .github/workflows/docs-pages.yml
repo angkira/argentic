@@ -70,7 +70,7 @@ jobs:
         
     - name: Build MkDocs documentation
       env:
-        PYTHONPATH: "./src" # Add src to Python's search path for mkdocstrings
+        PYTHONPATH: "./src/argentic" # Add src/argentic to Python's search path for mkdocstrings
       run: |
         echo "PYTHONPATH is: $PYTHONPATH"
         uv run mkdocs build --verbose --config-file docs/mkdocs.yml --site-dir _site
