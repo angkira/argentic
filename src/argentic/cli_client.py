@@ -103,11 +103,22 @@ class CliClient(Client):
         """Initialize the client in async context"""
         # Retrieve protocol as string and convert to enum
         protocol_str: str = get_config_value(messaging_config, "protocol", "mqtt", required=False)
-        protocol_enum = MessagerProtocol(protocol_str)  # Convert to enum
+
+        # Convert string to MessagerProtocol enum with proper type handling
+        if protocol_str == "mqtt":
+            protocol_enum = MessagerProtocol.MQTT
+        elif protocol_str == "kafka":
+            protocol_enum = MessagerProtocol.KAFKA
+        elif protocol_str == "redis":
+            protocol_enum = MessagerProtocol.REDIS
+        elif protocol_str == "rabbitmq":
+            protocol_enum = MessagerProtocol.RABBITMQ
+        else:
+            protocol_enum = MessagerProtocol.MQTT  # Default fallback
 
         # Create the real Messager instance
         real_messager = Messager(
-            protocol=protocol_enum,  # Use the already converted enum
+            protocol=protocol_enum,  # Use the properly typed enum
             broker_address=MESSAGING_BROKER,
             port=MESSAGING_PORT,
             client_id=self.client_id,

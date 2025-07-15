@@ -1,17 +1,18 @@
 import asyncio
-from typing import Optional, Dict, Any
+import time
+from typing import Optional, Dict, Any, cast
 from contextlib import AsyncExitStack
 
 import aiomqtt
 from aiomqtt import Client, MqttError, Message
 from aiomqtt.client import ProtocolVersion
 
-from argentic.core.protocol.message import BaseMessage
+from argentic.core.protocol.message import BaseMessage, InfoMessage
 from argentic.core.logger import get_logger, LogLevel
 from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
 from .configs import MQTTDriverConfig
 
-logger = get_logger("mqtt_driver", LogLevel.INFO)
+logger = get_logger("mqtt_driver", LogLevel.DEBUG)
 
 
 class MQTTDriver(BaseDriver[MQTTDriverConfig]):
@@ -26,8 +27,16 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
         # EXPERIMENTAL: Task pool to prevent handler blocking
         self._handler_tasks: set = set()
         self._max_concurrent_handlers = 50
+        # Shadow ping to keep connection alive. Interval = keepalive / 2
+        if self.config.keepalive is not None and self.config.keepalive > 0:
+            self._ping_interval: float = self.config.keepalive / 2.0
+        else:
+            # Fallback to 30 s if keepalive is disabled or invalid
+            self._ping_interval = 30.0
+        self._last_ping_time = 0.0
+        self._ping_task: Optional[asyncio.Task] = None
 
-    async def connect(self) -> bool:
+    async def connect(self, start_ping: bool = True) -> bool:
         try:
             self._stack = AsyncExitStack()
 
@@ -48,6 +57,10 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
             # Start message handler task
             self._message_task = asyncio.create_task(self._handle_messages())
 
+            # Start shadow ping task to keep connection alive
+            if start_ping:
+                self._ping_task = asyncio.create_task(self._shadow_ping_loop())
+
             self._connected = True
             logger.info("MQTT connected via aiomqtt.")
             return True
@@ -63,6 +76,14 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
     async def disconnect(self) -> None:
         if self._connected:
             self._connected = False
+
+            # Cancel ping task
+            if self._ping_task and not self._ping_task.done():
+                self._ping_task.cancel()
+                try:
+                    await self._ping_task
+                except asyncio.CancelledError:
+                    pass
 
             # Cancel message handler task
             if self._message_task and not self._message_task.done():
@@ -97,19 +118,70 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
     async def publish(
         self, topic: str, payload: BaseMessage, qos: int = 0, retain: bool = False
     ) -> None:
-        if not self._connected or not self._client:
-            raise ConnectionError("Not connected to MQTT broker.")
+        """
+        Publish a message to MQTT.
 
+        If the publish fails due to a lost connection, the driver will
+        attempt a single reconnection and retry the publish once.
+        """
+
+        attempt = 0
+        while attempt < 2:  # first try + one retry after reconnect
+            attempt += 1
+
+            # If we already know we're disconnected try reconnect first
+            if (not self._connected) or (self._client is None):
+                logger.debug("MQTT not connected – attempting to reconnect before publish …")
+                await self._reconnect()
+
+            try:
+                client = cast(Client, self._client)  # type narrowing for linters
+                serialized_data = payload.model_dump_json()
+                await client.publish(topic, serialized_data.encode(), qos=qos, retain=retain)
+                return  # Success
+            except Exception as publish_err:
+                logger.warning(f"Publish attempt {attempt} to '{topic}' failed: {publish_err}")
+
+                if attempt >= 2:
+                    # No more retries – propagate the error
+                    raise
+
+                # Mark as disconnected and try to reconnect once
+                self._connected = False
+                await self._reconnect()
+
+    async def _reconnect(self) -> None:
+        """Attempt to re-establish the MQTT connection.
+
+        This helper is designed to be lightweight so it can be called
+        directly from the publish path. The existing shadow-ping task
+        continues running; therefore we do NOT spawn a new one here.
+        """
+
+        logger.info("Attempting MQTT reconnection …")
+
+        # Close previous connection gracefully
         try:
-            # Serialize the message
-            serialized_data = payload.model_dump_json()
+            if self._stack:
+                await self._stack.aclose()
+        except Exception:
+            pass
 
-            # Publish using aiomqtt
-            await self._client.publish(topic, serialized_data.encode(), qos=qos, retain=retain)
+        self._client = None
+        self._connected = False
 
-        except Exception as e:
-            logger.error(f"Error publishing to {topic}: {e}")
-            raise
+        # Re-create connection without starting another ping loop
+        await self.connect(start_ping=False)
+
+        # Re-subscribe to previously registered topics
+        if self._connected and self._client:
+            client = cast(Client, self._client)
+            for topic in list(self._subscriptions.keys()):
+                try:
+                    await client.subscribe(topic, qos=1)
+                    logger.debug(f"Resubscribed to topic '{topic}' after reconnect")
+                except Exception as sub_err:
+                    logger.warning(f"Failed to resubscribe to '{topic}' after reconnect: {sub_err}")
 
     async def subscribe(
         self, topic: str, handler: MessageHandler, message_cls: type = BaseMessage, **kwargs
@@ -251,6 +323,43 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
 
         except Exception as e:
             logger.error(f"Error processing message from {message.topic.value}: {e}")
+
+    async def _shadow_ping_loop(self) -> None:
+        """Send periodic ping messages to keep connection alive.
+
+        This loop runs constantly and independently of connection state.
+        It will keep trying to ping even during reconnections.
+        """
+        logger.info(f"Starting shadow ping loop (interval: {self._ping_interval}s)")
+        ping_count = 0
+
+        try:
+            while True:
+                ping_count += 1
+                try:
+                    await self._send_ping(ping_count)
+                except Exception as ping_err:
+                    logger.debug(f"Shadow ping #{ping_count} failed: {ping_err}")
+                await asyncio.sleep(self._ping_interval)
+        except asyncio.CancelledError:
+            logger.info(f"Shadow ping loop cancelled after {ping_count} pings")
+        logger.info("Shadow ping loop ended")
+
+    async def _send_ping(self, ping_count: int) -> None:
+        """Send a single ping message directly via MQTT client.
+
+        This bypasses the main publish() method to avoid interference
+        with reconnection logic.
+        """
+        if not self._connected:
+            raise ConnectionError("Not connected to MQTT broker.")
+
+        ping_topic = f"_ping/{self.config.client_id}"
+        ping_msg = InfoMessage(
+            source=self.config.client_id or "mqtt_client",
+            data={"ping_id": ping_count, "timestamp": time.time()},
+        )
+        await self.publish(ping_topic, ping_msg, qos=0, retain=False)
 
     def format_connection_error_details(self, error: Exception) -> Optional[str]:
         """Format MQTT-specific connection error details."""

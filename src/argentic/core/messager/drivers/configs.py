@@ -12,7 +12,9 @@ class MQTTDriverConfig(BaseDriverConfig):
     port: int = 1883
     user: Optional[str] = None
     password: Optional[str] = None
-    keepalive: int = 60
+    # Default MQTT keep-alive (seconds). Shadow-ping interval inside
+    # the driver will automatically be set to half of this value.
+    keepalive: int = 600
     version: ProtocolVersion = ProtocolVersion.V5
 
     class Config:
