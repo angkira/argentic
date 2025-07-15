@@ -1,15 +1,16 @@
-from argentic.core.messager.drivers import BaseDriver, DriverConfig, MessageHandler
+from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
 from argentic.core.protocol.message import BaseMessage
+from .configs import RabbitMQDriverConfig
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Type
 
 import aio_pika
 import json
 import logging
 
 
-class RabbitMQDriver(BaseDriver):
-    def __init__(self, config: DriverConfig):
+class RabbitMQDriver(BaseDriver[RabbitMQDriverConfig]):
+    def __init__(self, config: RabbitMQDriverConfig):
         super().__init__(config)
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None
@@ -19,9 +20,9 @@ class RabbitMQDriver(BaseDriver):
         self._queues: Dict[str, aio_pika.Queue] = {}
         self.logger = logging.getLogger("RabbitMQDriver")
 
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         # Determine virtualhost, defaulting to '/' if not specified or empty
-        virtualhost = getattr(self.config, "virtualhost", None) or "/"
+        virtualhost = self.config.virtualhost or "/"
         # Ensure virtualhost starts with a slash if it's not empty and doesn't have one
         if virtualhost != "/" and not virtualhost.startswith("/"):
             virtualhost = "/" + virtualhost
@@ -40,13 +41,12 @@ class RabbitMQDriver(BaseDriver):
         self.logger.info(
             f"Connected to RabbitMQ at {self.config.url}:{self.config.port}, vhost: {virtualhost}"
         )
+        return True
 
     async def disconnect(self) -> None:
         self.logger.info("Attempting to disconnect from RabbitMQ...")
-        if self._connection:
-            self.logger.info(
-                f"Connection object exists. is_closed: {getattr(self._connection, 'is_closed', 'N/A')}"
-            )
+        if self._connection and not self._connection.is_closed:
+            self.logger.info(f"Connection object exists. is_closed: {self._connection.is_closed}")
             try:
                 await self._connection.close()
                 self.logger.info("Successfully closed RabbitMQ connection.")
@@ -61,41 +61,16 @@ class RabbitMQDriver(BaseDriver):
         self._queues = {}
         self.logger.info("RabbitMQ driver state reset after disconnect.")
 
-    async def publish(self, topic: str, payload: Any, **kwargs) -> None:
+    async def publish(
+        self, topic: str, payload: BaseMessage, qos: int = 0, retain: bool = False
+    ) -> None:
+        if not self._channel:
+            raise ConnectionError("RabbitMQ channel is not available.")
         try:
             exchange = await self._channel.declare_exchange(topic, aio_pika.ExchangeType.FANOUT)
 
-            # Handle BaseMessage serialization with multiple fallback methods
-            if isinstance(payload, BaseMessage):
-                try:
-                    body = payload.model_dump_json().encode("utf-8")
-                except Exception as e:
-                    self.logger.warning(f"Failed to serialize with model_dump_json: {e}")
-                    try:
-                        body = json.dumps(payload.model_dump()).encode("utf-8")
-                    except Exception as e:
-                        self.logger.warning(f"Failed to serialize with model_dump: {e}")
-                        # Last resort serialization
-                        body = json.dumps(
-                            {
-                                "id": str(payload.id),
-                                "timestamp": (
-                                    payload.timestamp.isoformat() if payload.timestamp else None
-                                ),
-                                "type": payload.__class__.__name__,
-                                **{
-                                    k: v
-                                    for k, v in payload.__dict__.items()
-                                    if not k.startswith("_")
-                                },
-                            }
-                        ).encode("utf-8")
-            elif isinstance(payload, str):
-                body = payload.encode("utf-8")
-            elif isinstance(payload, bytes):
-                body = payload
-            else:
-                body = json.dumps(payload).encode("utf-8")
+            # Handle BaseMessage serialization
+            body = payload.model_dump_json().encode("utf-8")
 
             message = aio_pika.Message(body=body)
             await exchange.publish(message, routing_key="")
@@ -104,7 +79,13 @@ class RabbitMQDriver(BaseDriver):
             self.logger.error(f"Error publishing to exchange {topic}: {e}")
             raise
 
-    async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
+    async def subscribe(
+        self,
+        topic: str,
+        handler: MessageHandler,
+        message_cls: Type[BaseMessage] = BaseMessage,
+        **kwargs,
+    ) -> None:
         try:
             self.logger.info(f"Subscribe called for topic: {topic}")
             if not self._channel:
@@ -200,30 +181,30 @@ class RabbitMQDriver(BaseDriver):
     def is_connected(self) -> bool:
         return bool(self._connection and not getattr(self._connection, "is_closed", True))
 
-    def format_connection_error_details(self, exception: Exception) -> Optional[str]:
+    def format_connection_error_details(self, error: Exception) -> Optional[str]:
         """Extracts RabbitMQ specific Connection.Close frame details from an exception."""
         details = []
-        details.append(f"Exception type: {type(exception)}")
+        details.append(f"Exception type: {type(error)}")
         # Use hasattr and getattr for safe attribute access
-        if hasattr(exception, "args") and exception.args:
-            details.append(f"Exception args: {exception.args!r}")
+        if hasattr(error, "args") and error.args:
+            details.append(f"Exception args: {error.args!r}")
             if (
-                len(exception.args) > 1
-                and hasattr(exception.args[1], "reply_code")
-                and hasattr(exception.args[1], "reply_text")
+                len(error.args) > 1
+                and hasattr(error.args[1], "reply_code")
+                and hasattr(error.args[1], "reply_text")
             ):
-                close_frame = exception.args[1]
+                close_frame = error.args[1]
                 details.append(
                     f"RabbitMQ Connection.Close frame (from e.args[1]): "
                     f"reply_code={close_frame.reply_code}, reply_text='{close_frame.reply_text}'"
                 )
                 return "\n".join(details)
             elif (
-                hasattr(exception, "frame")
-                and hasattr(exception.frame, "reply_code")
-                and hasattr(exception.frame, "reply_text")
+                hasattr(error, "frame")
+                and hasattr(error.frame, "reply_code")
+                and hasattr(error.frame, "reply_text")
             ):
-                close_frame = exception.frame
+                close_frame = error.frame
                 details.append(
                     f"RabbitMQ Connection.Close frame (from e.frame): "
                     f"reply_code={close_frame.reply_code}, reply_text='{close_frame.reply_text}'"

@@ -1,25 +1,31 @@
 import asyncio
-from typing import Optional
+from typing import Optional, Dict, Any
 from contextlib import AsyncExitStack
 
 import aiomqtt
 from aiomqtt import Client, MqttError, Message
+from aiomqtt.client import ProtocolVersion
 
 from argentic.core.protocol.message import BaseMessage
 from argentic.core.logger import get_logger, LogLevel
-from argentic.core.messager.drivers.base_definitions import BaseDriver, DriverConfig, MessageHandler
+from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
+from .configs import MQTTDriverConfig
 
 logger = get_logger("mqtt_driver", LogLevel.INFO)
 
 
-class MQTTDriver(BaseDriver):
-    def __init__(self, config: DriverConfig):
+class MQTTDriver(BaseDriver[MQTTDriverConfig]):
+    def __init__(self, config: MQTTDriverConfig):
         super().__init__(config)
         self._client: Optional[Client] = None
         self._connected = False
-        self._subscriptions: dict[str, MessageHandler] = {}
+        # Dictionary: topic -> {message_cls_name: (handler, message_cls)}
+        self._subscriptions: Dict[str, Dict[str, tuple[MessageHandler, type]]] = {}
         self._message_task: Optional[asyncio.Task] = None
         self._stack: Optional[AsyncExitStack] = None
+        # EXPERIMENTAL: Task pool to prevent handler blocking
+        self._handler_tasks: set = set()
+        self._max_concurrent_handlers = 50
 
     async def connect(self) -> bool:
         try:
@@ -32,7 +38,8 @@ class MQTTDriver(BaseDriver):
                 username=self.config.user,
                 password=self.config.password,
                 identifier=self.config.client_id,
-                keepalive=self.config.keepalive or 60,
+                keepalive=self.config.keepalive,
+                protocol=self.config.version,
             )
 
             # Connect using the async context manager
@@ -65,6 +72,17 @@ class MQTTDriver(BaseDriver):
                 except asyncio.CancelledError:
                     pass
 
+            # EXPERIMENTAL: Cancel all pending handler tasks
+            for task in self._handler_tasks:
+                if not task.done():
+                    task.cancel()
+            if self._handler_tasks:
+                try:
+                    await asyncio.gather(*self._handler_tasks, return_exceptions=True)
+                except Exception as e:
+                    logger.debug(f"Error cleaning up handler tasks: {e}")
+            self._handler_tasks.clear()
+
             # Close the client context
             if self._stack:
                 await self._stack.aclose()
@@ -76,32 +94,34 @@ class MQTTDriver(BaseDriver):
     def is_connected(self) -> bool:
         return self._connected
 
-    async def publish(self, topic: str, payload: BaseMessage, **kwargs) -> None:
+    async def publish(
+        self, topic: str, payload: BaseMessage, qos: int = 0, retain: bool = False
+    ) -> None:
         if not self._connected or not self._client:
             raise ConnectionError("Not connected to MQTT broker.")
 
         try:
-            # Use aiomqtt's publish method with proper JSON serialization
-            json_payload = payload.model_dump_json()
-            await self._client.publish(
-                topic=topic,
-                payload=json_payload,
-                qos=kwargs.get("qos", 1),
-                retain=kwargs.get("retain", False),
-            )
-            logger.debug(f"Published message to topic: {topic}")
+            # Serialize the message
+            serialized_data = payload.model_dump_json()
+
+            # Publish using aiomqtt
+            await self._client.publish(topic, serialized_data.encode(), qos=qos, retain=retain)
 
         except Exception as e:
-            logger.error(f"Error publishing message to {topic}: {e}")
+            logger.error(f"Error publishing to {topic}: {e}")
             raise
 
-    async def subscribe(self, topic: str, handler: MessageHandler, **kwargs) -> None:
+    async def subscribe(
+        self, topic: str, handler: MessageHandler, message_cls: type = BaseMessage, **kwargs
+    ) -> None:
         if not self._connected or not self._client:
             raise ConnectionError("Not connected to MQTT broker.")
 
         try:
             # Store the handler for this topic
-            self._subscriptions[topic] = handler
+            if topic not in self._subscriptions:
+                self._subscriptions[topic] = {}
+            self._subscriptions[topic][message_cls.__name__] = (handler, message_cls)
 
             # Subscribe using aiomqtt
             await self._client.subscribe(topic, qos=kwargs.get("qos", 1))
@@ -116,7 +136,7 @@ class MQTTDriver(BaseDriver):
             raise ConnectionError("Not connected to MQTT broker.")
 
         try:
-            # Remove the handler
+            # Remove all handlers for this topic
             if topic in self._subscriptions:
                 del self._subscriptions[topic]
 
@@ -135,19 +155,50 @@ class MQTTDriver(BaseDriver):
 
         try:
             async for message in self._client.messages:
-                await self._process_message(message)
+                # EXPERIMENTAL: Don't await _process_message directly - spawn as task
+                # This prevents any handler from blocking the main message loop
+                if len(self._handler_tasks) >= self._max_concurrent_handlers:
+                    logger.warning("Handler task pool full, waiting for completion...")
+                    # Wait for at least one task to complete
+                    done, pending = await asyncio.wait(
+                        self._handler_tasks, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    # Clean up completed tasks
+                    for task in done:
+                        self._handler_tasks.discard(task)
+                        if task.exception():
+                            logger.error(f"Handler task failed: {task.exception()}")
+
+                # Spawn message processing as independent task
+                task = asyncio.create_task(self._process_message(message))
+                self._handler_tasks.add(task)
+
+                # Clean up completed tasks periodically
+                done_tasks = [t for t in self._handler_tasks if t.done()]
+                for task in done_tasks:
+                    self._handler_tasks.discard(task)
+                    if task.exception():
+                        logger.error(f"Handler task failed: {task.exception()}")
+
         except asyncio.CancelledError:
             logger.debug("Message handler task cancelled")
+            # Cancel all pending handler tasks
+            for task in self._handler_tasks:
+                if not task.done():
+                    task.cancel()
+            # Wait for all tasks to complete
+            if self._handler_tasks:
+                await asyncio.gather(*self._handler_tasks, return_exceptions=True)
         except Exception as e:
             logger.error(f"Error in message handler: {e}")
 
     async def _process_message(self, message: Message) -> None:
         """Process a single message from aiomqtt."""
         try:
-            # Find handler for this topic
-            handler = self._subscriptions.get(message.topic.value)
-            if not handler:
-                logger.warning(f"No handler for topic {message.topic.value}")
+            # Find handlers for this topic
+            handlers = self._subscriptions.get(message.topic.value)
+            if not handlers:
+                logger.warning(f"No handlers for topic {message.topic.value}")
                 return
 
             # Parse the message payload
@@ -160,17 +211,43 @@ class MQTTDriver(BaseDriver):
                 else:
                     payload_str = str(message.payload)
 
-                # Parse as BaseMessage but store the original JSON for re-parsing
+                # Parse as BaseMessage first
                 base_message = BaseMessage.model_validate_json(payload_str)
-                # Store the original JSON string as an extra attribute for the handler
+                # Store the original JSON string for re-parsing
                 setattr(base_message, "_original_json", payload_str)
 
             except Exception as e:
                 logger.error(f"Failed to parse message from {message.topic.value}: {e}")
                 return
 
-            # Call the handler
-            await handler(base_message)
+            # Call appropriate handlers based on message type compatibility
+            for handler_cls_name, (handler, handler_cls) in handlers.items():
+                try:
+                    # Try to parse the message as the specific type
+                    if handler_cls is BaseMessage:
+                        # Generic BaseMessage handler
+                        await handler(base_message)
+                    else:
+                        # Try to parse as specific type
+                        try:
+                            validate_method = getattr(handler_cls, "model_validate_json", None)
+                            if validate_method:
+                                specific_message = validate_method(payload_str)
+                                await handler(specific_message)
+                            else:
+                                # Skip non-BaseMessage handlers
+                                logger.debug(f"Skipping non-BaseMessage handler {handler_cls_name}")
+                                continue
+                        except Exception as parse_error:
+                            # Skip this handler if message doesn't match type
+                            logger.debug(
+                                f"Message type mismatch for handler {handler_cls_name}: {parse_error}"
+                            )
+                            continue
+                except Exception as handler_error:
+                    logger.error(
+                        f"Error in handler {handler_cls_name} for topic {message.topic.value}: {handler_error}"
+                    )
 
         except Exception as e:
             logger.error(f"Error processing message from {message.topic.value}: {e}")

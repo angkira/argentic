@@ -1,6 +1,7 @@
-from typing import Dict, List, Optional
-from argentic.core.messager.drivers.base_definitions import BaseDriver, DriverConfig, MessageHandler
+from typing import Dict, List, Optional, Type
+from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
 from argentic.core.protocol.message import BaseMessage
+from argentic.core.messager.drivers.configs import KafkaDriverConfig
 import asyncio  # Ensure asyncio is imported for Event
 
 # Attempt to import aiokafka. If it fails, an ImportError will be raised,
@@ -51,8 +52,8 @@ class _KafkaReadyListener(ConsumerRebalanceListener):
         pass
 
 
-class KafkaDriver(BaseDriver):
-    def __init__(self, config: DriverConfig):
+class KafkaDriver(BaseDriver[KafkaDriverConfig]):
+    def __init__(self, config: KafkaDriverConfig):
         # The imports at the top of the module handle the check.
         # If aiokafka wasn't found, an ImportError would have already occurred.
         super().__init__(config)
@@ -64,7 +65,7 @@ class KafkaDriver(BaseDriver):
             f"KafkaDriver initialized with config: {{url: {config.url}, port: {config.port}}}"
         )
 
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         servers = f"{self.config.url}:{self.config.port}"
         logger.info(f"Connecting Kafka producer to bootstrap servers: {servers}")
         try:
@@ -73,12 +74,14 @@ class KafkaDriver(BaseDriver):
             self._producer = AIOKafkaProducer(bootstrap_servers=servers, loop=loop)
             await self._producer.start()
             logger.info("Kafka producer started successfully.")
+            return True
         except KafkaConnectionError as e:
             logger.error(f"Failed to connect Kafka producer: {e}")
             raise
         except Exception as e:
             logger.error(f"An unexpected error occurred during Kafka producer connection: {e}")
             raise
+        return False
 
     async def disconnect(self) -> None:
         logger.info("Disconnecting Kafka client.")
@@ -107,7 +110,9 @@ class KafkaDriver(BaseDriver):
             except Exception as e:
                 logger.error(f"Error during Kafka reader task cancellation: {e}")
 
-    async def publish(self, topic: str, payload: BaseMessage, **kwargs) -> None:
+    async def publish(
+        self, topic: str, payload: BaseMessage, qos: int = 0, retain: bool = False
+    ) -> None:
         if not self._producer:
             logger.error("Kafka producer is not connected. Cannot publish.")
             raise RuntimeError("Kafka producer is not connected.")
@@ -133,6 +138,7 @@ class KafkaDriver(BaseDriver):
         self,
         topic: str,
         handler: MessageHandler,
+        message_cls: Type[BaseMessage] = BaseMessage,
         ready_event: Optional[asyncio.Event] = None,
         **kwargs,
     ) -> None:
@@ -141,29 +147,26 @@ class KafkaDriver(BaseDriver):
         Args:
             topic: Topic to subscribe to.
             handler: Callback function to handle received messages.
+            message_cls: The message class for deserialization (unused in this driver).
             ready_event: Optional asyncio.Event to signal when consumer is ready.
-            **kwargs: Additional keyword arguments for AIOKafkaConsumer
-                      (e.g., group_id, auto_offset_reset).
+            **kwargs: Additional keyword arguments for AIOKafkaConsumer.
         """
-        # if not AIOKAFKA_INSTALLED:
-        #     logger.error("aiokafka is not installed. Cannot subscribe to Kafka topic.")
-        #     return
-
         servers = f"{self.config.url}:{self.config.port}"
         listener_instance = None
         if ready_event:
             listener_instance = _KafkaReadyListener(ready_event, topic)
 
         if self._consumer is None:
-            # Default Kafka consumer settings (can be overridden by kwargs)
-            consumer_defaults = {
-                "group_id": f"default-group-{uuid.uuid4().hex}",  # Unique default group_id
-                "auto_offset_reset": "earliest",
-                "session_timeout_ms": 30000,  # Default: 30000
-                "heartbeat_interval_ms": 10000,  # Default: 10000, must be lower than session_timeout
-                "max_poll_interval_ms": 300000,  # Default: 300000
+            # Default Kafka consumer settings from config
+            consumer_config = {
+                "group_id": self.config.group_id or f"default-group-{uuid.uuid4().hex}",
+                "auto_offset_reset": self.config.auto_offset_reset,
+                "session_timeout_ms": 30000,
+                "heartbeat_interval_ms": 10000,
+                "max_poll_interval_ms": 300000,
             }
-            consumer_config = {**consumer_defaults, **kwargs}
+            # Allow kwargs to override config values
+            consumer_config.update(kwargs)
             logger.info(
                 f"Creating Kafka consumer for topic '{topic}' with effective config: {consumer_config}"
             )
@@ -236,9 +239,14 @@ class KafkaDriver(BaseDriver):
 
                 # Log the raw message value before attempting to decode/process
                 try:
-                    # Attempt to decode for logging, but handle potential errors
-                    decoded_value_for_log = msg.value.decode("utf-8")
-                    logger.debug(f"Raw message value (decoded for log): {decoded_value_for_log}")
+                    if msg.value:
+                        # Attempt to decode for logging, but handle potential errors
+                        decoded_value_for_log = msg.value.decode("utf-8")
+                        logger.debug(
+                            f"Raw message value (decoded for log): {decoded_value_for_log}"
+                        )
+                    else:
+                        logger.debug("Raw message value is None")
                 except UnicodeDecodeError:
                     logger.debug(
                         f"Raw message value (bytes, could not decode as UTF-8): {msg.value!r}"
@@ -253,24 +261,34 @@ class KafkaDriver(BaseDriver):
                     )
                     continue
 
+                if not msg.value:
+                    logger.debug(f"Skipping message with empty value from topic '{topic}'.")
+                    continue
+
                 logger.debug(
                     f"Processing message from topic '{topic}' with {len(handlers)} handler(s)."
                 )
-                for i, h in enumerate(handlers):
-                    handler_name = h.__name__ if hasattr(h, "__name__") else str(h)
-                    logger.debug(
-                        f"Invoking handler {i+1}/{len(handlers)} ('{handler_name}') for topic '{topic}'."
-                    )
-                    try:
-                        await h(msg.value)  # Pass raw bytes as per existing logic
+                try:
+                    deserialized_message = BaseMessage.model_validate_json(msg.value)
+                    for i, h in enumerate(handlers):
+                        handler_name = h.__name__ if hasattr(h, "__name__") else str(h)
                         logger.debug(
-                            f"Handler '{handler_name}' completed for message from topic '{topic}'."
+                            f"Invoking handler {i+1}/{len(handlers)} ('{handler_name}') for topic '{topic}'."
                         )
-                    except Exception as e:
-                        logger.error(
-                            f"Handler '{handler_name}' for topic '{topic}' raised an exception: {e}",
-                            exc_info=True,
-                        )
+                        try:
+                            await h(deserialized_message)
+                            logger.debug(
+                                f"Handler '{handler_name}' completed for message from topic '{topic}'."
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Handler '{handler_name}' for topic '{topic}' raised an exception: {e}",
+                                exc_info=True,
+                            )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to deserialize message for topic '{topic}': {e}", exc_info=True
+                    )
         except asyncio.CancelledError:
             logger.info("Kafka reader task was cancelled.")
         except KafkaConnectionError as e:

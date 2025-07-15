@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
 from .base import ModelProvider
 from argentic.core.logger import get_logger
@@ -127,23 +127,30 @@ class GoogleGeminiProvider(ModelProvider):
             return content
 
     def _convert_messages_to_langchain(self, messages: List[Dict[str, str]]) -> List[BaseMessage]:
-        lc_messages = []
+        lc_messages: List[BaseMessage] = []
         for msg in messages:
             role = msg.get("role", "user").lower()
             content = msg.get("content", "")
-            if role == "user":
+
+            if role == "system":
+                lc_messages.append(SystemMessage(content=content))
+            elif role == "user":
                 lc_messages.append(HumanMessage(content=content))
             elif role == "assistant" or role == "model":
                 lc_messages.append(AIMessage(content=content))
-            elif role == "system":
-                # For Gemini, we'll prepend system messages to the first user message
-                if lc_messages and isinstance(lc_messages[0], HumanMessage):
-                    lc_messages[0] = HumanMessage(
-                        content=f"System Instructions: {content}\n\n{lc_messages[0].content}"
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if not tool_call_id:
+                    self.logger.warning(
+                        "Tool message found without a tool_call_id. Treating as a user message."
+                    )
+                    lc_messages.append(
+                        HumanMessage(content=f"Tool output for {msg.get('name')}: {content}")
                     )
                 else:
-                    lc_messages.append(HumanMessage(content=f"System Instructions: {content}"))
+                    lc_messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
             else:
+                self.logger.warning(f"Unknown role '{role}' found. Treating as user message.")
                 lc_messages.append(HumanMessage(content=f"{role}: {content}"))
         return lc_messages
 

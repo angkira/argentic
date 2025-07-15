@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Union, List, Tuple
 
 from argentic.core.logger import LogLevel, get_logger, parse_log_level
 from argentic.core.messager.messager import Messager
+from argentic.core.protocol.message import BaseMessage
 from argentic.core.protocol.task import (
     TaskMessage,
     TaskResultMessage,
@@ -90,8 +91,21 @@ class ToolManager:
             handler.setLevel(self.log_level.value)
         self.logger.info(f"ToolManager log level set to {self.log_level.name}")
 
-    async def _handle_result_message(self, msg: TaskResultMessage):
+    async def _handle_result_message(self, msg: BaseMessage):
+        # Log immediately when message arrives
+        self.logger.debug(
+            f"_handle_result_message called with message type: {type(msg)}, task_id: {getattr(msg, 'task_id', 'unknown')}"
+        )
+
+        if not isinstance(msg, (TaskResultMessage, TaskErrorMessage)):
+            self.logger.warning(
+                f"Incorrect message type passed to _handle_result_message: {type(msg)}. Expected TaskResultMessage or TaskErrorMessage."
+            )
+            return
+
+        self.logger.debug(f"About to acquire _result_lock for task_id: {msg.task_id}")
         async with self._result_lock:
+            self.logger.debug(f"Acquired _result_lock for task_id: {msg.task_id}")
             task_id = msg.task_id
             if task_id in self._pending_tasks:
                 future = self._pending_tasks.pop(task_id)
@@ -104,8 +118,14 @@ class ToolManager:
                     )
             else:
                 self.logger.warning(f"Received result for unknown or timed-out task {task_id}.")
+        self.logger.debug(f"Released _result_lock for task_id: {msg.task_id}")
 
-    async def _handle_register_tool(self, reg_msg: RegisterToolMessage):
+    async def _handle_register_tool(self, reg_msg: BaseMessage):
+        if not isinstance(reg_msg, RegisterToolMessage):
+            self.logger.warning(
+                f"Incorrect message type passed to _handle_register_tool: {type(reg_msg)}"
+            )
+            return
         tool_id = str(uuid4())
 
         tool_name = reg_msg.tool_name
@@ -129,20 +149,24 @@ class ToolManager:
 
         result_topic = f"{self.tool_response_topic_base}/{tool_id}"
 
+        # Subscribe to both TaskResultMessage and TaskErrorMessage on the same topic
         await self.messager.subscribe(
             result_topic,
             self._handle_result_message,
             message_cls=TaskResultMessage,
         )
+        await self.messager.subscribe(
+            result_topic,
+            self._handle_result_message,
+            message_cls=TaskErrorMessage,
+        )
         self.logger.info(
-            f"Registered tool '{tool_name}' (ID: {tool_id}). Subscribed to {result_topic} for results."
+            f"Registered tool '{tool_name}' (ID: {tool_id}). Subscribed to {result_topic} for results (TaskResultMessage and TaskErrorMessage)."
         )
 
         confirmation_msg = ToolRegisteredMessage(
             tool_id=tool_id,
             tool_name=tool_name,
-            status="registered",
-            message=f"Tool '{tool_name}' registered successfully by agent.",
             source=self.messager.client_id,
         )
         await self.messager.publish(self.status_topic, confirmation_msg)
@@ -152,19 +176,26 @@ class ToolManager:
 
     async def _handle_unregister_tool(self, unreg_msg: UnregisterToolMessage):
         tool_id = unreg_msg.tool_id
+        result_topic = None
+        tool_info = None
+
         async with self._result_lock:
             if tool_id in self.tools_by_id:
                 tool_info = self.tools_by_id.pop(tool_id)
                 if tool_info["name"] in self.tools_by_name:
                     del self.tools_by_name[tool_info["name"]]
-
                 result_topic = f"{self.tool_response_topic_base}/{tool_id}"
-                await self.messager.unsubscribe(result_topic)
-                self.logger.info(
-                    f"Unregistered tool '{tool_info['name']}' (ID: {tool_id}). Unsubscribed from {result_topic}."
-                )
             else:
                 self.logger.warning(f"Attempted to unregister unknown tool ID: {tool_id}")
+                return
+
+        # Unsubscribe outside of lock to avoid blocking other operations
+        # Tool requested unregistration, so it's shutting down
+        if result_topic and tool_info:
+            await self.messager.unsubscribe(result_topic)
+            self.logger.info(
+                f"Unregistered tool '{tool_info['name']}' (ID: {tool_id}). Unsubscribed from {result_topic}."
+            )
 
     async def execute_tool(
         self,
@@ -200,7 +231,9 @@ class ToolManager:
             source=self.messager.client_id,
         )
 
-        future = asyncio.Future()
+        # Create the future explicitly on the current event loop to avoid accidental binding issues
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
         async with self._result_lock:
             self._pending_tasks[task_id] = future
 
@@ -212,15 +245,33 @@ class ToolManager:
                 f"Sent task message to {task_topic} (tool: {actual_tool_name}, task_id: {task_id}, timeout: {effective_timeout}s)"
             )
 
-            result_message: TaskResultMessage = await asyncio.wait_for(
-                future, timeout=effective_timeout
+            self.logger.debug(
+                f"About to wait for result with timeout {effective_timeout}s for task {task_id}"
             )
+            try:
+                # Wait directly on the future; this yields control to the event loop
+                # allowing incoming MQTT messages (including our result) to be processed
+                result_message: Union[TaskResultMessage, TaskErrorMessage] = await asyncio.wait_for(
+                    future, timeout=effective_timeout
+                )
+                self.logger.debug(
+                    f"Got result for task {task_id}: {getattr(result_message, 'status', 'unknown')}"
+                )
+            except asyncio.TimeoutError:
+                # Timeout occurred – cancel the future so late results don't raise warnings
+                self.logger.warning(
+                    f"Timeout occurred for task {task_id}, cancelling future after {effective_timeout}s"
+                )
+                future.cancel()
+                raise
 
-            if result_message.status not in [
+            if isinstance(result_message, TaskResultMessage) and result_message.status not in [
                 TaskStatus.FAILED,
                 TaskStatus.ERROR,
                 TaskStatus.TIMEOUT,
             ]:
+                # For successful TaskResultMessage instances we nullify the error field –
+                # TaskErrorMessage always requires an error string, so we skip modification
                 result_message.error = None
             return result_message
 
@@ -228,9 +279,11 @@ class ToolManager:
             self.logger.warning(
                 f"Tool '{actual_tool_name}' timed out after {effective_timeout}s (task_id: {task_id})."
             )
-            async with self._result_lock:
-                if task_id in self._pending_tasks:
-                    self._pending_tasks.pop(task_id)
+            # NOTE: Не удаляем future из _pending_tasks — поздний результат
+            # всё ещё может прийти и будет корректно обработан.
+            self.logger.debug(
+                f"Future for task {task_id} left in _pending_tasks to allow late result processing."
+            )
             return TaskErrorMessage(
                 task_id=task_id,
                 tool_id=tool_id,
@@ -253,7 +306,9 @@ class ToolManager:
                 tool_name=actual_tool_name,
                 status=TaskStatus.FAILED,
                 error=str(e),
-                traceback=traceback.format_exc() if self.log_level <= LogLevel.DEBUG else None,
+                traceback=(
+                    traceback.format_exc() if self.log_level.value <= LogLevel.DEBUG.value else None
+                ),
                 arguments=arguments,
             )
 

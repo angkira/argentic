@@ -1,4 +1,4 @@
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Dict, Type
 import importlib
 
 from argentic.core.messager.protocols import MessagerProtocol
@@ -6,36 +6,61 @@ from argentic.core.protocol.message import BaseMessage
 
 from .base_definitions import (
     BaseDriver,
-    DriverConfig,
     MessageHandler,
-)  # Import for __all__ and create_driver type hints
+)
+from .configs import (
+    MQTTDriverConfig,
+    RedisDriverConfig,
+    KafkaDriverConfig,
+    RabbitMQDriverConfig,
+    BaseDriverConfig,
+)
 
 
-# Mapping of protocols to module paths and driver class names
-_DRIVER_INFO = {
-    MessagerProtocol.MQTT: ("argentic.core.messager.drivers.MQTTDriver", "MQTTDriver"),
-    MessagerProtocol.REDIS: ("argentic.core.messager.drivers.RedisDriver", "RedisDriver"),
-    MessagerProtocol.KAFKA: ("argentic.core.messager.drivers.KafkaDriver", "KafkaDriver"),
-    MessagerProtocol.RABBITMQ: ("argentic.core.messager.drivers.RabbitMQDriver", "RabbitMQDriver"),
+_DRIVER_MAPPING: Dict[MessagerProtocol, tuple[str, Type[BaseDriverConfig]]] = {
+    MessagerProtocol.MQTT: ("MQTTDriver", MQTTDriverConfig),
+    MessagerProtocol.REDIS: ("RedisDriver", RedisDriverConfig),
+    MessagerProtocol.KAFKA: ("KafkaDriver", KafkaDriverConfig),
+    MessagerProtocol.RABBITMQ: ("RabbitMQDriver", RabbitMQDriverConfig),
+}
+
+_DRIVER_MODULES = {
+    "MQTTDriver": "argentic.core.messager.drivers.MQTTDriver",
+    "RedisDriver": "argentic.core.messager.drivers.RedisDriver",
+    "KafkaDriver": "argentic.core.messager.drivers.KafkaDriver",
+    "RabbitMQDriver": "argentic.core.messager.drivers.RabbitMQDriver",
 }
 
 
-def create_driver(protocol: MessagerProtocol, config: DriverConfig) -> BaseDriver:
+def create_driver(protocol: MessagerProtocol, config_data: dict) -> BaseDriver:
     """Factory: dynamically import only the requested driver"""
-    info = _DRIVER_INFO.get(protocol)
+    mapping = _DRIVER_MAPPING.get(protocol)
 
-    if not info:
+    if not mapping:
         raise ValueError(f"Unsupported protocol: {protocol}")
-    module_path, class_name = info
-    module = importlib.import_module(module_path)
-    driver_cls = getattr(module, class_name)
 
+    driver_name, config_class = mapping
+    module_path = _DRIVER_MODULES[driver_name]
+    try:
+        module = importlib.import_module(module_path)
+        driver_cls = getattr(module, driver_name)
+    except (ImportError, AttributeError) as e:
+        raise ImportError(
+            f"Could not import or find {driver_name} from {module_path}. "
+            f"Ensure the driver and its dependencies are correctly installed."
+        ) from e
+
+    config = config_class(**config_data)
     return driver_cls(config)
 
 
 __all__ = [
     "create_driver",
-    "BaseDriver",  # Explicitly export BaseDriver, DriverConfig, MessageHandler
-    "DriverConfig",
+    "BaseDriver",
     "MessageHandler",
+    "BaseDriverConfig",
+    "MQTTDriverConfig",
+    "RedisDriverConfig",
+    "KafkaDriverConfig",
+    "RabbitMQDriverConfig",
 ]

@@ -1,12 +1,12 @@
 import time
 import asyncio
-from typing import Dict, Optional, Union, Any, Type
+from typing import Dict, Optional, Union, Any, Type, List
 import ssl
 
 from pydantic import ValidationError
 
 from argentic.core.messager.drivers import create_driver
-from argentic.core.messager.drivers.base_definitions import DriverConfig, MessageHandler
+from argentic.core.messager.drivers.base_definitions import MessageHandler
 
 from argentic.core.logger import get_logger, LogLevel, parse_log_level
 from argentic.core.messager.protocols import MessagerProtocol
@@ -95,18 +95,31 @@ class Messager:
                 self.logger.error(f"Failed to configure TLS parameters: {e}", exc_info=True)
                 raise ValueError(f"Invalid TLS configuration: {e}") from e
 
-        # Instantiate protocol driver
-        cfg = DriverConfig(
-            url=broker_address,
-            port=port,
-            user=username,
-            password=password,
-            token=None,
-            client_id=self.client_id,
+        # Prepare driver config
+        config_data = {
+            "url": broker_address,
+            "port": port,
+            "user": username,
+            "password": password,
+            "client_id": self.client_id,
+            "keepalive": keepalive,
             **driver_kwargs,
-        )
+        }
 
-        self._driver = create_driver(protocol, cfg)
+        self._driver = create_driver(protocol, config_data)
+
+        # ------------------------------------------------------------------
+        # Internal registry of handlers per topic. This allows us to attach
+        # *multiple* high-level handlers to the same MQTT topic while issuing
+        # only ONE subscription to the underlying driver. Each incoming
+        # payload is then dispatched to every registered (handler,
+        # message_cls) pair.  This prevents the "second subscription
+        # overwrites the first" broker behaviour from dropping messages.
+        # ------------------------------------------------------------------
+        self._topic_handlers: Dict[str, List[tuple[MessageHandler, type]]] = {}
+        # Store the dispatcher adapter we created for each topic so we can
+        # cleanly unsubscribe later if needed.
+        self._topic_dispatchers: Dict[str, MessageHandler] = {}
 
     def is_connected(self) -> bool:
         """Check if the client is currently connected.
@@ -169,78 +182,88 @@ class Messager:
             message_cls: Message class for parsing received payloads
             **kwargs: Additional arguments passed to the underlying driver
         """
+
         self.logger.info(
-            f"Subscribing to topic: {topic} with handler: {handler.__name__}, "
-            f"message_cls: {message_cls.__name__}"
+            f"Registering handler {handler.__name__} (cls={message_cls.__name__}) for topic '{topic}'"
         )
 
-        # Create a handler that validates message type and parses accordingly
-        async def handler_adapter(payload: BaseMessage) -> None:
-            if message_cls is not BaseMessage:
-                # Check if the message type matches what we expect
-                expected_type = None
+        # Lazily create the dispatcher for this topic on first registration
+        if topic not in self._topic_handlers:
+            self._topic_handlers[topic] = []
 
-                # Method 1: Try to get type from Literal annotations (for real message classes)
-                if hasattr(message_cls, "__annotations__"):
-                    type_annotation = message_cls.__annotations__.get("type")
-                    if (
-                        type_annotation
-                        and hasattr(type_annotation, "__args__")
-                        and type_annotation.__args__
-                    ):
-                        expected_type = type_annotation.__args__[0]
+            async def _dispatcher(payload: BaseMessage) -> None:
+                """Dispatch an incoming BaseMessage to all registered
+                (handler, message_cls) pairs for this topic."""
 
-                # Method 2: Try to get type from class field defaults (for test classes)
-                if expected_type is None:
-                    # Try to get the default value from the class
-                    if hasattr(message_cls, "model_fields"):
-                        # Pydantic v2 style
-                        type_field = message_cls.model_fields.get("type")
-                        if type_field and hasattr(type_field, "default"):
-                            expected_type = type_field.default
+                # Create a snapshot of handlers to avoid mutation-during-iter
+                for _handler, _cls in list(self._topic_handlers.get(topic, [])):
+                    if _cls is not BaseMessage:
+                        expected_type = None
+
+                        # 1️⃣ Literal annotation check
+                        if hasattr(_cls, "__annotations__"):
+                            type_annotation = _cls.__annotations__.get("type")
+                            if (
+                                type_annotation
+                                and hasattr(type_annotation, "__args__")
+                                and type_annotation.__args__
+                            ):
+                                expected_type = type_annotation.__args__[0]
+
+                        # 2️⃣ Default field value fallback
+                        if expected_type is None:
+                            model_fields = getattr(_cls, "model_fields", None)
+                            if model_fields is not None:
+                                type_field = (
+                                    model_fields.get("type")
+                                    if isinstance(model_fields, dict)
+                                    else None
+                                )
+                                if type_field and hasattr(type_field, "default"):
+                                    expected_type = type_field.default
+                            else:
+                                expected_type = getattr(_cls, "type", None)
+
+                        if expected_type and payload.type != expected_type:
+                            # Not the right message type for this handler – skip
+                            continue
+
+                        try:
+                            original_json = getattr(payload, "_original_json", None)
+                            validate_json = getattr(_cls, "model_validate_json", None)
+                            if original_json and callable(validate_json):
+                                specific_msg = validate_json(original_json)
+                            else:
+                                # Fallback to generic model_validate (runtime checked)
+                                specific_msg = getattr(_cls, "model_validate")(payload.model_dump())
+
+                            await _handler(specific_msg)  # type: ignore[arg-type]
+                        except ValidationError:
+                            # Silent skip if validation fails – another handler might match
+                            continue
+                        except Exception as exc:
+                            self.logger.error(
+                                f"Error in handler {_handler.__name__} for topic '{topic}': {exc}",
+                                exc_info=True,
+                            )
                     else:
-                        # Fallback: try to get from class attribute
-                        expected_type = getattr(message_cls, "type", None)
+                        # Generic BaseMessage handler – forward as-is
+                        try:
+                            await _handler(payload)
+                        except Exception as exc:
+                            self.logger.error(
+                                f"Error in handler {_handler.__name__} for topic '{topic}': {exc}",
+                                exc_info=True,
+                            )
 
-                # If we have an expected type and it doesn't match, ignore this message
-                if expected_type and payload.type != expected_type:
-                    self.logger.debug(
-                        f"Message type '{payload.type}' doesn't match expected '{expected_type}' for {message_cls.__name__}"
-                    )
-                    return
+            # Save dispatcher so we can unsubscribe later
+            self._topic_dispatchers[topic] = _dispatcher
 
-                # Try to parse the message as the specific type
-                try:
-                    # Use the original JSON if available, otherwise fall back to model_dump
-                    original_json = getattr(payload, "_original_json", None)
-                    if original_json:
-                        specific = message_cls.model_validate_json(original_json)
-                    else:
-                        # Fallback to converting from BaseMessage
-                        raw_data = payload.model_dump()
-                        specific = message_cls.model_validate(raw_data)
+            # Only the FIRST registration performs the low-level subscribe
+            await self._driver.subscribe(topic, _dispatcher, **kwargs)
 
-                    await handler(specific)
-                    return
-                except ValidationError as e:
-                    # Only log errors if it's not just a type mismatch
-                    errors = e.errors()
-                    fields = {err.get("loc", (None,))[0] for err in errors}
-                    if fields != {"type"}:
-                        self.logger.error(
-                            f"Failed to parse message to {message_cls.__name__}: {e}", exc_info=True
-                        )
-                    return
-                except Exception as e:
-                    self.logger.error(
-                        f"Failed to parse message to {message_cls.__name__}: {e}", exc_info=True
-                    )
-                    return
-
-            # Call handler for generic BaseMessage subscription
-            await handler(payload)
-
-        await self._driver.subscribe(topic, handler_adapter, **kwargs)
+        # Always register the (handler, message_cls) pair in local registry
+        self._topic_handlers[topic].append((handler, message_cls))
 
     async def unsubscribe(self, topic: str) -> None:
         """Unsubscribe from a previously subscribed topic.

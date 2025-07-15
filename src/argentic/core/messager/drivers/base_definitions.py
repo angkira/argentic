@@ -1,32 +1,20 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Coroutine, Optional, Type
+from typing import Any, Callable, Coroutine, Optional, Type, TypeVar, Generic
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from argentic.core.protocol.message import BaseMessage
-from argentic.core.messager.protocols import MessagerProtocol
-
-
-class DriverConfig(BaseModel):
-    url: str = Field(..., description="Broker hostname or URL")
-    port: int = Field(..., description="Broker port")
-    user: Optional[str] = Field(None, description="Username for auth")
-    password: Optional[str] = Field(None, description="Password for auth")
-    token: Optional[str] = Field(None, description="Token for auth, if applicable")
-    client_id: Optional[str] = Field(None, description="Client ID for the connection")
-    keepalive: Optional[int] = Field(60, description="Keep-alive interval for the connection")
-    virtualhost: Optional[str] = Field(None, description="Virtual host for RabbitMQ")
-    group_id: Optional[str] = Field(None, description="Consumer group ID for Kafka")
-    auto_offset_reset: Optional[str] = Field(None, description="Offset reset policy for Kafka")
 
 
 MessageHandler = Callable[[BaseMessage], Coroutine[Any, Any, None]]
 
+T_DriverConfig = TypeVar("T_DriverConfig", bound=BaseModel)
 
-class BaseDriver(ABC):
+
+class BaseDriver(ABC, Generic[T_DriverConfig]):
     """Abstract base class for all messaging drivers."""
 
-    def __init__(self, config: DriverConfig):
-        self.config = config
+    def __init__(self, config: T_DriverConfig):
+        self.config: T_DriverConfig = config
 
     @abstractmethod
     async def connect(self) -> bool:
