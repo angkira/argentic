@@ -66,12 +66,19 @@ class Agent:
         messager: Messager,
         log_level: Union[str, LogLevel] = LogLevel.INFO,
         register_topic: str = "agent/tools/register",
+        tool_call_topic_base: str = "agent/tools/call",
+        tool_response_topic_base: str = "agent.tools.response",
+        status_topic: str = "agent/status/info",
         answer_topic: str = "agent/response/answer",
+        llm_response_topic: Optional[str] = None,
+        tool_result_topic: Optional[str] = None,
         system_prompt: Optional[str] = None,
     ):
         self.llm = llm
         self.messager = messager
         self.answer_topic = answer_topic
+        self.llm_response_topic = llm_response_topic
+        self.tool_result_topic = tool_result_topic
         self.raw_template: Optional[str] = None
         self.system_prompt = system_prompt  # Store the system prompt
 
@@ -84,7 +91,12 @@ class Agent:
 
         # Initialize the async ToolManager (private)
         self._tool_manager = ToolManager(
-            messager, log_level=self.log_level, register_topic=register_topic
+            messager,
+            log_level=self.log_level,
+            register_topic=register_topic,
+            tool_call_topic_base=tool_call_topic_base,
+            tool_response_topic_base=tool_response_topic_base,
+            status_topic=status_topic,
         )
 
         # Initialize Langchain output parsers
@@ -324,19 +336,23 @@ HANDLING TOOL RESULTS:
         for outcome in execution_outcomes:
             if isinstance(outcome, (TaskResultMessage, TaskErrorMessage)):
                 processed_outcomes.append(outcome)
+                if self.tool_result_topic:
+                    await self.messager.publish(self.tool_result_topic, outcome)
             else:
                 self.logger.error(f"Unexpected outcome type from ToolManager: {type(outcome)}")
                 # Create a generic error message with direct fields + data=None
-                processed_outcomes.append(
-                    TaskErrorMessage(
-                        tool_id=getattr(outcome, "tool_id", "unknown_id"),
-                        tool_name=getattr(outcome, "tool_name", "unknown_name"),
-                        task_id=getattr(outcome, "task_id", "unknown_task_id"),
-                        error=f"Unexpected outcome type from ToolManager: {type(outcome)}",
-                        source=MessageSource.AGENT,
-                        data=None,
-                    )
+                error_msg = TaskErrorMessage(
+                    tool_id=getattr(outcome, "tool_id", "unknown_id"),
+                    tool_name=getattr(outcome, "tool_name", "unknown_name"),
+                    task_id=getattr(outcome, "task_id", "unknown_task_id"),
+                    error=f"Unexpected outcome type from ToolManager: {type(outcome)}",
+                    source=MessageSource.AGENT,
+                    data=None,
                 )
+                processed_outcomes.append(error_msg)
+                if self.tool_result_topic:
+                    await self.messager.publish(self.tool_result_topic, error_msg)
+
         return processed_outcomes, any_errors_from_manager
 
     async def query(
@@ -403,6 +419,8 @@ HANDLING TOOL RESULTS:
             llm_response_msg = AgentLLMResponseMessage(
                 raw_content=llm_response_raw_text, source=MessageSource.LLM, data=None
             )
+            if self.llm_response_topic:
+                await self.messager.publish(self.llm_response_topic, llm_response_msg)
 
             # Use Langchain parser to parse the response
             validated_response = await self._parse_llm_response_with_langchain(

@@ -101,6 +101,11 @@ async def main():
     try:
         with open(args.config_path, "r") as f:
             config = yaml.safe_load(f)
+        if not isinstance(config, dict):
+            logger.critical(
+                f"Configuration file is empty or invalid, expected a dictionary: {args.config_path}"
+            )
+            return
     except FileNotFoundError:
         logger.critical(f"Configuration file not found: {args.config_path}")
         return
@@ -143,7 +148,15 @@ async def main():
     # Initialize Agent with topics from config
     tools_cfg = topic_cfg.get("tools", {})
     register_topic = tools_cfg.get("register", "agent/tools/register")
+    tool_call_topic_base = tools_cfg.get("call_base", "agent/tools/call")
+    tool_response_topic_base = tools_cfg.get("response_base", "agent/tools/response")
+    status_topic = tools_cfg.get("status", "agent/status/info")
+
     answer_topic = topic_cfg.get("responses", {}).get("answer", "agent/response/answer")
+
+    agent_events_cfg = topic_cfg.get("agent_events", {})
+    llm_response_topic = agent_events_cfg.get("llm_response")
+    tool_result_topic = agent_events_cfg.get("tool_result")
 
     # Extract system prompt from config (optional)
     agent_cfg = config.get("agent", {})
@@ -159,7 +172,12 @@ async def main():
         messager=messager,
         log_level=log_level_enum,  # Use the enum parsed from args
         register_topic=register_topic,
+        tool_call_topic_base=tool_call_topic_base,
+        tool_response_topic_base=tool_response_topic_base,
+        status_topic=status_topic,
         answer_topic=answer_topic,  # Pass answer_topic directly
+        llm_response_topic=llm_response_topic,
+        tool_result_topic=tool_result_topic,
         system_prompt=system_prompt,  # Pass system prompt from config
     )
     logger.info("Agent initialized.")
