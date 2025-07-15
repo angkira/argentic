@@ -3,6 +3,15 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import sys
 import os
 
+try:
+    import aioredis  # noqa: F401
+except Exception:  # pragma: no cover
+    import pytest as _pytest
+
+    _pytest.skip(
+        "aioredis dependency is missing – skipping Redis driver tests.", allow_module_level=True
+    )
+
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
 

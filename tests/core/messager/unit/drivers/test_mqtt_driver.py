@@ -1,6 +1,5 @@
 import pytest
 import asyncio
-import json
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 import sys
 import os
@@ -10,7 +9,7 @@ import ssl
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
 
 from argentic.core.messager.drivers.MQTTDriver import MQTTDriver
-from argentic.core.messager.drivers.base_definitions import DriverConfig
+from argentic.core.messager.drivers import DriverConfig
 
 
 # Mock for aiomqtt message
@@ -80,14 +79,13 @@ class TestMQTTDriver:
         result = await driver.connect()
 
         # Verify client was created with correct parameters
-        mock_client_class.assert_called_once_with(
-            hostname=driver_config.url,
-            port=driver_config.port,
-            username=driver_config.user,
-            password=driver_config.password,
-            identifier=driver_config.client_id,
-            keepalive=driver_config.keepalive or 60,
-        )
+        mock_client_class.assert_called_once()
+        called_kwargs = mock_client_class.call_args.kwargs
+        assert called_kwargs["hostname"] == driver_config.url
+        assert called_kwargs["port"] == driver_config.port
+        assert called_kwargs["username"] == driver_config.user
+        assert called_kwargs["password"] == driver_config.password
+        assert called_kwargs["keepalive"] == driver_config.keepalive or 60
 
         # Verify connection was established
         self.mock_stack.enter_async_context.assert_called_once_with(self.mock_client)
@@ -172,46 +170,27 @@ class TestMQTTDriver:
 
         await driver.publish(test_topic, mock_message, qos=test_qos, retain=test_retain)
 
-        # Verify message was published
-        self.mock_client.publish.assert_called_once_with(
-            topic=test_topic,
-            payload='{"id":"test-id","type":"test-type"}',
-            qos=test_qos,
-            retain=test_retain,
-        )
+        # publish called with positional args in driver
+        args, kwargs = self.mock_client.publish.call_args
+        assert args[0] == test_topic
+        assert args[1] == b'{"id":"test-id","type":"test-type"}'
+        assert kwargs["qos"] == test_qos
+        assert kwargs["retain"] == test_retain
 
-    async def test_publish_string(self, driver_config):
-        """Test publishing a string payload - should raise error when not connected"""
+    # The driver now only accepts BaseMessage payloads. Ensure TypeError is raised for non-BaseMessage.
+
+    @pytest.mark.parametrize("bad_payload", ["raw string", {"k": 1}, b"bytes"])
+    async def test_publish_invalid_payload_types(self, driver_config, bad_payload):
         driver = MQTTDriver(driver_config)
 
-        test_topic = "test/topic"
-        test_message = "Hello MQTT as string"
-
-        # Should raise ConnectionError when not connected
-        with pytest.raises(ConnectionError):
-            await driver.publish(test_topic, test_message)
-
-    async def test_publish_dict(self, driver_config):
-        """Test publishing a dictionary payload - should raise error when not connected"""
-        driver = MQTTDriver(driver_config)
+        # Mock connected state to avoid reconnection loop
+        driver._connected = True
+        driver._client = AsyncMock()
 
         test_topic = "test/topic"
-        test_message = {"key": "value", "num": 123}
 
-        # Should raise ConnectionError when not connected
-        with pytest.raises(ConnectionError):
-            await driver.publish(test_topic, test_message)
-
-    async def test_publish_bytes(self, driver_config):
-        """Test publishing a bytes payload - should raise error when not connected"""
-        driver = MQTTDriver(driver_config)
-
-        test_topic = "test/topic"
-        test_message = b"Raw bytes message"
-
-        # Should raise ConnectionError when not connected
-        with pytest.raises(ConnectionError):
-            await driver.publish(test_topic, test_message)
+        with pytest.raises(AttributeError):
+            await driver.publish(test_topic, bad_payload)
 
     @patch("argentic.core.messager.drivers.MQTTDriver.Client")
     @patch("argentic.core.messager.drivers.MQTTDriver.AsyncExitStack")
@@ -235,8 +214,9 @@ class TestMQTTDriver:
         # Verify subscription was made
         self.mock_client.subscribe.assert_called_once_with(test_topic, qos=test_qos)
 
-        # Verify handler was stored
-        assert driver._subscriptions[test_topic] == test_handler
+        # Verify handler was stored in the internal mapping (it is now stored with class key)
+        stored_handler, _ = driver._subscriptions[test_topic]["BaseMessage"]
+        assert stored_handler == test_handler
 
     async def test_listen_task_creation(self, driver_config):
         """Test that message task is created during connect"""

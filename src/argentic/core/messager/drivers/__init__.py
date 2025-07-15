@@ -14,6 +14,7 @@ from .configs import (
     KafkaDriverConfig,
     RabbitMQDriverConfig,
     BaseDriverConfig,
+    DriverConfig,
 )
 
 
@@ -63,4 +64,5 @@ __all__ = [
     "RedisDriverConfig",
     "KafkaDriverConfig",
     "RabbitMQDriverConfig",
+    "DriverConfig",
 ]

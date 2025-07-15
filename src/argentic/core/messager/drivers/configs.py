@@ -42,3 +42,27 @@ class RabbitMQDriverConfig(BaseDriverConfig):
     user: Optional[str] = None
     password: Optional[str] = None
     virtualhost: Optional[str] = Field("/", description="Virtual host for RabbitMQ")
+
+
+# Generic config for tests (legacy compatibility)
+
+
+class DriverConfig(BaseDriverConfig):
+    url: str
+    port: int
+
+    user: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+    client_id: Optional[str] = None
+
+    keepalive: int = 600
+    version: ProtocolVersion = ProtocolVersion.V5
+
+    group_id: Optional[str] = None
+    auto_offset_reset: Optional[str] = "earliest"
+
+    virtualhost: Optional[str] = "/"
+
+    class Config:
+        extra = "allow"
