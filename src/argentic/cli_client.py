@@ -20,62 +20,48 @@ from argentic.core.protocol.message import (
 from argentic.core.protocol.task import TaskResultMessage, TaskErrorMessage
 from argentic.core.logger import LogLevel, get_logger
 
-CONFIG_PATH = "config.yaml"
-config: Dict[str, Any] = {}
-try:
-    with open(CONFIG_PATH, "r") as f:
-        loaded_config = yaml.safe_load(f)
-        if isinstance(loaded_config, dict):
-            config = loaded_config
-        else:
-            print(f"CLI Error: Configuration in '{CONFIG_PATH}' is not a valid dictionary.")
-            sys.exit(1)
-    print(f"CLI: Configuration loaded from '{CONFIG_PATH}'.")
-except FileNotFoundError:
-    print(f"CLI Error: Configuration file '{CONFIG_PATH}' not found.")
-    sys.exit(1)
-except yaml.YAMLError as e:
-    print(f"CLI Error: Parsing configuration file '{CONFIG_PATH}': {e}")
-    sys.exit(1)
-
-
-# --- MESSAGING Configuration with robust access ---
-def get_config_value(cfg_dict: dict, path: str, default: Any = None, required: bool = True) -> Any:
-    keys = path.split(".")
-    val = cfg_dict
-    for key in keys:
-        if isinstance(val, dict) and key in val:
-            val = val[key]
-        else:
-            if required:
-                print(f"CLI Error: Missing required config: '{path}' in '{CONFIG_PATH}'.")
-                sys.exit(1)
-            return default
-    return val
-
-
-messaging_config = get_config_value(config, "messaging", {}, required=True)
-MESSAGING_BROKER: str = get_config_value(messaging_config, "broker_address", required=True)
-MESSAGING_PORT: int = get_config_value(messaging_config, "port", 1883, required=False)
-MESSAGING_KEEPALIVE: int = get_config_value(messaging_config, "keepalive", 60, required=False)
-MESSAGING_CLIENT_ID: str = f"{messaging_config.get('cli_client_id', 'cli_client')}_{uuid.uuid4()}"
-
-MESSAGING_TOPIC_ASK: str = get_config_value(config, "topics.commands.ask_question", required=True)
-MESSAGING_TOPIC_ANSWER: str = get_config_value(config, "topics.responses.answer", required=True)
-MESSAGING_PUB_LOG: Optional[str] = get_config_value(config, "topics.log", required=False)
-
-MESSAGING_TOPIC_AGENT_LLM_RESPONSE: Optional[str] = get_config_value(
-    config, "topics.agent_events.llm_response", required=False
-)
-MESSAGING_TOPIC_AGENT_TOOL_RESULT: Optional[str] = get_config_value(
-    config, "topics.agent_events.tool_result", required=False
-)
-
-logger = get_logger("CliClient", LogLevel.INFO)
-
 
 class CliClient(Client):
-    def __init__(self):
+    def __init__(self, config_path: str = "config.yaml", log_level: str = "INFO"):
+        self.config_path = config_path
+        self.log_level_str = log_level
+        self.config = self._load_config(config_path)
+
+        log_level_enum = LogLevel[log_level.upper()]
+        self.logger = get_logger("CliClient", log_level_enum)
+
+        # --- MESSAGING Configuration with robust access ---
+        messaging_config = self._get_config_value(self.config, "messaging", {}, required=True)
+        self.messaging_broker: str = self._get_config_value(
+            messaging_config, "broker_address", required=True
+        )
+        self.messaging_port: int = self._get_config_value(
+            messaging_config, "port", 1883, required=False
+        )
+        self.messaging_keepalive: int = self._get_config_value(
+            messaging_config, "keepalive", 60, required=False
+        )
+        messaging_client_id: str = (
+            f"{messaging_config.get('cli_client_id', 'cli_client')}_{uuid.uuid4()}"
+        )
+
+        self.ask_topic: str = self._get_config_value(
+            self.config, "topics.commands.ask_question", required=True
+        )
+        self.messaging_topic_answer: str = self._get_config_value(
+            self.config, "topics.responses.answer", required=True
+        )
+        self.messaging_pub_log: Optional[str] = self._get_config_value(
+            self.config, "topics.log", required=False
+        )
+
+        self.messaging_topic_agent_llm_response: Optional[str] = self._get_config_value(
+            self.config, "topics.agent_events.llm_response", required=False
+        )
+        self.messaging_topic_agent_tool_result: Optional[str] = self._get_config_value(
+            self.config, "topics.agent_events.tool_result", required=False
+        )
+
         # Initialize a dummy Messager for the parent class init, it will be replaced in initialize()
         # This is a workaround for the base Client expecting a Messager instance directly in __init__
         # while CliClient needs async initialization for the real Messager.
@@ -85,9 +71,8 @@ class CliClient(Client):
             client_id=f"dummy_client_{uuid.uuid4()}",  # Unique dummy client ID
             log_level=LogLevel.CRITICAL,  # Suppress logs from dummy
         )
-        super().__init__(messager=dummy_messager, client_id=MESSAGING_CLIENT_ID)
+        super().__init__(messager=dummy_messager, client_id=messaging_client_id)
 
-        self.ask_topic = MESSAGING_TOPIC_ASK
         self._shutdown_flag = asyncio.Event()
         self._input_task: Optional[asyncio.Task] = None
         self._cleanup_started = False
@@ -97,12 +82,45 @@ class CliClient(Client):
 
         # Will be properly initialized in initialize()
         self.messager: Optional[Messager] = None
-        self.logger = logger
+
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        try:
+            with open(config_path, "r") as f:
+                loaded_config = yaml.safe_load(f)
+                if isinstance(loaded_config, dict):
+                    print(f"CLI: Configuration loaded from '{config_path}'.")
+                    return loaded_config
+                else:
+                    raise ValueError(
+                        f"CLI Error: Configuration in '{config_path}' is not a valid dictionary."
+                    )
+        except FileNotFoundError:
+            raise FileNotFoundError(f"CLI Error: Configuration file '{config_path}' not found.")
+        except yaml.YAMLError as e:
+            raise ValueError(f"CLI Error: Parsing configuration file '{config_path}': {e}")
+
+    def _get_config_value(
+        self, cfg_dict: dict, path: str, default: Any = None, required: bool = True
+    ) -> Any:
+        keys = path.split(".")
+        val = cfg_dict
+        for key in keys:
+            if isinstance(val, dict) and key in val:
+                val = val[key]
+            else:
+                if required:
+                    raise ValueError(
+                        f"CLI Error: Missing required config: '{path}' in '{self.config_path}'."
+                    )
+                return default
+        return val
 
     async def initialize(self):
         """Initialize the client in async context"""
         # Retrieve protocol as string and convert to enum
-        protocol_str: str = get_config_value(messaging_config, "protocol", "mqtt", required=False)
+        protocol_str: str = self._get_config_value(
+            self.config["messaging"], "protocol", "mqtt", required=False
+        )
 
         # Convert string to MessagerProtocol enum with proper type handling
         if protocol_str == "mqtt":
@@ -119,19 +137,19 @@ class CliClient(Client):
         # Create the real Messager instance
         real_messager = Messager(
             protocol=protocol_enum,  # Use the properly typed enum
-            broker_address=MESSAGING_BROKER,
-            port=MESSAGING_PORT,
+            broker_address=self.messaging_broker,
+            port=self.messaging_port,
             client_id=self.client_id,
-            keepalive=MESSAGING_KEEPALIVE,
-            pub_log_topic=MESSAGING_PUB_LOG,
-            log_level=LogLevel.INFO,
+            keepalive=self.messaging_keepalive,
+            pub_log_topic=self.messaging_pub_log,
+            log_level=self.log_level_str,
         )
         self.messager = real_messager  # Assign the real messager
 
         self.answer_received_event = asyncio.Event()
 
         # Create user-specific answer topic
-        self.user_answer_topic = f"{MESSAGING_TOPIC_ANSWER}/{self.user_id}"
+        self.user_answer_topic = f"{self.messaging_topic_answer}/{self.user_id}"
         self.logger.info(f"CLI Client initialized with user_id: {self.user_id}")
         self.logger.info(f"User-specific answer topic: {self.user_answer_topic}")
 
@@ -468,32 +486,36 @@ class CliClient(Client):
             )
             self.logger.info(f"Subscribed to user-specific answer topic: {self.user_answer_topic}")
 
-            if MESSAGING_TOPIC_AGENT_LLM_RESPONSE:
+            if self.messaging_topic_agent_llm_response:
                 self.logger.debug(
-                    f"About to subscribe to LLM response topic: {MESSAGING_TOPIC_AGENT_LLM_RESPONSE}"
+                    "About to subscribe to LLM response topic: "
+                    f"{self.messaging_topic_agent_llm_response}"
                 )
                 # For LLM responses, we might want user-specific topics too, but keeping global for now
                 await self.messager.subscribe(
-                    MESSAGING_TOPIC_AGENT_LLM_RESPONSE,
+                    self.messaging_topic_agent_llm_response,
                     self.handle_agent_llm_thought,
                     message_cls=AgentLLMResponseMessage,
                 )
                 self.logger.info(
-                    f"Subscribed to agent LLM response topic: {MESSAGING_TOPIC_AGENT_LLM_RESPONSE}"
+                    "Subscribed to agent LLM response topic: "
+                    f"{self.messaging_topic_agent_llm_response}"
                 )
 
-            if MESSAGING_TOPIC_AGENT_TOOL_RESULT:
+            if self.messaging_topic_agent_tool_result:
                 self.logger.debug(
-                    f"About to subscribe to tool result topic: {MESSAGING_TOPIC_AGENT_TOOL_RESULT}"
+                    "About to subscribe to tool result topic: "
+                    f"{self.messaging_topic_agent_tool_result}"
                 )
                 # For tool results, we might want user-specific topics too, but keeping global for now
                 await self.messager.subscribe(
-                    MESSAGING_TOPIC_AGENT_TOOL_RESULT,
+                    self.messaging_topic_agent_tool_result,
                     self.handle_agent_tool_result,
                     message_cls=BaseMessage,
                 )
                 self.logger.info(
-                    f"Subscribed to agent tool result topic: {MESSAGING_TOPIC_AGENT_TOOL_RESULT}"
+                    "Subscribed to agent tool result topic: "
+                    f"{self.messaging_topic_agent_tool_result}"
                 )
 
             self.logger.debug("All subscriptions complete, about to show interactive prompt")
@@ -601,6 +623,10 @@ class CliClient(Client):
 
 
 if __name__ == "__main__":
-    cli_client = CliClient()
-    exit_code = 0 if cli_client._start_sync() else 1  # Call the synchronous start method
-    sys.exit(exit_code)
+    try:
+        cli_client = CliClient()
+        exit_code = 0 if cli_client._start_sync() else 1  # Call the synchronous start method
+        sys.exit(exit_code)
+    except (FileNotFoundError, ValueError) as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)

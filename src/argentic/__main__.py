@@ -141,9 +141,13 @@ examples:
         elif args.command == "cli":
             from argentic.cli_client import CliClient
 
-            cli_client = CliClient()
-            exit_code = 0 if cli_client._start_sync() else 1
-            sys.exit(exit_code)
+            try:
+                cli_client = CliClient(config_path=args.config_path, log_level=args.log_level)
+                exit_code = 0 if cli_client._start_sync() else 1
+                sys.exit(exit_code)
+            except (FileNotFoundError, ValueError) as e:
+                print(e, file=sys.stderr)
+                sys.exit(1)
 
         else:
             parser.error(f"Unknown command: {args.command}")
