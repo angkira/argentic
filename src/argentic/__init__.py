@@ -8,6 +8,7 @@ from .core import (
     AskQuestionMessage,
     ModelProvider,
 )
+from .cli_client import CliClient
 from . import core
 from . import services
 
@@ -17,6 +18,7 @@ __all__ = [
     "LLMFactory",
     "AskQuestionMessage",
     "ModelProvider",
+    "CliClient",
     "core",
     "services",
 ]
