@@ -273,6 +273,7 @@ topics:
     register: agent/tools/register
     call: agent/tools/call
     response_base: agent/tools/response
+    status: agent/tools/status
 
   # Subscription mapping
   subscriptions:
