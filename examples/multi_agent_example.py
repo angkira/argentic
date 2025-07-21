@@ -2,7 +2,8 @@ import asyncio
 import os
 import json
 import yaml
-from dotenv import load_dotenv  # Import load_dotenv
+import logging
+from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
 
@@ -11,15 +12,32 @@ from argentic.core.graph.state import AgentState
 from argentic.core.graph.supervisor import Supervisor
 from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
 from argentic.core.messager.messager import Messager
-from argentic.core.protocol.tool import RegisterToolMessage
-from argentic.core.tools.tool_manager import ToolManager  # Corrected import path
+from argentic.core.tools.tool_manager import ToolManager
+
+from email_tool import EmailTool
+from note_creator_tool import NoteCreatorTool
 
 
 async def main():
-    # Load environment variables from .env file
+    # Configure logging FIRST - before any components are initialized
+    # Suppress noisy logs from infrastructure components
+    logging.getLogger("tool_manager").setLevel(logging.ERROR)
+    logging.getLogger("messager").setLevel(logging.ERROR)
+    logging.getLogger("mqtt_driver").setLevel(logging.ERROR)
+    logging.getLogger("google_gemini").setLevel(logging.ERROR)
+    logging.getLogger("email_tool").setLevel(logging.ERROR)
+    logging.getLogger("note_creator").setLevel(logging.ERROR)
+
+    # Keep only agent and supervisor logs visible
+    logging.getLogger("agent").setLevel(logging.INFO)
+    logging.getLogger("supervisor").setLevel(logging.INFO)
+
+    # Load environment variables
     load_dotenv()
 
-    # Load LLM configuration from a minimal config file
+    print("🔧 Logging configured - showing only agent/supervisor logs")
+
+    # Load LLM configuration
     llm_config_path = os.path.join(os.path.dirname(__file__), "config_gemini.yaml")
     with open(llm_config_path, "r") as f:
         llm_full_config = yaml.safe_load(f)
@@ -27,12 +45,10 @@ async def main():
         llm_full_config = {}
     llm_config = llm_full_config.get("llm", {})
     if not isinstance(llm_config, dict):
-        print(
-            "Warning: 'llm' configuration not found or not a dictionary in config_gemini.yaml. Using defaults."
-        )
+        print("Warning: LLM config not found. Using defaults.")
         llm_config = {}
 
-    # Load Messaging configuration from a minimal config file
+    # Load Messaging configuration
     messaging_config_path = os.path.join(os.path.dirname(__file__), "config_messaging.yaml")
     with open(messaging_config_path, "r") as f:
         messaging_full_config = yaml.safe_load(f)
@@ -40,16 +56,13 @@ async def main():
         messaging_full_config = {}
     messaging_config_data = messaging_full_config.get("messaging", {})
     if not isinstance(messaging_config_data, dict):
-        print(
-            "Warning: 'messaging' configuration not found or not a dictionary in config_messaging.yaml. Using defaults."
-        )
+        print("Warning: Messaging config not found. Using defaults.")
         messaging_config_data = {}
 
-    # Initialize LLM (Google Gemini) using config (api_key will be read internally)
-    llm = GoogleGeminiProvider(config=llm_config)  # Corrected instantiation
+    # Initialize LLM
+    llm = GoogleGeminiProvider(config=llm_config)
 
-    # 1. Initialize Messager and ToolManager
-    # Extract individual parameters from messaging_config_data
+    # Initialize Messager and ToolManager
     broker_address = messaging_config_data.get("broker_address", "localhost")
     port = messaging_config_data.get("port", 1883)
     client_id = messaging_config_data.get("client_id", "")
@@ -65,86 +78,131 @@ async def main():
         password=password,
         keepalive=keepalive,
     )
-    tool_manager = ToolManager(messager)  # Initialize ToolManager here
+    tool_manager = ToolManager(messager)
     await messager.connect()
     await tool_manager.async_init()
 
-    print("\n--- Running Multi-Agent Example ---")
+    # Register tools directly with the tool manager
+    email_tool = EmailTool(messager=messager)
+    note_tool = NoteCreatorTool(messager=messager)
 
-    # 2. Initialize Agents
-    # Supervisor Agent
+    # Register tools
+    register_topic = "agent/tools/register"
+    call_topic_base = "agent/tools/call"
+    response_topic_base = "agent/tools/response"
+    status_topic = "agent/status/info"
+
+    await email_tool.register(register_topic, status_topic, call_topic_base, response_topic_base)
+    await note_tool.register(register_topic, status_topic, call_topic_base, response_topic_base)
+
+    # Wait for tools to register
+    await asyncio.sleep(2)
+
+    print("\n🚀 Enhanced Multi-Agent Example")
+    print("================================")
+
+    # Initialize Supervisor with clear workflow prompt
     supervisor = Supervisor(
         llm=llm,
         messager=messager,
-        tool_manager=tool_manager,  # Pass tool_manager
+        tool_manager=tool_manager,
         role="supervisor",
-        system_prompt="Route tasks: 'researcher' for info/data queries, 'coder' for programming. Be direct.",
-        graph_id="my_multi_agent_system",
+        system_prompt=(
+            "Route workflow: "
+            "1. Research requests → 'researcher' "
+            "2. Research results → 'secretary' to save/email "
+            "3. Secretary tool confirmations → end "
+            "No conversation. Just route."
+        ),
+        graph_id="enhanced_multi_agent_system",
     )
 
-    # Worker Agents
-    researcher_prompt = "Research and provide factual information. No fluff."
+    # Create Researcher Agent - focused and complete
+    researcher_prompt = (
+        "You are a researcher. Provide information and analysis ONLY. "
+        "Do NOT use any tools - just provide research content. "
+        "Create complete report using format: TITLE, FINDINGS, CONCLUSION. "
+        "Use your knowledge to create comprehensive research. No tools needed."
+    )
     researcher = Agent(
         llm=llm,
         messager=messager,
+        tool_manager=tool_manager,  # Share the tool manager
         role="researcher",
         system_prompt=researcher_prompt,
-        graph_id="my_multi_agent_system",
-        expected_output_format="text",  # Set for text output
+        graph_id="enhanced_multi_agent_system",
+        expected_output_format="text",
     )
     await researcher.async_init()
 
-    # Coder Agent
-    coder_prompt = "Write code. Include brief comments only when necessary."
-    coder = Agent(
+    # Create Secretary Agent - handles tools explicitly
+    secretary_prompt = (
+        "Execute tools. No talk. "
+        "Given research data: "
+        "1. note_creator_tool - save file "
+        "2. email_tool - send email "
+        "Use tools. Confirm done."
+    )
+    secretary = Agent(
         llm=llm,
         messager=messager,
-        role="coder",
-        system_prompt=coder_prompt,
-        graph_id="my_multi_agent_system",
-        expected_output_format="text",  # Set for text output
+        tool_manager=tool_manager,  # Share the tool manager
+        role="secretary",
+        system_prompt=secretary_prompt,
+        graph_id="enhanced_multi_agent_system",
+        expected_output_format="text",
     )
-    await coder.async_init()
+    await secretary.async_init()
 
-    # 3. Add Workers to the Supervisor
+    # Add agents to supervisor
     supervisor.add_agent(researcher)
-    supervisor.add_agent(coder)
+    supervisor.add_agent(secretary)
 
-    # 4. Compile the Supervisor's graph
+    # Compile the graph
     supervisor.compile()
 
-    # Initial state for the graph
+    # Task: Research and document findings
     initial_state: AgentState = {
-        "messages": [HumanMessage(content="Research the current status of quantum computing.")],
+        "messages": [
+            HumanMessage(
+                content="Research the current status of quantum computing breakthroughs in 2024. "
+                "Save a summary report and email it to john.doe@company.com with subject 'Quantum Computing Update'."
+            )
+        ],
         "next": None,
     }
 
-    # Use supervisor.runnable to stream events
+    # Execute and stream results
     if supervisor.runnable:
         async for event in supervisor.runnable.astream(initial_state):
             for key, value in event.items():
-                if key == "supervisor" or key == "researcher" or key == "coder":
-                    # Print only relevant agent steps
-                    print(f"Node: {key}")
+                if key in ["supervisor", "researcher", "secretary"]:
+                    print(f"\n📋 {key.upper()} WORKING...")
                     if value and "messages" in value and value["messages"]:
                         for msg in value["messages"]:
-                            print(
-                                f"  Message Type: {type(msg).__name__}, Content: {getattr(msg, 'content', getattr(msg, 'raw_content', str(msg)) or 'No content')[:150]}..."
+                            content = getattr(
+                                msg,
+                                "content",
+                                getattr(msg, "raw_content", str(msg)) or "No content",
                             )
+                            # Show truncated content for readability
+                            if len(content) > 150:
+                                content = content[:150] + "..."
+                            print(f"   💬 {content}")
                 elif key == "END":
                     final_messages = value.get("messages", [])
+                    print(f"\n✅ TASK COMPLETED")
                     for msg in final_messages:
-                        print(
-                            f"Final Answer: {getattr(msg, 'content', getattr(msg, 'raw_content', str(msg)) or 'No content')}"
+                        content = getattr(
+                            msg, "content", getattr(msg, "raw_content", str(msg)) or "No content"
                         )
-            print("---")
+                        print(f"   🎯 {content}")
+            print("   " + "-" * 40)
     else:
-        print("Error: Supervisor runnable is not compiled.")
+        print("❌ Error: Supervisor runnable not compiled.")
 
     await messager.disconnect()
 
 
 if __name__ == "__main__":
-    # from dotenv import load_dotenv
-    # load_dotenv()
     asyncio.run(main())

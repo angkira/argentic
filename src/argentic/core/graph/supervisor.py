@@ -146,6 +146,16 @@ class Supervisor(Agent):
 
     def compile(self) -> Any:
         self.logger.info(f"Supervisor '{self.role}': Compiling graph.")
+
+        # Share tools with specific agents that need them
+        self.set_available_tools()
+
+        # Give tools to agents that need them
+        for agent_role, agent in self._agents.items():
+            if hasattr(self, "agent_tools") and len(self.agent_tools) > 0:
+                setattr(agent, "agent_tools", self.agent_tools)
+                self.logger.info(f"Shared {len(self.agent_tools)} tools with {agent_role} agent")
+
         self._graph.set_entry_point("supervisor")
         path_map: Dict[Hashable, str] = {
             agent_role: agent_role for agent_role in self._agents.keys()
@@ -161,6 +171,11 @@ class Supervisor(Agent):
     async def _route(self, state: AgentState) -> str:
         messages: List[LangchainBaseMessage] = state["messages"]
         last_message = messages[-1]
+
+        # Debug logging
+        self.logger.info(
+            f"Routing: {len(messages)} messages, last message type: {type(last_message).__name__}"
+        )
 
         # If this is the initial human message, route to the most appropriate agent
         if len(messages) == 1 and isinstance(last_message, HumanMessage):
@@ -185,44 +200,103 @@ class Supervisor(Agent):
                 )
                 return available_agents[0] if available_agents else "__end__"
 
-        # If we have agent responses, end the conversation
-        # (Agents should provide complete answers, no need for supervisor to process them)
-        if len(messages) > 1 and isinstance(last_message, AIMessage):
-            self.logger.info("Agent has provided response - ending conversation")
-            return "__end__"
+        # If we have agent responses (single AIMessage), use LLM to decide next step
+        if len(messages) == 1 and isinstance(last_message, AIMessage):
+            self.logger.info("Agent has provided response - determining next routing step")
 
-        # Fallback
-        self.logger.info("Unexpected state - ending conversation")
+            # Get the message content for routing decision
+            content = last_message.content if last_message.content else ""
+            if not isinstance(content, str):
+                content = str(content)
+
+            available_agents = list(self._agents.keys())
+            if not available_agents:
+                self.logger.info("No agents available after response, ending conversation")
+                return "__end__"
+
+            try:
+                routing_decision = await self._llm_route_decision(content, available_agents)
+                self.logger.info(f"Next routing decision after agent response: {routing_decision}")
+                return routing_decision
+            except Exception as e:
+                self.logger.error(f"Error in follow-up routing: {e}, ending conversation")
+                return "__end__"
+
+        # If we have ToolMessage responses from multiple messages, check if workflow is complete
+        if isinstance(last_message, ToolMessage) and len(messages) > 2:
+            # Check if we've completed both saving and emailing (the typical workflow)
+            tool_messages = [msg for msg in messages if isinstance(msg, ToolMessage)]
+            if len(tool_messages) >= 2:  # Both note and email tools used
+                self.logger.info("Tool execution workflow completed - ending conversation")
+                return "__end__"
+            else:
+                self.logger.info("Tool execution in progress - continuing workflow")
+                # Fall through to multi-message handling
+
+        # Handle multiple messages where the conversation continues
+        if len(messages) > 1:
+            self.logger.info(
+                f"Multi-message state with {len(messages)} messages - determining next step"
+            )
+
+            # Look at the last few messages to determine context
+            recent_content = []
+            for msg in messages[-3:]:  # Look at last 3 messages for context
+                if hasattr(msg, "content") and msg.content:
+                    if isinstance(msg.content, str):
+                        recent_content.append(msg.content[:100])
+                    else:
+                        recent_content.append(str(msg.content)[:100])
+
+            context = " | ".join(recent_content)
+            available_agents = list(self._agents.keys())
+
+            if not available_agents:
+                self.logger.info("No agents available in multi-message state, ending")
+                return "__end__"
+
+            try:
+                routing_decision = await self._llm_route_decision(context, available_agents)
+                self.logger.info(f"Multi-message routing decision: {routing_decision}")
+                return routing_decision
+            except Exception as e:
+                self.logger.error(f"Error in multi-message routing: {e}, ending conversation")
+                return "__end__"
+
+        # Fallback with more debug info
+        self.logger.info(
+            f"Unexpected state - messages count: {len(messages)}, last message: {type(last_message).__name__}"
+        )
         return "__end__"
 
     async def _llm_route_decision(self, content: str, available_agents: List[str]) -> str:
         """Use LLM to determine which agent should handle the message."""
 
-        # Create routing prompt
-        agent_descriptions = {
-            "researcher": "Handles research tasks, finding information, data analysis, web searches, and knowledge retrieval",
-            "coder": "Handles programming tasks, code development, debugging, script writing, and technical implementation",
-        }
-
+        # Build agent descriptions dynamically from registered agents
         agents_info = []
-        for agent in available_agents:
-            desc = agent_descriptions.get(agent, f"Handles {agent} related tasks")
-            agents_info.append(f"- {agent}: {desc}")
+        for agent_role in available_agents:
+            if agent_role in self._agents:
+                agent = self._agents[agent_role]
+                # Use the agent's system prompt as description, or fallback to role
+                description = (
+                    agent.system_prompt[:100] + "..."
+                    if agent.system_prompt and len(agent.system_prompt) > 100
+                    else (agent.system_prompt or f"Handles {agent_role} tasks")
+                )
+                agents_info.append(f"- {agent_role}: {description}")
+            else:
+                agents_info.append(f"- {agent_role}: Handles {agent_role} tasks")
 
-        routing_prompt = f"""You are a routing assistant. Analyze the following message and determine which agent should handle it.
+        routing_prompt = f"""Route message to appropriate agent:
 
 Available agents:
 {chr(10).join(agents_info)}
 
-Message to route: "{content}"
+Message: "{content}"
 
-Rules:
-1. Choose the most appropriate agent from the available list
-2. If the message is a final answer or conclusion, respond with "__end__"
-3. If unsure or the message needs supervisor analysis, respond with "supervisor"
-4. Respond with ONLY the agent name, nothing else
+Choose the most suitable agent for this message or "__end__" if task is complete.
 
-Agent to route to:"""
+Agent:"""
 
         # Prepare message for LLM
         llm_messages = [{"role": "user", "content": routing_prompt}]
@@ -275,16 +349,28 @@ Agent to route to:"""
         agent_names = list(self._agents.keys()) if self._agents else []
         agent_list = ", ".join(agent_names) if agent_names else "none"
 
+        agent_descriptions = []
+        for role, agent in self._agents.items():
+            desc = (
+                agent.system_prompt[:50] + "..."
+                if agent.system_prompt and len(agent.system_prompt) > 50
+                else (agent.system_prompt or f"handles {role} tasks")
+            )
+            agent_descriptions.append(f"- {role}: {desc}")
+
+        agent_desc_text = (
+            "\n".join(agent_descriptions) if agent_descriptions else "No agents registered"
+        )
+
         return f"""You are a supervisor agent coordinating tasks among specialized agents: {agent_list}
 
 Your role:
-1. Analyze incoming requests and coordinate with specialized agents
-2. Use available tools when needed for direct execution
-3. Synthesize results from agents to provide comprehensive answers
+1. Analyze incoming requests and route to appropriate agents
+2. Use available tools when needed for direct execution  
+3. Coordinate between agents to complete complex tasks
 4. Ensure tasks are completed effectively
 
-Available specialized agents:
-- researcher: Handles research, information gathering, data analysis, and knowledge retrieval
-- coder: Handles programming tasks, development, debugging, and technical implementation
+Available agents:
+{agent_desc_text}
 
 Be direct and efficient in your coordination."""

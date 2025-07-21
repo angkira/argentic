@@ -76,6 +76,7 @@ class Agent:
         self,
         llm: ModelProvider,
         messager: Messager,
+        tool_manager: Optional[ToolManager] = None,
         log_level: Union[str, LogLevel] = LogLevel.INFO,
         register_topic: str = "agent/tools/register",
         tool_call_topic_base: str = "agent/tools/call",
@@ -107,15 +108,21 @@ class Agent:
 
         self.logger = get_logger("agent", self.log_level)
 
-        # Initialize the async ToolManager (private)
-        self._tool_manager = ToolManager(
-            messager,
-            log_level=self.log_level,
-            register_topic=register_topic,
-            tool_call_topic_base=tool_call_topic_base,
-            tool_response_topic_base=tool_response_topic_base,
-            status_topic=status_topic,
-        )
+        # Use provided tool manager or create a new one
+        if tool_manager is not None:
+            self._tool_manager = tool_manager
+            self.logger.info(f"Agent '{self.role}': Using provided tool manager")
+        else:
+            # Initialize the async ToolManager (private)
+            self._tool_manager = ToolManager(
+                messager,
+                log_level=self.log_level,
+                register_topic=register_topic,
+                tool_call_topic_base=tool_call_topic_base,
+                tool_response_topic_base=tool_response_topic_base,
+                status_topic=status_topic,
+            )
+            self.logger.info(f"Agent '{self.role}': Created new tool manager")
 
         # Initialize Langchain output parsers
         self.response_parser = PydanticOutputParser(pydantic_object=LLMResponse)
@@ -350,9 +357,15 @@ class Agent:
         """
         Async initialization for Agent, including tool manager subscriptions.
         """
-        # Subscribe tool manager to registration topics
-        await self._tool_manager.async_init()
-        self.logger.info("Agent: ToolManager initialized via async_init")
+        # Initialize tool manager if not already done
+        try:
+            # Try to call async_init - it's safe to call multiple times
+            await self._tool_manager.async_init()
+            self.logger.info("Agent: ToolManager initialized via async_init")
+        except Exception as e:
+            self.logger.warning(
+                f"Agent: ToolManager async_init error (may be already initialized): {e}"
+            )
 
     async def stop(self) -> None:
         """Stop the agent and clean up resources."""

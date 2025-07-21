@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import asyncio
 from typing import Any, Dict, List, Optional, Union
@@ -347,15 +348,53 @@ class GoogleGeminiProvider(ModelProvider):
 
         try:
             return await _make_api_call()
+        except ResourceExhausted as e:
+            # Handle quota/rate limit errors with dynamic retry delay
+            retry_delay = self._extract_retry_delay(e)
+            if retry_delay and retry_delay > 0:
+                self.logger.info(f"Quota exceeded. Retrying in {retry_delay + 1} seconds...")
+                await asyncio.sleep(retry_delay + 1)  # Add 1 second as requested
+                try:
+                    return await _make_api_call()
+                except Exception as retry_error:
+                    self._provide_user_guidance(retry_error)
+                    raise
+            else:
+                self._provide_user_guidance(e)
+                raise
         except Exception as e:
             # Final error handling with user-friendly messages
             self._provide_user_guidance(e)
             raise
 
+    def _extract_retry_delay(self, error: ResourceExhausted) -> Optional[int]:
+        """Extract retry delay from Google API ResourceExhausted error."""
+        try:
+            # The error message contains retry_delay information
+            error_message = str(error)
+
+            # Look for retry_delay { seconds: X } pattern
+            delay_match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_message)
+            if delay_match:
+                return int(delay_match.group(1))
+
+            # Fallback: look for just "seconds: X" pattern
+            seconds_match = re.search(r"seconds:\s*(\d+)", error_message)
+            if seconds_match:
+                return int(seconds_match.group(1))
+
+        except Exception as e:
+            self.logger.debug(f"Could not parse retry delay from error: {e}")
+
+        return None
+
     def _provide_user_guidance(self, error: Exception) -> None:
         """Provide user-friendly guidance based on error type."""
 
         if isinstance(error, ResourceExhausted):
+            self.logger.warning(
+                "Google API quota exceeded. Consider upgrading your plan or implementing request throttling."
+            )
             self.logger.info(
                 "Rate limit exceeded. Consider:\n"
                 "1. Upgrading your Google API plan\n"

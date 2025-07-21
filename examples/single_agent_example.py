@@ -1,11 +1,12 @@
 import asyncio
 import os
 import yaml
-from dotenv import load_dotenv  # Import load_dotenv
+from dotenv import load_dotenv
 
 from argentic.core.agent.agent import Agent
-from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider  # Updated import
+from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
 from argentic.core.messager.messager import Messager
+from argentic.core.tools.tool_manager import ToolManager
 
 
 async def main():
@@ -13,9 +14,7 @@ async def main():
     load_dotenv()
 
     # Load LLM configuration from a minimal config file
-    llm_config_path = os.path.join(
-        os.path.dirname(__file__), "config_gemini.yaml"
-    )  # Updated config file
+    llm_config_path = os.path.join(os.path.dirname(__file__), "config_gemini.yaml")
     with open(llm_config_path, "r") as f:
         llm_full_config = yaml.safe_load(f)
     if llm_full_config is None:
@@ -41,21 +40,44 @@ async def main():
         messaging_config_data = {}
 
     # Initialize LLM (Google Gemini) using config (api_key will be read internally)
-    llm = GoogleGeminiProvider(config=llm_config)  # Corrected instantiation
+    llm = GoogleGeminiProvider(config=llm_config)
 
     # Initialize Messager using config
     broker_address = messaging_config_data.get("broker_address", "localhost")
     port = messaging_config_data.get("port", 1883)
+    client_id = messaging_config_data.get("client_id", "")
+    username = messaging_config_data.get("username")
+    password = messaging_config_data.get("password")
     keepalive = messaging_config_data.get("keepalive", 60)
+
     messager = Messager(
         broker_address=broker_address,
         port=port,
+        client_id=client_id,
+        username=username,
+        password=password,
         keepalive=keepalive,
     )
-    await messager.connect()
 
-    # Create a single agent
-    agent = Agent(llm=llm, messager=messager, role="default_agent")
+    # Initialize ToolManager (required even if no tools are used)
+    tool_manager = ToolManager(messager)
+    await messager.connect()
+    await tool_manager.async_init()
+
+    # Create a single agent with proper parameters
+    system_prompt = (
+        "You are a helpful AI assistant. Provide clear, accurate, and informative responses. "
+        "You can answer questions, explain concepts, and help with various tasks."
+    )
+
+    agent = Agent(
+        llm=llm,
+        messager=messager,
+        tool_manager=tool_manager,
+        role="default_agent",
+        system_prompt=system_prompt,
+        expected_output_format="text",
+    )
     await agent.async_init()
 
     print("\n--- Running Single Agent Example ---")
@@ -73,5 +95,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    # We call load_dotenv() at the beginning of main()
     asyncio.run(main())
