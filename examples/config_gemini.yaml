@@ -1,0 +1,3 @@
+llm:
+  provider: google_gemini
+  google_gemini_model_name: gemini-2.0-flash-lite # Using gemini-pro for general purposes 

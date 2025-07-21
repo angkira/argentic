@@ -63,7 +63,7 @@ _LOGGERS: Dict[str, logging.Logger] = {}
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colored output for log levels"""
 
-    def __init__(self, fmt: str = None):
+    def __init__(self, fmt: Optional[str] = None):
         default_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         super().__init__(fmt or default_fmt)
 
@@ -186,6 +186,9 @@ def get_logger(
     # Create console handler with colored formatter
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level_value)
+
+    # Force immediate flushing to prevent buffering issues
+    console_handler.flush = lambda: sys.stdout.flush()
 
     formatter = ColoredFormatter(format_str)
     console_handler.setFormatter(formatter)

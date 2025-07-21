@@ -159,15 +159,27 @@ class LlamaCppServerProvider(ModelProvider):
         # Remove known chat params if any passed via kwargs to avoid issues with /completion
         payload.pop("messages", None)
 
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If in async context, run sync in executor
-            future = asyncio.run_coroutine_threadsafe(
-                self._make_request("/completion", payload), loop
-            )
-            response_data = future.result(timeout=self.timeout)
-        else:
+        # Use asyncio.run to properly handle the async request in a sync context
+        # This avoids blocking future.result() calls that can stall the thread pool
+        try:
             response_data = asyncio.run(self._make_request("/completion", payload))
+        except RuntimeError:
+            # If we're already in an event loop, we need to handle it differently
+            # This should only happen in edge cases - prefer ainvoke() for async contexts
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                import threading
+
+                # Run in a separate thread to avoid blocking the current event loop
+                def _sync_request():
+                    return asyncio.run(self._make_request("/completion", payload))
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_sync_request)
+                    response_data = future.result(timeout=self.timeout)
+            else:
+                response_data = asyncio.run(self._make_request("/completion", payload))
         return response_data.get("content", "")
 
     async def ainvoke(self, prompt: str, **kwargs: Any) -> str:
@@ -207,14 +219,27 @@ class LlamaCppServerProvider(ModelProvider):
         payload.update({"messages": messages})
         payload.update(kwargs)  # Override with any additional kwargs
 
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(
-                self._make_request("/v1/chat/completions", payload), loop
-            )
-            response_data = future.result(timeout=self.timeout)
-        else:
+        # Use asyncio.run to properly handle the async request in a sync context
+        # This avoids blocking future.result() calls that can stall the thread pool
+        try:
             response_data = asyncio.run(self._make_request("/v1/chat/completions", payload))
+        except RuntimeError:
+            # If we're already in an event loop, we need to handle it differently
+            # This should only happen in edge cases - prefer achat() for async contexts
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                import threading
+
+                # Run in a separate thread to avoid blocking the current event loop
+                def _sync_request():
+                    return asyncio.run(self._make_request("/v1/chat/completions", payload))
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_sync_request)
+                    response_data = future.result(timeout=self.timeout)
+            else:
+                response_data = asyncio.run(self._make_request("/v1/chat/completions", payload))
 
         if response_data.get("choices") and response_data["choices"][0].get("message"):
             return response_data["choices"][0]["message"].get("content", "")
