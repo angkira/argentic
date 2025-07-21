@@ -70,6 +70,43 @@ async def shutdown_handler(sig):
     logger.info("Shutdown handler complete.")
 
 
+async def cleanup_handler():
+    """Cleanup resources and signal shutdown"""
+    global cleanup_started, messager, agent, llm_provider
+
+    if cleanup_started:
+        logger.debug("Cleanup already in progress, ignoring...")
+        return
+    cleanup_started = True
+
+    logger.info("Starting graceful shutdown...")
+
+    try:
+        # Stop agent first to clean up its thread pool
+        if agent:
+            await agent.stop()
+            agent = None
+
+        # Stop LLM provider
+        if llm_provider and hasattr(llm_provider, "stop"):
+            logger.info("Stopping LLM Provider...")
+            await llm_provider.stop()
+            llm_provider = None
+
+        # Disconnect messager
+        if messager:
+            logger.info("Disconnecting Messager...")
+            await messager.log("AI Agent: Shutting down gracefully.")
+            await messager.disconnect()
+            messager = None
+
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}", exc_info=True)
+    finally:
+        stop_event.set()
+        logger.info("Graceful shutdown completed.")
+
+
 async def main():
     global messager, agent, llm_provider  # Allow modification
 

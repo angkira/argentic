@@ -1,0 +1,31 @@
+# Testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Coverage reporting
+pytest-cov>=4.0.0
+
+# Parallel test execution
+pytest-xdist>=3.0.0
+
+# HTML reports
+pytest-html>=3.0.0
+
+# Test timing
+pytest-timeout>=2.0.0
+
+# Better test output
+pytest-sugar>=0.9.0
+
+# Test data fixtures
+pytest-mock>=3.0.0
+
+# Performance testing (optional)
+pytest-benchmark>=4.0.0
+
+# Test debugging (optional)
+pytest-pdb>=0.2.0
+
+# Additional utilities
+requests-mock>=1.9.0  # For mocking HTTP requests if needed
+responses>=0.20.0     # Alternative HTTP mocking library 

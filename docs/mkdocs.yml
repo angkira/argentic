@@ -52,6 +52,8 @@ nav:
       - Messager: api/messager.md
       - Message Structures: api/messages.md
       - Messaging Drivers: api/drivers.md
+  - Guides:
+      - Multi-Agent Systems: guides/multi_agent.md
   # Add other pages and sections here
   # Example:
   # - User Guide:

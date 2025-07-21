@@ -1,0 +1,5 @@
+messaging:
+  protocol: mqtt
+  broker_address: localhost
+  port: 1883
+  keepalive: 60 

@@ -12,4 +12,5 @@ uv pip install -e ".[dev,kafka,redis,rabbitmq]"
 
 # Run unit tests (exclude tests with e2e marker)
 echo "🚀 Running unit tests..."
-python -m pytest tests/core/messager/unit -m "not e2e" "$@" 
+python -m pytest tests/core/messager/unit -m "not e2e" "$@"
+python -m pytest tests/unit -m "not e2e" "$@"

@@ -2,12 +2,11 @@ from enum import Enum
 
 
 class MessageSource(str, Enum):
-    SYSTEM = "system"
     USER = "user"
-    LLM = "llm"
     AGENT = "agent"
-    CLIENT = "client"  # Added for cli_client source
-    TOOL_MANAGER = "tool_manager"
+    SYSTEM = "system"
+    TOOL = "tool"
+    LLM = "llm"
 
 
 class LLMRole(str, Enum):
