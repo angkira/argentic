@@ -170,9 +170,7 @@ class Agent:
         llm_response_raw_text = ""
         if isinstance(llm_langchain_response, AIMessage) and llm_langchain_response.tool_calls:
             # Serialize tool calls to a JSON string for raw_content
-            llm_response_raw_text = str(
-                json.dumps(llm_langchain_response.tool_calls)
-            )  # Removed .dict()
+            llm_response_raw_text = json.dumps(llm_langchain_response.tool_calls)
         elif llm_langchain_response.content is not None:
             # Handle cases where content might not be a simple string (e.g., list of parts for multimodal)
             if isinstance(llm_langchain_response.content, str):
@@ -699,9 +697,20 @@ HANDLING TOOL RESULTS:
             llm_langchain_response: LangchainBaseMessage = await self._call_llm(
                 llm_input_messages
             )  # Call LLM directly returning BaseMessage
-            llm_response_raw_text = (
-                llm_langchain_response.content
-            )  # Get raw string for logging and AgentLLMResponseMessage
+
+            # Get raw content string for logging and AgentLLMResponseMessage
+            # This should capture either the direct text content or a string representation of tool calls
+            llm_response_raw_text = ""
+            if isinstance(llm_langchain_response, AIMessage) and llm_langchain_response.tool_calls:
+                # Serialize tool calls to a JSON string for raw_content
+                llm_response_raw_text = json.dumps(llm_langchain_response.tool_calls)
+            elif llm_langchain_response.content is not None:
+                # Handle cases where content might not be a simple string (e.g., list of parts for multimodal)
+                if isinstance(llm_langchain_response.content, str):
+                    llm_response_raw_text = llm_langchain_response.content
+                else:
+                    llm_response_raw_text = str(llm_langchain_response.content)
+
             self.logger.debug(f"LLM raw response (Iter {i+1}): {llm_response_raw_text[:300]}...")
 
             # Instantiate AgentLLMResponseMessage with direct fields + data=None
@@ -744,7 +753,7 @@ HANDLING TOOL RESULTS:
                 llm_response_msg.parsed_type = "tool_call"
                 # Convert ToolCallRequest to MinimalToolCallRequest for storage
                 llm_response_msg.parsed_tool_calls = [
-                    MinimalToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
+                    MinimalToolCallRequest(tool_name=tc.tool_id, arguments=tc.arguments)
                     for tc in validated_response.tool_calls
                 ]
                 self.history.append(llm_response_msg)
@@ -758,7 +767,7 @@ HANDLING TOOL RESULTS:
 
                 # Convert back to ToolCallRequest for execution
                 tool_call_requests = [
-                    ToolCallRequest(tool_id=tc.tool_id, arguments=tc.arguments)
+                    ToolCallRequest(tool_id=tc.tool_name, arguments=tc.arguments)
                     for tc in llm_response_msg.parsed_tool_calls
                 ]
                 tool_outcome_messages, had_error = await self._execute_tool_calls(
