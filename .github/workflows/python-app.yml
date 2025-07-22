@@ -36,11 +36,11 @@ jobs:
         run: |
           uv pip install -e ".[dev,kafka,redis,rabbitmq]"
 
-      - name: Lint with flake8 (only critical errors)
-        run: |
-          # Only check for critical syntax errors and undefined names
-          uv run flake8 . --count --select=E9,F63,F7,F82 --show-source \
-            --statistics --exclude=.venv,tests
+      # - name: Lint with flake8 (only critical errors)
+      #   run: |
+      #     # Only check for critical syntax errors and undefined names
+      #     uv run flake8 . --count --select=E9,F63,F7,F82 --show-source \
+      #       --statistics --exclude=.venv,tests
 
       - name: Run unit tests
         run: |

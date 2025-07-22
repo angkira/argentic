@@ -1,6 +1,6 @@
 [project]
 name = "argentic"
-version = "0.9.3"
+version = "0.9.4"
 description = ""
 authors = [{ name = "Iurii", email = "angkira0@gmail.com" }]
 requires-python = ">=3.10"
