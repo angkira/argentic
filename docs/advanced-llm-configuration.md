@@ -329,3 +329,63 @@ The system validates parameters and will log warnings for:
 - Provider-specific limitations
 
 Check the logs for parameter validation messages and adjust accordingly.
+
+## Advanced Logging Configuration
+
+### File Logging with Rotation
+
+The framework now supports automatic file logging with size limits and rotation:
+
+```python
+from argentic.core.logger import configure_file_logging
+
+# Enable file logging with rotation
+configure_file_logging(
+    log_dir="./logs",          # Log directory
+    max_bytes=10 * 1024 * 1024,  # 10MB per file
+    backup_count=20,           # Keep 20 backup files
+    enabled=True
+)
+
+# Create agent with file logging enabled
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    enable_dialogue_logging=True,  # Also enable dialogue logging
+)
+```
+
+### Development vs Production Logging
+
+```python
+# Development configuration - full logging
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    log_level="DEBUG",
+    enable_dialogue_logging=True,      # Real-time conversation logging
+    enable_tool_result_publishing=True, # Detailed tool monitoring
+)
+
+# Production configuration - optimized logging
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    log_level="INFO",
+    enable_dialogue_logging=False,     # Disable for performance
+    enable_tool_result_publishing=False, # Minimal messaging
+)
+```
+
+### Log File Information
+
+```python
+from argentic.core.logger import get_log_file_info
+
+# Get log file information
+log_info = get_log_file_info("agent")
+if log_info:
+    print(f"Log file: {log_info['log_file']}")
+    print(f"Size: {log_info['size_mb']} MB")
+    print(f"Max files: {log_info['backup_count']}")
+```

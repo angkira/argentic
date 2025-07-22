@@ -22,6 +22,11 @@ class BaseTool(ABC):
     _initialized: bool = False
     manual: str
     api: str
+    registration_topic: str
+    call_topic_base: str
+    response_topic_base: str
+    task_topic: str
+    result_topic: str
 
     def __init__(
         self,
@@ -31,11 +36,14 @@ class BaseTool(ABC):
         argument_schema: Type[BaseModel],
         messager: Messager,
     ):
+        from argentic.core.logger import get_logger, LogLevel
+
         self.name = name
         self.argument_schema = argument_schema
         self.messager = messager
         self.manual = manual
         self.api = api
+        self.logger = get_logger(f"tool_{self.name}", LogLevel.INFO)
         # task_topic and result_topic will be set after registration (when self.id is available)
 
     async def _initialize(self):
@@ -71,20 +79,22 @@ class BaseTool(ABC):
         async def registration_handler(
             message: Union[ToolRegisteredMessage, ToolRegistrationErrorMessage],
         ):
-            # assign tool ID and set task/result topics
-            self.id = message.tool_id
-            self.task_topic = f"{self.call_topic_base}/{self.id}"
-            self.result_topic = f"{self.response_topic_base}/{self.id}"
+            # Only handle messages for this specific tool
+            if message.tool_name != self.name:
+                return
 
-            if isinstance(message, ToolRegistrationErrorMessage):
-                await self.messager.log(
-                    f"Tool '{self.name}': Registration error: {message.error}",
-                    level="error",
-                )
+            # assign tool ID and set task/result topics
+            if isinstance(message, ToolRegisteredMessage):
+                self.id = message.tool_id
+                self.task_topic = f"{self.call_topic_base}/{self.id}"
+                self.result_topic = f"{self.response_topic_base}/{self.id}"
+                self.logger.info(f"Tool '{self.name}': Registration confirmed. Tool ID: {self.id}")
+                await self._initialize()
+            elif isinstance(message, ToolRegistrationErrorMessage):
+                self.logger.error(f"Tool '{self.name}': Registration error: {message.error}")
                 return
 
             # on successful registration
-            self.logger.info(f"Tool '{self.name}': Registration confirmed. Tool ID: {self.id}")
             # subscribe to incoming task messages now that id is set
             await self._initialize()
 

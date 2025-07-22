@@ -234,9 +234,11 @@ class TestAgent:
         result = await agent.invoke(state)
 
         assert "messages" in result
-        assert len(result["messages"]) == 1
+        assert len(result["messages"]) == 2  # Input message + response message
+        # The first message should be the original input
+        assert isinstance(result["messages"][0], HumanMessage)
         # The response should be an AIMessage with the direct content
-        response_msg = result["messages"][0]
+        response_msg = result["messages"][1]
         assert isinstance(response_msg, AIMessage)
 
     @pytest.mark.asyncio

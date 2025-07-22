@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import asyncio
 from typing import Any, Dict, List, Optional, Union
@@ -35,6 +36,85 @@ from tenacity import (
 
 from argentic.core.llm.providers.base import ModelProvider
 from argentic.core.logger import get_logger, LogLevel
+
+# Removed google.generativeai imports as they are no longer used
+# import google.generativeai as genai
+# from google.generativeai import types
+
+# --- Patch for langchain_google_genai finish_reason bug ---------------------------------
+# In some Gemini responses the `candidate.finish_reason` field is returned as a plain
+# integer instead of the expected enum. LangChain 0.1.x accesses the `.name` attribute
+# unconditionally, which crashes with `AttributeError: 'int' object has no attribute 'name'`.
+# We monkey-patch the internal helper to coerce ints to a dummy enum-like object.
+
+try:
+    from langchain_google_genai import chat_models as _gchat
+
+    if hasattr(_gchat, "_response_to_result"):
+        _orig_resp_to_res = _gchat._response_to_result
+
+        def _coerce_finish_reason(obj):
+            """Recursively coerce finish_reason ints to enum-like objects."""
+            # Handle the object itself
+            if hasattr(obj, "finish_reason"):
+                fr = getattr(obj, "finish_reason")
+                if isinstance(fr, int):
+
+                    class _DummyEnum(int):
+                        @property
+                        def name(self):
+                            return str(self)
+
+                    setattr(obj, "finish_reason", _DummyEnum(fr))
+
+            # Recursively handle nested objects
+            # Check for candidates
+            if hasattr(obj, "candidates"):
+                candidates = getattr(obj, "candidates")
+                if candidates:
+                    for c in candidates:
+                        _coerce_finish_reason(c)
+
+            # Check for parts
+            if hasattr(obj, "parts"):
+                parts = getattr(obj, "parts")
+                if parts:
+                    for p in parts:
+                        _coerce_finish_reason(p)
+
+            # Check for other common nested structures
+            for attr_name in ["generations", "generation", "content", "response"]:
+                if hasattr(obj, attr_name):
+                    attr_value = getattr(obj, attr_name)
+                    if attr_value is not None:
+                        if isinstance(attr_value, (list, tuple)):
+                            for item in attr_value:
+                                if hasattr(item, "__dict__"):  # Only recurse if it's an object
+                                    _coerce_finish_reason(item)
+                        elif hasattr(attr_value, "__dict__"):  # Only recurse if it's an object
+                            _coerce_finish_reason(attr_value)
+
+        def _safe_response_to_result(response):  # type: ignore
+            try:
+                return _orig_resp_to_res(response)
+            except AttributeError as e:
+                # Coerce ints to enum-like objects then retry once
+                if "'int' object has no attribute 'name'" in str(e):
+                    _coerce_finish_reason(response)
+                    try:
+                        return _orig_resp_to_res(response)
+                    except AttributeError as e2:
+                        # If it still fails, try to provide a more helpful error
+                        raise AttributeError(f"Failed to fix finish_reason enum issue: {e2}") from e
+                else:
+                    # Re-raise if it's a different AttributeError
+                    raise
+
+        _gchat._response_to_result = _safe_response_to_result  # type: ignore
+except Exception as e:
+    # If patching fails we proceed silently – worst case the original bug remains.
+    pass
+# ---------------------------------------------------------------------------------------
 
 
 class GoogleGeminiProvider(ModelProvider):
@@ -76,6 +156,7 @@ class GoogleGeminiProvider(ModelProvider):
 
         # Initialize the underlying ChatGoogleGenerativeAI model
         model_name = self.config.get("google_gemini_model_name", "gemini-1.5-flash")
+        self.enable_google_search = self.config.get("enable_google_search", False)
 
         # Configure langchain-google-genai with error handling
         langchain_config = {
@@ -290,30 +371,47 @@ class GoogleGeminiProvider(ModelProvider):
         @retry_decorator
         async def _make_api_call():
             try:
-                # Use the underlying langchain model with tools if provided
+                # Gemini API requires a specific turn structure.
+                # If the last message is a ToolMessage, it must be followed by a user role.
+                # We adapt the message history to comply with this.
+                adapted_messages = list(messages)
+                if adapted_messages and isinstance(adapted_messages[-1], ToolMessage):
+                    # The result from a tool is now presented as a user's observation
+                    tool_message = adapted_messages.pop()
+                    tool_name = getattr(
+                        tool_message, "name", getattr(tool_message, "tool_call_id", "unknown_tool")
+                    )
+                    user_feedback_content = f"Tool '{tool_name}' returned:\n{tool_message.content}"
+
+                    # We need to find the AIMessage that initiated the tool call
+                    # and ensure the history is clean before adding the user feedback
+                    if adapted_messages and isinstance(adapted_messages[-1], AIMessage):
+                        # This AIMessage contained the tool_call, we keep it.
+                        pass
+
+                    adapted_messages.append(HumanMessage(content=user_feedback_content))
+
+                llm_tools_to_pass = []
+
+                # Add LangChain tools for function calling if provided
                 if tools:
-                    model_with_tools = self.model.bind_tools(tools)
-                    if asyncio.iscoroutinefunction(model_with_tools.ainvoke):
-                        response = await model_with_tools.ainvoke(messages, **kwargs)
-                    else:
-                        # Run sync call in thread executor to avoid blocking
-                        loop = asyncio.get_running_loop()
+                    llm_tools_to_pass.extend(tools)
 
-                        def sync_call():
-                            return model_with_tools.invoke(messages, **kwargs)
+                # Bind all tools to the model
+                model_to_invoke = self.model
+                if llm_tools_to_pass:
+                    model_to_invoke = self.model.bind_tools(llm_tools_to_pass)
 
-                        response = await loop.run_in_executor(None, sync_call)  # type: ignore
+                if asyncio.iscoroutinefunction(model_to_invoke.ainvoke):
+                    response = await model_to_invoke.ainvoke(adapted_messages, **kwargs)
                 else:
-                    if asyncio.iscoroutinefunction(self.model.ainvoke):
-                        response = await self.model.ainvoke(messages, **kwargs)
-                    else:
-                        # Run sync call in thread executor to avoid blocking
-                        loop = asyncio.get_running_loop()
+                    # Run sync call in thread executor to avoid blocking
+                    loop = asyncio.get_running_loop()
 
-                        def sync_call():
-                            return self.model.invoke(messages, **kwargs)
+                    def sync_call():
+                        return model_to_invoke.invoke(adapted_messages, **kwargs)
 
-                        response = await loop.run_in_executor(None, sync_call)  # type: ignore
+                    response = await loop.run_in_executor(None, sync_call)  # type: ignore
 
                 # Reset error count on successful call
                 self.error_count = 0
@@ -347,15 +445,53 @@ class GoogleGeminiProvider(ModelProvider):
 
         try:
             return await _make_api_call()
+        except ResourceExhausted as e:
+            # Handle quota/rate limit errors with dynamic retry delay
+            retry_delay = self._extract_retry_delay(e)
+            if retry_delay and retry_delay > 0:
+                self.logger.info(f"Quota exceeded. Retrying in {retry_delay + 1} seconds...")
+                await asyncio.sleep(retry_delay + 1)  # Add 1 second as requested
+                try:
+                    return await _make_api_call()
+                except Exception as retry_error:
+                    self._provide_user_guidance(retry_error)
+                    raise
+            else:
+                self._provide_user_guidance(e)
+                raise
         except Exception as e:
             # Final error handling with user-friendly messages
             self._provide_user_guidance(e)
             raise
 
+    def _extract_retry_delay(self, error: ResourceExhausted) -> Optional[int]:
+        """Extract retry delay from Google API ResourceExhausted error."""
+        try:
+            # The error message contains retry_delay information
+            error_message = str(error)
+
+            # Look for retry_delay { seconds: X } pattern
+            delay_match = re.search(r"retry_delay\s*{\s*seconds:\s*(\d+)", error_message)
+            if delay_match:
+                return int(delay_match.group(1))
+
+            # Fallback: look for just "seconds: X" pattern
+            seconds_match = re.search(r"seconds:\s*(\d+)", error_message)
+            if seconds_match:
+                return int(seconds_match.group(1))
+
+        except Exception as e:
+            self.logger.debug(f"Could not parse retry delay from error: {e}")
+
+        return None
+
     def _provide_user_guidance(self, error: Exception) -> None:
         """Provide user-friendly guidance based on error type."""
 
         if isinstance(error, ResourceExhausted):
+            self.logger.warning(
+                "Google API quota exceeded. Consider upgrading your plan or implementing request throttling."
+            )
             self.logger.info(
                 "Rate limit exceeded. Consider:\n"
                 "1. Upgrading your Google API plan\n"

@@ -4,14 +4,26 @@ The AI Agent supports customizable system prompts through the configuration file
 
 ## Configuration
 
-### Basic Setup
+### Basic Setup (Recommended)
 
-Add an `agent` section to your `config.yaml` file:
+Add an `agent` section to your `config.yaml` file. By default, custom prompts are combined with utility rules:
 
 ```yaml
 agent:
   system_prompt: |
     Your custom system prompt here...
+  # override_default_prompts: false  # Default: include utility rules
+```
+
+### Advanced: Complete Override
+
+For specialized use cases, you can override all default behavior:
+
+```yaml
+agent:
+  system_prompt: |
+    Your completely custom system prompt here...
+  override_default_prompts: true  # Skip all default utility rules
 ```
 
 ### Using Default System Prompt
@@ -71,11 +83,51 @@ agent:
 You can also update the system prompt programmatically:
 
 ```python
-# Update system prompt at runtime
+# Update system prompt at runtime (includes utility rules by default)
 agent.set_system_prompt("Your new system prompt...")
 
-# Get current system prompt
+# Update with complete override
+agent.set_system_prompt("Your custom prompt...", override_default_prompts=True)
+
+# Get current effective system prompt (includes defaults if applicable)
 current_prompt = agent.get_system_prompt()
+```
+
+## Endless Cycle Features
+
+The system prompt configuration now includes built-in utility rules for endless cycle operation:
+
+### Default Utility Rules (Included Automatically)
+
+When `override_default_prompts=False` (default), your custom prompt is enhanced with:
+
+- **Tool Loop Prevention**: Prevents infinite tool calling cycles
+- **Task Completion Analysis**: Recognizes when work is finished
+- **Efficient Communication**: Reduces redundant interactions
+- **Context Management**: Optimizes memory usage for long-running operations
+
+```python
+# These utility rules are automatically added to your custom prompt
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    system_prompt="You are a helpful research assistant.",
+    override_default_prompts=False,  # Utility rules included
+)
+```
+
+### Custom Rules Only
+
+For complete control over agent behavior:
+
+```python
+# Only your custom prompt, no default utility rules
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    system_prompt="Your specialized domain-specific prompt...",
+    override_default_prompts=True,  # No utility rules
+)
 ```
 
 ## Important Notes

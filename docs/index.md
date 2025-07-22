@@ -241,11 +241,31 @@ python -m pytest -m "e2e and not kafka"
 
 ## Documentation
 
-More detailed documentation is planned, potentially hosted on GitHub Pages, covering architecture, API details, and tool development guidelines.
+### 📚 Core Documentation
+
+- **[API Reference](api/index.md)** - Comprehensive API documentation for all components
+  - [Agent API](api/agent.md) - AI agent with endless cycle support
+  - [Supervisor API](api/supervisor.md) - Multi-agent workflow coordination  
+  - [BaseTool API](api/base-tool.md) - Custom tool development
+  - [ToolManager API](api/tool-manager.md) - Tool execution and management
+
+### ⚙️ Configuration Guides
+
+- **[Messaging Configuration](messaging-configuration.md)** - MQTT setup and topic management
+- **[System Prompt Configuration](system-prompt-configuration.md)** - Custom prompts and utility rules
+- **[Advanced LLM Configuration](advanced-llm-configuration.md)** - Provider parameters and logging
+- **[Environment Variables](environment-variables.md)** - Environment setup and configuration
+
+### 🔄 Advanced Features
+
+- **[Endless Cycle Improvements](ENDLESS_CYCLE_IMPROVEMENTS.md)** - Long-running operation support
+- **[Examples](../examples/)** - Complete working examples and tutorials
+
+### 🛠️ Development
 
 For development, clone the repository and install in editable mode with development dependencies:
 ```bash
-git clone https://github.com/yourusername/argentic.git
+git clone https://github.com/angkira/argentic.git
 cd argentic
 # Create and activate a virtual environment (recommended)
 # python -m venv .venv 

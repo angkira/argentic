@@ -14,9 +14,6 @@ from argentic.core.llm.providers.mock import (
     MockResponseType,
 )
 from argentic.core.messager.messager import Messager
-from argentic.core.tools.tool_manager import ToolManager
-from argentic.core.graph.state import AgentState
-from argentic.core.protocol.task import TaskResultMessage, TaskStatus
 
 
 class TestSupervisor:
@@ -33,42 +30,48 @@ class TestSupervisor:
         return messager
 
     @pytest.fixture
-    def mock_tool_manager(self):
-        """Create a mock tool manager for testing."""
-        tool_manager = MagicMock(spec=ToolManager)
-        tool_manager.async_init = AsyncMock()
-        tool_manager.tools_by_id = {}
-        tool_manager.execute_tool = AsyncMock()
-        return tool_manager
-
-    @pytest.fixture
     def mock_llm_supervisor(self):
         """Create a mock LLM provider for supervisor testing - returns text responses."""
         mock = MockLLMProvider({})
-        mock.reset()
-        # Supervisor expects plain text routing responses
-        mock.add_direct_response("researcher")
-        mock.add_direct_response("coder")
-        mock.add_direct_response("__end__")
+        # Due to MockLLMProvider indexing: call_count increments before getting response
+        # First call returns index min(1, len-1), so we need responses at index 1+
+        mock.set_responses(
+            [
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT, content="researcher"
+                ),  # Index 1 - first response
+                MockResponse(MockResponseType.DIRECT, content="coder"),  # Index 2 - second response
+                MockResponse(
+                    MockResponseType.DIRECT, content="__end__"
+                ),  # Index 3 - third response
+            ]
+        )
         return mock
 
     @pytest.fixture
-    def supervisor(self, mock_messager, mock_tool_manager, mock_llm_supervisor):
+    def supervisor(self, mock_messager, mock_llm_supervisor):
         """Create a basic supervisor for testing."""
         return Supervisor(
             llm=mock_llm_supervisor,
             messager=mock_messager,
-            tool_manager=mock_tool_manager,
             role="test_supervisor",
             system_prompt="Route tasks efficiently.",
-            graph_id="test_graph",
         )
 
     @pytest.fixture
     def researcher_agent(self, mock_messager):
         """Create a mock researcher agent."""
         mock_llm = MockLLMProvider({})
-        mock_llm.add_direct_response("I found information about your research topic.")
+        mock_llm.set_responses(
+            [
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT,
+                    content="I found information about your research topic.",
+                ),  # Index 1
+            ]
+        )
 
         agent = Agent(
             llm=mock_llm,
@@ -83,7 +86,14 @@ class TestSupervisor:
     def coder_agent(self, mock_messager):
         """Create a mock coder agent."""
         mock_llm = MockLLMProvider({})
-        mock_llm.add_direct_response("Here's the code you requested.")
+        mock_llm.set_responses(
+            [
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT, content="Here's the code you requested."
+                ),  # Index 1
+            ]
+        )
 
         agent = Agent(
             llm=mock_llm,
@@ -95,22 +105,16 @@ class TestSupervisor:
         return agent
 
     @pytest.mark.asyncio
-    async def test_supervisor_initialization(
-        self, mock_messager, mock_tool_manager, mock_llm_supervisor
-    ):
+    async def test_supervisor_initialization(self, mock_messager, mock_llm_supervisor):
         """Test supervisor initialization."""
         supervisor = Supervisor(
             llm=mock_llm_supervisor,
             messager=mock_messager,
-            tool_manager=mock_tool_manager,
             role="test_supervisor",
         )
 
         assert supervisor.role == "test_supervisor"
-        assert supervisor.tool_manager == mock_tool_manager
         assert supervisor._agents == {}
-        assert supervisor.agent_tools == []
-        assert supervisor.runnable is None
 
     @pytest.mark.asyncio
     async def test_add_agent(self, supervisor, researcher_agent):
@@ -118,9 +122,7 @@ class TestSupervisor:
         supervisor.add_agent(researcher_agent)
 
         assert "researcher" in supervisor._agents
-        assert supervisor._agents["researcher"] == researcher_agent
-        # Check that the graph node was added
-        assert "researcher" in supervisor._graph.nodes
+        assert supervisor._agents["researcher"] == researcher_agent.description
 
     @pytest.mark.asyncio
     async def test_add_multiple_agents(self, supervisor, researcher_agent, coder_agent):
@@ -133,316 +135,151 @@ class TestSupervisor:
         assert "coder" in supervisor._agents
 
     @pytest.mark.asyncio
-    async def test_set_available_tools(self, supervisor, mock_tool_manager):
-        """Test setting available tools for the supervisor."""
-        # Mock tools in the tool manager
-        mock_tool_manager.tools_by_id = {
-            "tool_1": {
-                "name": "search_tool",
-                "description": "Search for information",
-                "parameters": '{"type": "object", "properties": {"query": {"type": "string"}}}',
-            },
-            "tool_2": {
-                "name": "calc_tool",
-                "description": "Perform calculations",
-                "parameters": '{"type": "object", "properties": {"expression": {"type": "string"}}}',
-            },
-        }
-
-        supervisor.set_available_tools()
-
-        assert len(supervisor.agent_tools) == 2
-        assert "search_tool" in supervisor._tool_id_map
-        assert "calc_tool" in supervisor._tool_id_map
-
-    @pytest.mark.asyncio
-    async def test_invoke_initial_routing(self, supervisor, mock_llm_supervisor):
-        """Test supervisor invoke with initial human message."""
-        # Reset the mock LLM and set specific routing response
-        mock_llm_supervisor.reset()
-        mock_llm_supervisor.add_direct_response("researcher")
-
-        state: AgentState = {
-            "messages": [HumanMessage(content="Research quantum computing")],
-            "next": None,
-        }
-
-        result = await supervisor.invoke(state)
-
-        assert "messages" in result
-        assert len(result["messages"]) == 1
-        # Should pass through the original message for routing
-        assert isinstance(result["messages"][0], HumanMessage)
-
-    @pytest.mark.asyncio
-    async def test_invoke_with_agent_response(self, supervisor):
-        """Test supervisor invoke with agent response."""
-        state: AgentState = {
-            "messages": [
-                HumanMessage(content="Research quantum computing"),
-                AIMessage(content="I found comprehensive information about quantum computing..."),
-            ],
-            "next": None,
-        }
-
-        result = await supervisor.invoke(state)
-
-        assert "messages" in result
-        # Should pass through the messages without generating new content
-        assert len(result["messages"]) == 2
-
-    @pytest.mark.asyncio
-    async def test_compile_graph(self, supervisor, researcher_agent, coder_agent):
-        """Test compiling the supervisor graph."""
-        supervisor.add_agent(researcher_agent)
-        supervisor.add_agent(coder_agent)
-
-        runnable = supervisor.compile()
-
-        assert runnable is not None
-        assert supervisor.runnable is not None
-        assert supervisor.runnable == runnable
-
-    @pytest.mark.asyncio
-    async def test_route_initial_message(self, supervisor, researcher_agent, coder_agent):
-        """Test routing of initial human message."""
-        supervisor.add_agent(researcher_agent)
-        supervisor.add_agent(coder_agent)
-
-        # Create a fresh mock for this specific test (account for indexing bug)
+    async def test_start_task(self, supervisor):
+        """Test starting a task with the supervisor."""
+        # Create a supervisor with a fresh mock that won't auto-route to completion
         mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
-            [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
-                MockResponse(MockResponseType.DIRECT, content="researcher"),
-            ]
-        )
-        supervisor.llm = mock_llm
+        # For a simple task start test, we don't want it to immediately complete
+        # So we'll patch the start_task to not actually route
 
-        state: AgentState = {
-            "messages": [HumanMessage(content="Find information about AI")],
-            "next": None,
-        }
+        with patch.object(supervisor, "_route_task") as mock_route:
+            task_id = await supervisor.start_task("Test task")
 
-        routing_decision = await supervisor._route(state)
-
-        assert routing_decision == "researcher"
-        mock_llm.assert_called(times=1)
+            assert task_id is not None
+            assert task_id in supervisor._active_tasks
+            assert supervisor._active_tasks[task_id]["original_task"] == "Test task"
+            mock_route.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_route_to_end(self, supervisor):
-        """Test routing to end when conversation is complete."""
-        state: AgentState = {
-            "messages": [
-                HumanMessage(content="Research quantum computing"),
-                AIMessage(content="Here's what I found about quantum computing..."),
-            ],
-            "next": None,
-        }
-
-        routing_decision = await supervisor._route(state)
-
-        assert routing_decision == "__end__"
-
-    @pytest.mark.asyncio
-    async def test_route_no_agents_available(self, supervisor):
-        """Test routing when no agents are available."""
-        state: AgentState = {"messages": [HumanMessage(content="Help me")], "next": None}
-
-        routing_decision = await supervisor._route(state)
-
-        assert routing_decision == "__end__"
-
-    @pytest.mark.asyncio
-    async def test_llm_route_decision_research(self, supervisor, researcher_agent, coder_agent):
+    async def test_llm_route_decision_research(self, supervisor, mock_llm_supervisor):
         """Test LLM routing decision for research tasks."""
-        supervisor.add_agent(researcher_agent)
-        supervisor.add_agent(coder_agent)
+        # Add a researcher agent so supervisor knows it's valid
+        supervisor.add_agent(MagicMock(role="researcher", description="Research specialist"))
 
-        # Create a fresh mock with the expected response (account for indexing bug)
-        mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
+        # Set fresh responses for this test
+        mock_llm_supervisor.set_responses(
             [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
-                MockResponse(MockResponseType.DIRECT, content="researcher"),
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT, content="researcher"
+                ),  # Index 1 - first response
             ]
         )
-        supervisor.llm = mock_llm
+        mock_llm_supervisor.call_count = 0  # Reset call count
 
-        available_agents = ["researcher", "coder"]
-        content = "Find information about machine learning algorithms"
-
-        decision = await supervisor._llm_route_decision(content, available_agents)
-
+        decision = await supervisor._llm_route_decision("Research quantum computing")
         assert decision == "researcher"
-        mock_llm.assert_called(times=1)
-        # Check that the routing prompt was properly formed
-        captured_prompt = mock_llm.get_captured_prompt()
-        assert "machine learning algorithms" in captured_prompt
-        assert "researcher" in captured_prompt
 
     @pytest.mark.asyncio
-    async def test_llm_route_decision_coding(self, supervisor, researcher_agent, coder_agent):
+    async def test_llm_route_decision_coding(self, supervisor, mock_llm_supervisor):
         """Test LLM routing decision for coding tasks."""
-        supervisor.add_agent(researcher_agent)
-        supervisor.add_agent(coder_agent)
+        # Add a coder agent so supervisor knows it's valid
+        supervisor.add_agent(MagicMock(role="coder", description="Coding specialist"))
 
-        # Create a fresh mock with the expected response (account for indexing bug)
-        mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
+        mock_llm_supervisor.set_responses(
             [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
-                MockResponse(MockResponseType.DIRECT, content="coder"),
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(MockResponseType.DIRECT, content="coder"),  # Index 1 - first response
             ]
         )
-        supervisor.llm = mock_llm
+        mock_llm_supervisor.call_count = 0  # Reset call count
 
-        available_agents = ["researcher", "coder"]
-        content = "Write a Python function to sort a list"
-
-        decision = await supervisor._llm_route_decision(content, available_agents)
-
+        decision = await supervisor._llm_route_decision("Write Python code for sorting")
         assert decision == "coder"
-        mock_llm.assert_called(times=1)
 
     @pytest.mark.asyncio
-    async def test_llm_route_decision_end_task(self, supervisor, researcher_agent):
-        """Test LLM routing decision for ending conversation."""
-        supervisor.add_agent(researcher_agent)
-
-        # Create a fresh mock with the expected response (account for indexing bug)
-        mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
+    async def test_llm_route_decision_end_task(self, supervisor, mock_llm_supervisor):
+        """Test LLM routing decision for task completion."""
+        mock_llm_supervisor.set_responses(
             [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
-                MockResponse(MockResponseType.DIRECT, content="__end__"),
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT, content="__end__"
+                ),  # Index 1 - first response
             ]
         )
-        supervisor.llm = mock_llm
+        mock_llm_supervisor.call_count = 0  # Reset call count
 
-        available_agents = ["researcher"]
-        content = "Thank you, that's all I needed"
-
-        decision = await supervisor._llm_route_decision(content, available_agents)
-
+        decision = await supervisor._llm_route_decision("Task is complete")
         assert decision == "__end__"
 
     @pytest.mark.asyncio
-    async def test_llm_route_decision_fallback(self, supervisor, researcher_agent):
-        """Test LLM routing decision fallback to supervisor."""
-        supervisor.add_agent(researcher_agent)
-
-        # Create a fresh mock with unclear response (account for indexing bug)
-        mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
+    async def test_llm_route_decision_fallback(self, supervisor, mock_llm_supervisor):
+        """Test LLM routing decision fallback behavior."""
+        mock_llm_supervisor.set_responses(
             [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
-                MockResponse(MockResponseType.DIRECT, content="unclear response"),
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT, content="invalid_agent"
+                ),  # Index 1 - first response
             ]
         )
-        supervisor.llm = mock_llm
+        mock_llm_supervisor.call_count = 0  # Reset call count
 
-        available_agents = ["researcher"]
-        content = "Ambiguous request"
-
-        decision = await supervisor._llm_route_decision(content, available_agents)
-
-        assert decision == "supervisor"
+        decision = await supervisor._llm_route_decision("Some task")
+        assert decision == "__end__"  # Fallback behavior
 
     @pytest.mark.asyncio
-    async def test_llm_route_decision_partial_match(
-        self, supervisor, researcher_agent, coder_agent
-    ):
-        """Test LLM routing decision with partial match in response."""
-        supervisor.add_agent(researcher_agent)
-        supervisor.add_agent(coder_agent)
+    async def test_llm_route_decision_partial_match(self, supervisor, mock_llm_supervisor):
+        """Test LLM routing decision with partial agent name match."""
+        supervisor.add_agent(MagicMock(role="researcher", description="Research specialist"))
 
-        # Create a fresh mock with partial match response (account for indexing bug)
-        mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
+        mock_llm_supervisor.set_responses(
             [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
                 MockResponse(
-                    MockResponseType.DIRECT,
-                    content="I think the researcher agent should handle this",
-                ),
+                    MockResponseType.DIRECT, content="I choose researcher for this task"
+                ),  # Index 1
             ]
         )
-        supervisor.llm = mock_llm
+        mock_llm_supervisor.call_count = 0  # Reset call count
 
-        available_agents = ["researcher", "coder"]
-        content = "Find academic papers about AI"
-
-        decision = await supervisor._llm_route_decision(content, available_agents)
-
+        decision = await supervisor._llm_route_decision("Find information")
         assert decision == "researcher"
 
     @pytest.mark.asyncio
     async def test_default_supervisor_prompt(self, supervisor):
         """Test the default supervisor prompt generation."""
-        supervisor.add_agent(MagicMock(role="researcher"))
-        supervisor.add_agent(MagicMock(role="coder"))
-
-        prompt = supervisor._get_default_supervisor_prompt()
+        prompt = supervisor._get_default_system_prompt()
 
         assert isinstance(prompt, str)
-        assert "researcher" in prompt
-        assert "coder" in prompt
         assert "supervisor" in prompt.lower()
+        assert "route" in prompt.lower()
 
     @pytest.mark.asyncio
-    async def test_supervisor_with_tools(
-        self, mock_messager, mock_tool_manager, mock_llm_supervisor
-    ):
-        """Test supervisor with available tools."""
-        # Setup tools
-        mock_tool_manager.tools_by_id = {
-            "search_tool": {
-                "name": "search",
-                "description": "Search for information",
-                "parameters": '{"type": "object", "properties": {"query": {"type": "string"}}}',
-            }
-        }
-        mock_tool_manager.execute_tool.return_value = TaskResultMessage(
-            tool_id="search_tool",
-            tool_name="search",
-            task_id="task_123",
-            status=TaskStatus.SUCCESS,
-            result="Search completed",
-        )
-
-        supervisor = Supervisor(
-            llm=mock_llm_supervisor,
-            messager=mock_messager,
-            tool_manager=mock_tool_manager,
-            role="tool_supervisor",
-        )
-
-        supervisor.set_available_tools()
-
-        assert len(supervisor.agent_tools) == 1
-        assert "search" in supervisor._tool_id_map
-
-    @pytest.mark.asyncio
-    async def test_supervisor_error_handling(self, supervisor):
+    async def test_supervisor_error_handling(self, supervisor, mock_llm_supervisor):
         """Test supervisor error handling during routing."""
-        # Create a fresh mock with error response (account for indexing bug)
-        mock_llm = MockLLMProvider({})
-        mock_llm.set_responses(
-            [
-                MockResponse(MockResponseType.DIRECT, content="dummy"),
-                MockResponse(MockResponseType.ERROR, error_message="LLM routing error"),
-            ]
-        )
-        supervisor.llm = mock_llm
+        # Make LLM throw an exception
+        mock_llm_supervisor.reset()
 
-        state: AgentState = {"messages": [HumanMessage(content="Route this message")], "next": None}
+        with patch.object(mock_llm_supervisor, "achat", side_effect=Exception("LLM Error")):
+            decision = await supervisor._llm_route_decision("Some task")
+            assert decision == "__end__"  # Should fallback gracefully
 
-        # Should handle the error gracefully
-        routing_decision = await supervisor._route(state)
+    @pytest.mark.asyncio
+    async def test_context_management(self, supervisor):
+        """Test supervisor context management features."""
+        # Test dialogue logging
+        supervisor.enable_dialogue_logging = True
+        supervisor._log_dialogue("user", "Test message", "routing")
 
-        # Should fallback to supervisor or a safe default
-        assert routing_decision in ["supervisor", "__end__"]
+        assert len(supervisor.dialogue_history) == 1
+        assert supervisor.dialogue_history[0]["content_preview"] == "Test message"
+
+    @pytest.mark.asyncio
+    async def test_task_history_truncation(self, supervisor):
+        """Test task history truncation for context management."""
+        # Create a task with long history
+        task_info = {
+            "original_task": "Test task",
+            "history": [{"agent": f"agent_{i}", "result": f"result_{i}"} for i in range(20)],
+        }
+
+        truncated = supervisor._truncate_task_history(task_info)
+
+        # Should be truncated to max_task_history_items or just slightly over due to truncation marker
+        # The implementation keeps first 2 + recent (max-2) + 1 truncation marker = max+1 total
+        assert len(truncated["history"]) <= supervisor.max_task_history_items + 1
 
 
 class TestSupervisorIntegration:
@@ -458,33 +295,37 @@ class TestSupervisorIntegration:
         messager.disconnect = AsyncMock()
         return messager
 
-    @pytest.fixture
-    def mock_tool_manager(self):
-        """Create a mock tool manager for testing."""
-        tool_manager = MagicMock(spec=ToolManager)
-        tool_manager.async_init = AsyncMock()
-        tool_manager.tools_by_id = {}
-        tool_manager.execute_tool = AsyncMock()
-        return tool_manager
-
     @pytest.mark.asyncio
-    async def test_full_multi_agent_workflow(self, mock_messager, mock_tool_manager):
+    async def test_full_multi_agent_workflow(self, mock_messager):
         """Test a complete multi-agent workflow."""
         # Create supervisor with specific routing scenario
         supervisor_llm = MockLLMProvider({})
-        supervisor_llm.add_direct_response("researcher")  # Route to researcher first
+        supervisor_llm.set_responses(
+            [
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT, content="researcher"
+                ),  # Index 1 - first response
+            ]
+        )
 
         supervisor = Supervisor(
             llm=supervisor_llm,
             messager=mock_messager,
-            tool_manager=mock_tool_manager,
             role="workflow_supervisor",
+            enable_dialogue_logging=True,
         )
 
         # Create researcher agent
         researcher_llm = MockLLMProvider({})
-        researcher_llm.add_direct_response(
-            "I found detailed information about quantum computing applications."
+        researcher_llm.set_responses(
+            [
+                MockResponse(MockResponseType.DIRECT, content="dummy"),  # Index 0 - never returned
+                MockResponse(
+                    MockResponseType.DIRECT,
+                    content="I found detailed information about quantum computing applications.",
+                ),
+            ]
         )
 
         researcher = Agent(
@@ -494,43 +335,24 @@ class TestSupervisorIntegration:
             expected_output_format="text",
         )
 
-        # Create coder agent
-        coder_llm = MockLLMProvider({})
-        coder_llm.add_direct_response("Here's a Python implementation of a quantum simulator.")
-
-        coder = Agent(
-            llm=coder_llm, messager=mock_messager, role="coder", expected_output_format="text"
-        )
-
         # Add agents to supervisor
         supervisor.add_agent(researcher)
-        supervisor.add_agent(coder)
 
-        # Compile the graph
-        runnable = supervisor.compile()
+        # Test task creation - patch _route_task to prevent immediate completion
+        with patch.object(supervisor, "_route_task") as mock_route:
+            task_id = await supervisor.start_task(
+                "Research quantum computing and write code examples"
+            )
 
-        assert runnable is not None
-
-        # Test initial routing
-        initial_state: AgentState = {
-            "messages": [
-                HumanMessage(content="Research quantum computing and write code examples")
-            ],
-            "next": None,
-        }
-
-        # Simulate the first step (supervisor routing)
-        supervisor_result = await supervisor.invoke(initial_state)
-
-        assert "messages" in supervisor_result
-        assert len(supervisor_result["messages"]) == 1
+            assert task_id is not None
+            assert task_id in supervisor._active_tasks
+            mock_route.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_supervisor_agent_coordination(self, mock_messager, mock_tool_manager):
+    async def test_supervisor_agent_coordination(self, mock_messager):
         """Test coordination between supervisor and agents."""
-        # Create a more complex routing scenario (account for indexing bug)
+        # Create a more complex routing scenario
         routing_scenario = MockScenario("multi_step_routing")
-        routing_scenario.add_direct_response("dummy")  # Dummy for indexing bug
         routing_scenario.add_direct_response("researcher")  # First route to researcher
         routing_scenario.add_direct_response("coder")  # Then route to coder
         routing_scenario.add_direct_response("__end__")  # Finally end
@@ -540,42 +362,25 @@ class TestSupervisorIntegration:
         supervisor = Supervisor(
             llm=supervisor_llm,
             messager=mock_messager,
-            tool_manager=mock_tool_manager,
             role="coordination_supervisor",
+            enable_dialogue_logging=True,
         )
 
-        # Add mock agents
-        researcher = MagicMock()
-        researcher.role = "researcher"
-        researcher.invoke = AsyncMock(
-            return_value={"messages": [AIMessage(content="Research completed on the topic.")]}
-        )
+        # Add mock agents using description strings
+        researcher_agent = MagicMock()
+        researcher_agent.role = "researcher"
+        researcher_agent.description = "Research and information gathering specialist"
 
-        coder = MagicMock()
-        coder.role = "coder"
-        coder.invoke = AsyncMock(
-            return_value={"messages": [AIMessage(content="Code implementation ready.")]}
-        )
+        coder_agent = MagicMock()
+        coder_agent.role = "coder"
+        coder_agent.description = "Code development and programming specialist"
 
-        supervisor.add_agent(researcher)
-        supervisor.add_agent(coder)
+        supervisor.add_agent(researcher_agent)
+        supervisor.add_agent(coder_agent)
 
         # Test multiple routing decisions
-        states = [
-            {"messages": [HumanMessage(content="Research and code a solution")], "next": None},
-            {"messages": [AIMessage(content="Research completed")], "next": None},
-            {"messages": [AIMessage(content="Implementation finished")], "next": None},
-        ]
+        task_id = await supervisor.start_task("Complex multi-step task")
 
-        routing_decisions = []
-        for state in states:
-            decision = await supervisor._route(state)
-            routing_decisions.append(decision)
-
-        # First decision should route to researcher (first response in scenario)
-        assert routing_decisions[0] == "researcher"
-        assert routing_decisions[-1] == "__end__"  # Last should end
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert len(supervisor._agents) == 2
+        assert "researcher" in supervisor._agents
+        assert "coder" in supervisor._agents
