@@ -211,10 +211,10 @@ def parse_log_level(level: str) -> LogLevel:
 
 def set_global_log_level(level: Union[LogLevel, str, int]) -> None:
     """
-    Set the log level for all existing loggers in the system
+    Set the global logging level for all loggers and handlers.
 
     Args:
-        level: The new log level - can be LogLevel enum, string name, or int value
+        level: The desired logging level (LogLevel enum, string name, or int value)
     """
     # Convert string level to LogLevel enum if needed
     if isinstance(level, str):
