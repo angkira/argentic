@@ -45,8 +45,6 @@ jobs:
         mkdir -p docs/assets
         cp assets/logo.jpg docs/assets/logo.jpg # For theme and for the final path in docs/index.md
         
-        cp README.md docs/index.md # Copy root README to docs/index.md
-        
         # Find all README.md files, excluding .git, .github, docs, and virtual environment directories
         find . \( -path ./docs -o -path ./.git -o -path ./.github -o -path ./.venv -o -path ./venv \) -prune -o \( -name "README.md" -type f -print \) | while read -r file; do
           if [ -d "$file" ]; then

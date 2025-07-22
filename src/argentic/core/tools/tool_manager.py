@@ -279,11 +279,10 @@ class ToolManager:
             self.logger.warning(
                 f"Tool '{actual_tool_name}' timed out after {effective_timeout}s (task_id: {task_id})."
             )
-            # NOTE: Не удаляем future из _pending_tasks — поздний результат
-            # всё ещё может прийти и будет корректно обработан.
-            self.logger.debug(
-                f"Future for task {task_id} left in _pending_tasks to allow late result processing."
-            )
+            # If timeout occurs, the future is cancelled, raising CancelledError
+            # where it is awaited. The task remains in _pending_tasks.
+            # NOTE: We don't remove the future from _pending_tasks - a late result
+            # can still arrive and will be handled correctly.
             return TaskErrorMessage(
                 task_id=task_id,
                 tool_id=tool_id,
@@ -347,9 +346,15 @@ class ToolManager:
             tool_identifier = call_req.tool_id
             arguments = call_req.arguments
             task_id_for_exec = str(uuid4())
-            self.logger.info(
-                f"Scheduling tool '{tool_identifier}' with args: {arguments} (exec_task_id: {task_id_for_exec})"
-            )
+            if self.log_level.value <= LogLevel.DEBUG.value:
+                self.logger.debug(
+                    f"Scheduling tool '{tool_identifier}' with args: {arguments} (exec_task_id: {task_id_for_exec})"
+                )
+            else:
+                self.logger.info(
+                    f"Scheduling tool '{tool_identifier}' (exec_task_id: {task_id_for_exec})"
+                )
+
             tasks.append(
                 self.execute_tool(tool_identifier, arguments, task_id_override=task_id_for_exec)
             )

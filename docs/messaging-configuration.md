@@ -176,6 +176,38 @@ messaging:
 
 ## Advanced Configuration
 
+### Agent Messaging Control (New Feature)
+
+Agents now support fine-grained messaging control for different deployment scenarios:
+
+```python
+# Production agent with minimal messaging overhead
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    publish_to_supervisor=True,        # Multi-agent coordination
+    publish_to_agent_topic=False,      # Disable monitoring topic
+    enable_tool_result_publishing=False, # No individual tool results
+)
+
+# Development agent with full monitoring
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    publish_to_supervisor=True,        # Full coordination
+    publish_to_agent_topic=True,       # Enable monitoring
+    enable_tool_result_publishing=True, # Detailed tool monitoring
+)
+
+# Single-agent mode (no supervisor)
+agent = Agent(
+    llm=llm,
+    messager=messager,
+    publish_to_supervisor=False,       # No supervisor coordination
+    publish_to_agent_topic=True,       # Local monitoring only
+)
+```
+
 ### Quality of Service (QoS)
 
 MQTT supports different QoS levels for message delivery:

@@ -1,6 +1,9 @@
 import logging
+import logging.handlers
 import sys
+import os
 from enum import Enum
+from pathlib import Path
 from typing import Dict, Optional, Union
 
 
@@ -59,6 +62,14 @@ LEVEL_COLORS = {
 # Cache for loggers to avoid creating multiple loggers for the same name
 _LOGGERS: Dict[str, logging.Logger] = {}
 
+# Global file logging configuration
+_FILE_LOGGING_CONFIG: Dict[str, Union[bool, str, int, None]] = {
+    "enabled": False,
+    "log_dir": None,
+    "max_bytes": 10 * 1024 * 1024,  # 10MB per file
+    "backup_count": 20,  # Max 20 files
+}
+
 
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colored output for log levels"""
@@ -94,6 +105,97 @@ class ColoredFormatter(logging.Formatter):
         record.name = name
 
         return result
+
+
+class PlainFormatter(logging.Formatter):
+    """Plain formatter without colors for file output"""
+
+    def __init__(self, fmt: Optional[str] = None):
+        default_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        super().__init__(fmt or default_fmt)
+
+
+def configure_file_logging(
+    log_dir: Optional[str] = None,
+    max_bytes: int = 10 * 1024 * 1024,  # 10MB
+    backup_count: int = 20,
+    enabled: bool = True,
+) -> None:
+    """
+    Configure global file logging settings.
+
+    Args:
+        log_dir: Directory for log files (default: ./logs)
+        max_bytes: Maximum size per log file in bytes (default: 10MB)
+        backup_count: Maximum number of backup files (default: 20)
+        enabled: Whether to enable file logging (default: True)
+    """
+    global _FILE_LOGGING_CONFIG
+
+    if log_dir is None:
+        log_dir = "./logs"
+
+    # Ensure log directory exists
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+    _FILE_LOGGING_CONFIG.update(
+        {
+            "enabled": enabled,
+            "log_dir": str(log_dir),
+            "max_bytes": max_bytes,
+            "backup_count": backup_count,
+        }
+    )
+
+    # Update all existing loggers with file handlers
+    if enabled:
+        for name, logger in _LOGGERS.items():
+            _add_file_handler(logger, name)
+    else:
+        # Remove file handlers if disabling
+        for logger in _LOGGERS.values():
+            _remove_file_handlers(logger)
+
+
+def _add_file_handler(logger: logging.Logger, name: str) -> None:
+    """Add rotating file handler to a logger."""
+    if not _FILE_LOGGING_CONFIG["enabled"] or not _FILE_LOGGING_CONFIG["log_dir"]:
+        return
+
+    # Remove existing file handlers to avoid duplicates
+    _remove_file_handlers(logger)
+
+    # Create file handler with rotation
+    log_dir = str(_FILE_LOGGING_CONFIG["log_dir"])
+    max_bytes = int(_FILE_LOGGING_CONFIG["max_bytes"] or 10 * 1024 * 1024)
+    backup_count = int(_FILE_LOGGING_CONFIG["backup_count"] or 20)
+
+    log_file = Path(log_dir) / f"{name}.log"
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+
+    # Set level and formatter
+    file_handler.setLevel(logger.level)
+    file_handler.setFormatter(PlainFormatter())
+
+    # Add to logger
+    logger.addHandler(file_handler)
+
+
+def _remove_file_handlers(logger: logging.Logger) -> None:
+    """Remove all file handlers from a logger."""
+    handlers_to_remove = [
+        h
+        for h in logger.handlers
+        if isinstance(h, (logging.FileHandler, logging.handlers.RotatingFileHandler))
+    ]
+    for handler in handlers_to_remove:
+        logger.removeHandler(handler)
+        handler.close()
 
 
 def parse_log_level(level: str) -> LogLevel:
@@ -146,7 +248,11 @@ def set_global_log_level(level: Union[LogLevel, str, int]) -> None:
 
 
 def get_logger(
-    name: str, level: Union[LogLevel, str, int] = LogLevel.INFO, format_str: Optional[str] = None
+    name: str,
+    level: Union[LogLevel, str, int] = LogLevel.INFO,
+    format_str: Optional[str] = None,
+    enable_file_logging: Optional[bool] = None,
+    log_dir: Optional[str] = None,
 ) -> logging.Logger:
     """
     Get or create a logger with the specified name and level
@@ -155,6 +261,8 @@ def get_logger(
         name: Logger name (typically the module name)
         level: Logging level - can be LogLevel enum, string name, or int value
         format_str: Optional custom format string
+        enable_file_logging: Override global file logging setting for this logger
+        log_dir: Override global log directory for this logger
 
     Returns:
         Configured logger instance
@@ -195,6 +303,25 @@ def get_logger(
 
     logger.addHandler(console_handler)
 
+    # Add file handler if enabled
+    file_logging_enabled = enable_file_logging
+    if file_logging_enabled is None:
+        file_logging_enabled = _FILE_LOGGING_CONFIG["enabled"]
+
+    if file_logging_enabled:
+        if log_dir is not None:
+            # Temporarily override global config for this logger
+            original_config = _FILE_LOGGING_CONFIG.copy()
+            _FILE_LOGGING_CONFIG["log_dir"] = str(log_dir)
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+            _add_file_handler(logger, name)
+
+            # Restore original config
+            _FILE_LOGGING_CONFIG.update(original_config)
+        else:
+            _add_file_handler(logger, name)
+
     # Prevent propagation to root logger to avoid duplicate logs
     logger.propagate = False
 
@@ -204,14 +331,54 @@ def get_logger(
     return logger
 
 
-def setup_root_logger(level: Union[LogLevel, str, int] = LogLevel.INFO) -> logging.Logger:
+def setup_root_logger(
+    level: Union[LogLevel, str, int] = LogLevel.INFO,
+    enable_file_logging: bool = False,
+    log_dir: Optional[str] = None,
+) -> logging.Logger:
     """
-    Set up the root logger with colored output
+    Set up the root logger with colored output and optional file logging
 
     Args:
         level: Logging level
+        enable_file_logging: Whether to enable file logging
+        log_dir: Directory for log files
 
     Returns:
         Configured root logger
     """
-    return get_logger("root", level)
+    if enable_file_logging:
+        configure_file_logging(log_dir=log_dir, enabled=True)
+
+    return get_logger("root", level, enable_file_logging=enable_file_logging, log_dir=log_dir)
+
+
+def get_log_file_info(logger_name: str) -> Optional[Dict[str, Union[str, int, float, bool]]]:
+    """
+    Get information about the log files for a specific logger.
+
+    Args:
+        logger_name: Name of the logger
+
+    Returns:
+        Dictionary with log file information or None if no file logging
+    """
+    if not _FILE_LOGGING_CONFIG["enabled"] or not _FILE_LOGGING_CONFIG["log_dir"]:
+        return None
+
+    log_dir = str(_FILE_LOGGING_CONFIG["log_dir"])
+    log_file = Path(log_dir) / f"{logger_name}.log"
+
+    info: Dict[str, Union[str, int, float, bool]] = {
+        "log_file": str(log_file),
+        "log_dir": log_dir,
+        "max_bytes": int(_FILE_LOGGING_CONFIG["max_bytes"] or 0),
+        "backup_count": int(_FILE_LOGGING_CONFIG["backup_count"] or 0),
+        "exists": log_file.exists(),
+    }
+
+    if log_file.exists():
+        info["size_bytes"] = log_file.stat().st_size
+        info["size_mb"] = round(log_file.stat().st_size / (1024 * 1024), 2)
+
+    return info

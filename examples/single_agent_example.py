@@ -7,6 +7,7 @@ from argentic.core.agent.agent import Agent
 from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
 from argentic.core.messager.messager import Messager
 from argentic.core.tools.tool_manager import ToolManager
+from argentic.core.protocol.message import AgentTaskMessage, AgentTaskResultMessage
 
 
 async def main():
@@ -74,13 +75,21 @@ async def main():
         llm=llm,
         messager=messager,
         tool_manager=tool_manager,
-        role="default_agent",
+        role="research_agent",
+        description="General-purpose research and information agent capable of answering questions, providing explanations, and helping with various tasks using available knowledge.",
         system_prompt=system_prompt,
         expected_output_format="text",
+        enable_dialogue_logging=True,  # Enable dialogue logging
     )
     await agent.async_init()
 
-    print("\n--- Running Single Agent Example ---")
+    print("\n--- Single Agent Mode Examples ---")
+    print("1. Direct query method")
+    print("2. Messaging task system")
+    print("====================================")
+
+    # Method 1: Direct query (existing functionality)
+    print("\n1️⃣ DIRECT QUERY METHOD:")
     question = "What is the capital of France?"
     print(f"Question: {question}")
     answer = await agent.query(question)
@@ -90,6 +99,63 @@ async def main():
     print(f"\nQuestion: {question}")
     answer = await agent.query(question)
     print(f"Answer: {answer}")
+
+    # Method 2: Task messaging system (new functionality)
+    print("\n\n2️⃣ MESSAGING TASK SYSTEM:")
+
+    # Set up result listener
+    results_received = {}
+    result_event = asyncio.Event()
+
+    async def handle_result(message):
+        """Handle task results from the agent."""
+        if hasattr(message, "task_id"):
+            results_received[message.task_id] = {
+                "success": message.success,
+                "result": message.result,
+                "error": getattr(message, "error", None),
+            }
+            result_event.set()
+
+    # Subscribe to agent results
+    result_topic = f"agent/{agent.role}/results"
+    await messager.subscribe(result_topic, handle_result, AgentTaskResultMessage)
+
+    # Send a task via messaging
+    task_msg = AgentTaskMessage(
+        task="Explain quantum computing in simple terms suitable for a high school student.",
+        sender_id="single_agent_demo",
+    )
+
+    task_topic = f"agent/{agent.role}/tasks"
+    await messager.publish(task_topic, task_msg)
+    print(f"📤 Sent task via messaging to '{task_topic}'")
+    print(f"Task ID: {task_msg.task_id}")
+
+    # Wait for result
+    print("⏳ Waiting for result...")
+    try:
+        await asyncio.wait_for(result_event.wait(), timeout=30.0)
+
+        if task_msg.task_id in results_received:
+            result_info = results_received[task_msg.task_id]
+            if result_info["success"]:
+                print(f"✅ Task completed successfully!")
+                print(f"📄 Result: {result_info['result'][:300]}...")
+            else:
+                print(f"❌ Task failed: {result_info['error']}")
+        else:
+            print("⚠️ No result received")
+
+    except asyncio.TimeoutError:
+        print("⏱️ Timeout waiting for result")
+
+    print("\n🏁 Single Agent Demo Complete!")
+    print("Both direct queries and messaging tasks work in single-agent mode.")
+
+    # Print dialogue summary
+    if agent.enable_dialogue_logging:
+        agent.print_dialogue_summary()
 
     await messager.disconnect()
 

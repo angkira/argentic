@@ -90,7 +90,24 @@ class AgentLLMResponseMessage(BaseMessage):
     error_details: Optional[str] = None
 
 
-class MinimalToolCallRequest(BaseMessage):
+class MinimalToolCallRequest(BaseModel):
     type: Literal["MINIMAL_TOOL_CALL_REQUEST"] = "MINIMAL_TOOL_CALL_REQUEST"
     tool_name: str
     arguments: Dict[str, Any]
+
+
+class AgentTaskMessage(BaseMessage):
+    type: Literal["AGENT_TASK"] = "AGENT_TASK"
+    task: str
+    task_id: str = Field(default_factory=lambda: str(uuid4()))
+    sender_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class AgentTaskResultMessage(BaseMessage):
+    type: Literal["AGENT_TASK_RESULT"] = "AGENT_TASK_RESULT"
+    task_id: str
+    result: str
+    success: bool = True
+    error: Optional[str] = None
+    agent_id: Optional[str] = None
