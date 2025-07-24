@@ -1,5 +1,6 @@
 import asyncio
 from typing import List, Optional, Any, Dict, Union
+from collections import deque
 import uuid
 import json
 import time
@@ -53,7 +54,11 @@ class Supervisor:
 
         # Dialogue logging
         self.enable_dialogue_logging = enable_dialogue_logging
-        self.dialogue_history: List[Dict[str, Any]] = []
+        # Will set after max_dialogue_history_items
+        self.dialogue_history: deque[Dict[str, Any]]
+        self.max_dialogue_history_items = max_dialogue_history_items
+        # init deque
+        self.dialogue_history = deque(maxlen=self.max_dialogue_history_items)
 
         # Context management for endless cycles
         self.max_task_history_items = max_task_history_items
@@ -66,15 +71,8 @@ class Supervisor:
     def _cleanup_context_if_needed(self) -> None:
         """Clean up context to prevent memory and context window overflow."""
         # Clean up dialogue history
-        if len(self.dialogue_history) > self.max_dialogue_history_items:
-            # Keep most recent entries
-            excess = len(self.dialogue_history) - self.max_dialogue_history_items
-            self.dialogue_history = self.dialogue_history[excess:]
-            self.logger.info(f"Supervisor: Cleaned up {excess} old dialogue entries")
-
-        # Periodic cleanup of completed task artifacts
-        if self._total_tasks_processed % self.context_cleanup_threshold == 0:
-            self._deep_cleanup()
+        # deque(maxlen) handles pruning automatically
+        pass
 
     def _deep_cleanup(self) -> None:
         """Perform deep cleanup of accumulated data."""

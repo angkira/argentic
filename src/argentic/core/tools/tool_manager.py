@@ -29,7 +29,6 @@ class ToolManager:
     tools_by_id: Dict[str, Dict[str, Any]]
     tools_by_name: Dict[str, Dict[str, Any]]
     _pending_tasks: Dict[str, asyncio.Future]
-    _result_lock: asyncio.Lock
     _default_timeout: int
     register_topic: str
     tool_call_topic_base: str
@@ -58,8 +57,10 @@ class ToolManager:
 
         self.tools_by_id = {}
         self.tools_by_name = {}
-        self._pending_tasks = {}
-        self._result_lock = asyncio.Lock()
+        self._pending_tasks: Dict[str, asyncio.Future] = {}
+        # Separate locks to reduce contention (instance-level)
+        self._pending_lock: asyncio.Lock = asyncio.Lock()
+        self._registry_lock: asyncio.Lock = asyncio.Lock()
         self._default_timeout = default_timeout
         self.register_topic = register_topic
         self.tool_call_topic_base = tool_call_topic_base
@@ -68,6 +69,10 @@ class ToolManager:
         self.logger.info(
             f"ToolManager initialized. Call base: '{self.tool_call_topic_base}', Response base: '{self.tool_response_topic_base}'"
         )
+
+        # Cache for tool descriptions sent to LLM – refreshed only when registry changes
+        self._tool_desc_cache: str = "[]"
+        self._tool_cache_dirty: bool = True
 
     async def async_init(self) -> None:
         """Asynchronously initializes the ToolManager, subscribing to tool registration topics."""
@@ -104,7 +109,7 @@ class ToolManager:
             return
 
         self.logger.debug(f"About to acquire _result_lock for task_id: {msg.task_id}")
-        async with self._result_lock:
+        async with self._pending_lock:
             self.logger.debug(f"Acquired _result_lock for task_id: {msg.task_id}")
             task_id = msg.task_id
             if task_id in self._pending_tasks:
@@ -130,7 +135,7 @@ class ToolManager:
 
         tool_name = reg_msg.tool_name
 
-        async with self._result_lock:
+        async with self._registry_lock:
             if tool_id in self.tools_by_id:
                 self.logger.warning(
                     f"Tool with ID {tool_id} ({tool_name}) is already registered. Re-registering."
@@ -146,6 +151,9 @@ class ToolManager:
             }
             self.tools_by_id[tool_id] = tool_info
             self.tools_by_name[tool_name] = tool_info
+
+            # Mark cache dirty
+            self._tool_cache_dirty = True
 
         result_topic = f"{self.tool_response_topic_base}/{tool_id}"
 
@@ -179,7 +187,7 @@ class ToolManager:
         result_topic = None
         tool_info = None
 
-        async with self._result_lock:
+        async with self._registry_lock:
             if tool_id in self.tools_by_id:
                 tool_info = self.tools_by_id.pop(tool_id)
                 if tool_info["name"] in self.tools_by_name:
@@ -196,6 +204,8 @@ class ToolManager:
             self.logger.info(
                 f"Unregistered tool '{tool_info['name']}' (ID: {tool_id}). Unsubscribed from {result_topic}."
             )
+            # Mark cache dirty after removal
+            self._tool_cache_dirty = True
 
     async def execute_tool(
         self,
@@ -234,7 +244,7 @@ class ToolManager:
         # Create the future explicitly on the current event loop to avoid accidental binding issues
         loop = asyncio.get_running_loop()
         future = loop.create_future()
-        async with self._result_lock:
+        async with self._pending_lock:
             self._pending_tasks[task_id] = future
 
         task_topic = f"{self.tool_call_topic_base}/{tool_id}"
@@ -296,7 +306,7 @@ class ToolManager:
                 f"Error executing tool '{actual_tool_name}' (task_id: {task_id}): {e}",
                 exc_info=True,
             )
-            async with self._result_lock:
+            async with self._pending_lock:
                 if task_id in self._pending_tasks:
                     self._pending_tasks.pop(task_id)
             return TaskErrorMessage(
@@ -311,23 +321,26 @@ class ToolManager:
                 arguments=arguments,
             )
 
-    def generate_tool_descriptions_for_prompt(self) -> str:
-        """Generates a JSON string describing available tools for the LLM prompt."""
-        tool_defs = []
-        current_tools = list(self.tools_by_id.values())
-        for tool_info in current_tools:
-            tool_defs.append(
-                {
-                    "tool_id": tool_info["id"],
-                    "name": tool_info["name"],
-                    "description": tool_info["description"],
-                    "parameters": tool_info["parameters"],
-                }
-            )
-        return json.dumps(tool_defs, indent=2)
+    def _refresh_tool_description_cache(self) -> None:
+        """(Re-)build the cached JSON string for tool descriptions."""
+        tool_defs = [
+            {
+                "tool_id": info["id"],
+                "name": info["name"],
+                "description": info["description"],
+                "parameters": info["parameters"],
+            }
+            for info in self.tools_by_id.values()
+        ]
+        # Store minified JSON to save tokens; pretty-printing not needed for LLM
+        self._tool_desc_cache = json.dumps(tool_defs, separators=(",", ":"))
+        self._tool_cache_dirty = False
 
     def get_tools_description(self) -> str:
-        return self.generate_tool_descriptions_for_prompt()
+        """Return cached tool description JSON, regenerating only if registry changed."""
+        if self._tool_cache_dirty:
+            self._refresh_tool_description_cache()
+        return self._tool_desc_cache
 
     def get_tool_names(self) -> List[str]:
         return list(self.tools_by_name.keys())
@@ -418,3 +431,37 @@ class ToolManager:
                 )
                 any_errors = True
         return results, any_errors
+
+    # ------------------------------------------------------------------
+    # Lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def cancel_pending_tasks(self) -> None:
+        """Cancel all pending tool futures to speed up shutdown."""
+        # Acquire lock briefly to snapshot and clear map
+        pending: Dict[str, asyncio.Future] = {}
+
+        async def _inner():
+            async with self._pending_lock:
+                nonlocal pending
+                pending = self._pending_tasks.copy()
+                self._pending_tasks.clear()
+
+        # Run the coroutine synchronously – ToolManager may be called from sync context
+        try:
+            asyncio.get_running_loop().run_until_complete(_inner())
+        except RuntimeError:
+            # Not inside an event loop – ok to run a new one
+            asyncio.run(_inner())
+
+        for fut in pending.values():
+            if not fut.done():
+                fut.cancel()
+        if pending:
+            self.logger.info(f"Cancelled {len(pending)} pending tool task(s) during shutdown")
+
+    def stop(self) -> None:
+        """Public synchronous shutdown helper."""
+        self.cancel_pending_tasks()
+        # Future: add topic unsubscriptions if needed
+        self.logger.info("ToolManager stopped")

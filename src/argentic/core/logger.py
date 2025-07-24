@@ -5,6 +5,8 @@ import os
 from enum import Enum
 from pathlib import Path
 from typing import Dict, Optional, Union
+import threading
+import functools
 
 
 class LogLevel(Enum):
@@ -62,6 +64,14 @@ LEVEL_COLORS = {
 # Cache for loggers to avoid creating multiple loggers for the same name
 _LOGGERS: Dict[str, logging.Logger] = {}
 
+# Lock to ensure thread-safe mutations to global logger caches / configs
+_logger_lock = threading.RLock()
+
+# Detect whether we should output ANSI colours – disabled when stdout is not a TTY
+# or when NO_COLOR env var is present (https://no-color.org/)
+_COLOR_ENABLED = sys.stdout.isatty() and os.environ.get("NO_COLOR", "") == ""
+
+
 # Global file logging configuration
 _FILE_LOGGING_CONFIG: Dict[str, Union[bool, str, int, None]] = {
     "enabled": False,
@@ -74,9 +84,13 @@ _FILE_LOGGING_CONFIG: Dict[str, Union[bool, str, int, None]] = {
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colored output for log levels"""
 
-    def __init__(self, fmt: Optional[str] = None):
+    def __init__(self, fmt: Optional[str] = None, enable_color: bool = True):
+        # Default format string – keep identical to previous behaviour
         default_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         super().__init__(fmt or default_fmt)
+
+        # Whether colouring should be applied for this formatter instance
+        self._enable_color = enable_color and _COLOR_ENABLED
 
     def format(self, record):
         # Save original values to restore them later
@@ -85,17 +99,21 @@ class ColoredFormatter(logging.Formatter):
         name = record.name
         message = record.getMessage()
 
-        # Apply color to level name based on level
-        if levelno in LEVEL_COLORS:
-            color = LEVEL_COLORS[levelno]
-            record.levelname = f"{color}{levelname}{Colors.RESET}"
+        if self._enable_color:
+            # Apply colour to level name based on level
+            if levelno in LEVEL_COLORS:
+                color = LEVEL_COLORS[levelno]
+                record.levelname = f"{color}{levelname}{Colors.RESET}"
 
-        # Format the logger name with blue color
-        record.name = f"{Colors.BLUE}{name}{Colors.RESET}"
+            # Colourise logger name
+            record.name = f"{Colors.BLUE}{name}{Colors.RESET}"
 
-        # For critical errors, colorize the entire message
-        if levelno == logging.CRITICAL:
-            record.msg = f"{Colors.BG_RED}{Colors.WHITE}{Colors.BOLD}{message}{Colors.RESET}"
+            # For critical errors, colourise the entire message
+            if levelno == logging.CRITICAL:
+                record.msg = f"{Colors.BG_RED}{Colors.WHITE}{Colors.BOLD}{message}{Colors.RESET}"
+        else:
+            # No colour: keep original values
+            pass
 
         # Call the original formatter
         result = super().format(record)
@@ -198,15 +216,19 @@ def _remove_file_handlers(logger: logging.Logger) -> None:
         handler.close()
 
 
-def parse_log_level(level: str) -> LogLevel:
-    """Convert string log level to LogLevel enum"""
-    level_upper = level.upper()
+# Cache parse_log_level results – avoids repeated dict lookups under heavy logging
+@functools.lru_cache(maxsize=16)
+def _parse_log_level_cached(level_upper: str) -> LogLevel:
     try:
         return LogLevel[level_upper]
     except KeyError:
-        # Fallback to INFO if invalid level
-        print(f"Warning: Invalid log level '{level}'. Defaulting to INFO.")
+        print(f"Warning: Invalid log level '{level_upper}'. Defaulting to INFO.")
         return LogLevel.INFO
+
+
+def parse_log_level(level: str) -> LogLevel:
+    """Convert string log level to LogLevel enum"""
+    return _parse_log_level_cached(level.upper())
 
 
 def set_global_log_level(level: Union[LogLevel, str, int]) -> None:
@@ -277,11 +299,12 @@ def get_logger(
         # Assume it's already an int level
         level_value = level
 
-    # Check if logger already exists in cache
-    if name in _LOGGERS:
-        logger = _LOGGERS[name]
-        logger.setLevel(level_value)
-        return logger
+    # Retrieve from cache in a thread-safe manner
+    with _logger_lock:
+        if name in _LOGGERS:
+            logger = _LOGGERS[name]
+            logger.setLevel(level_value)
+            return logger
 
     # Create new logger
     logger = logging.getLogger(name)
@@ -298,7 +321,7 @@ def get_logger(
     # Force immediate flushing to prevent buffering issues
     console_handler.flush = lambda: sys.stdout.flush()
 
-    formatter = ColoredFormatter(format_str)
+    formatter = ColoredFormatter(format_str, enable_color=_COLOR_ENABLED)
     console_handler.setFormatter(formatter)
 
     logger.addHandler(console_handler)
@@ -325,8 +348,9 @@ def get_logger(
     # Prevent propagation to root logger to avoid duplicate logs
     logger.propagate = False
 
-    # Cache for future use
-    _LOGGERS[name] = logger
+    # Cache for future use (thread-safe)
+    with _logger_lock:
+        _LOGGERS[name] = logger
 
     return logger
 

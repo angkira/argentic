@@ -5,6 +5,7 @@ from typing import List, Optional, Union, Tuple, Dict, Literal, Any
 import functools
 import concurrent.futures
 import time
+from collections import deque
 
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
@@ -135,10 +136,13 @@ class Agent:
 
         # Dialogue logging
         self.enable_dialogue_logging = enable_dialogue_logging
-        self.dialogue_history: List[Dict[str, Any]] = []
+        # placeholder, will init after setting history size
+        self.dialogue_history: deque[Dict[str, Any]]
+        self.max_dialogue_history_items = max_dialogue_history_items
+        # Now initialise deque with correct maxlen
+        self.dialogue_history = deque(maxlen=self.max_dialogue_history_items)
 
         # Context management for endless cycles
-        self.max_dialogue_history_items = max_dialogue_history_items
         self.max_query_history_items = max_query_history_items
         self.adaptive_max_iterations = adaptive_max_iterations
         self._queries_processed = 0
@@ -147,7 +151,8 @@ class Agent:
         self.max_consecutive_tool_calls = max_consecutive_tool_calls
         self.tool_call_window_size = tool_call_window_size
         self.enable_completion_analysis = enable_completion_analysis
-        self._tool_call_history: List[Dict[str, Any]] = []  # Track recent tool calls
+        # Track recent tool calls – deque auto-discards old entries, avoiding manual trimming
+        self._tool_call_history: deque[Dict[str, Any]] = deque(maxlen=self.tool_call_window_size)
         self._consecutive_tool_calls = 0  # Counter for consecutive tool calls
 
         # Messaging control for endless cycles
@@ -495,14 +500,39 @@ class Agent:
         self._llm_executor.shutdown(wait=True)
         self.logger.debug("LLM thread pool executor shut down.")
 
+        # Gracefully disconnect from messaging broker if we own the messager instance
+        try:
+            if hasattr(self.messager, "disconnect") and callable(
+                getattr(self.messager, "disconnect")
+            ):
+                if self.messager.is_connected():
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # If we're inside an event loop, run disconnect asynchronously
+                        awaitable = self.messager.disconnect()
+                        if loop.is_running():
+                            awaitable  # type: ignore[func-returns-value]
+                        else:
+                            loop.run_until_complete(awaitable)
+                    except RuntimeError:
+                        # Not inside loop – create one
+                        asyncio.run(self.messager.disconnect())
+        except Exception as e:
+            self.logger.debug(f"Messager disconnect raised: {e}")
+
+        # Stop tool manager (cancel pending tasks etc.) – best-effort
+        try:
+            if hasattr(self._tool_manager, "stop"):
+                self._tool_manager.stop()
+        except Exception as e:
+            self.logger.debug(f"ToolManager stop raised: {e}")
+
         self.logger.info(f"Agent '{self.role}' stopped.")
 
     def _cleanup_dialogue_history(self) -> None:
         """Clean up dialogue history to prevent unlimited growth."""
-        if len(self.dialogue_history) > self.max_dialogue_history_items:
-            excess = len(self.dialogue_history) - self.max_dialogue_history_items
-            self.dialogue_history = self.dialogue_history[excess:]
-            self.logger.info(f"Agent '{self.role}': Cleaned up {excess} old dialogue entries")
+        # With deque(maxlen) growth is self-managed; nothing to do.
+        pass
 
     def _get_adaptive_max_iterations(self, question: str) -> int:
         """Calculate adaptive max iterations based on task complexity."""
@@ -556,15 +586,15 @@ class Agent:
         # Add to history
         self._tool_call_history.extend(current_call_signatures)
 
-        # Keep only recent history
-        if len(self._tool_call_history) > self.tool_call_window_size:
-            self._tool_call_history = self._tool_call_history[-self.tool_call_window_size :]
+        # deque maxlen already truncates history – no manual slicing required
 
         # Check for consecutive identical tool calls
         if len(self._tool_call_history) >= 2:
-            last_calls = self._tool_call_history[-2:]
+            last_calls = list(self._tool_call_history)[-2:]
+
             if (
-                last_calls[0]["tool_id"] == last_calls[1]["tool_id"]
+                len(last_calls) == 2
+                and last_calls[0]["tool_id"] == last_calls[1]["tool_id"]
                 and last_calls[0]["arguments"] == last_calls[1]["arguments"]
             ):
                 self._consecutive_tool_calls += 1
@@ -581,7 +611,7 @@ class Agent:
         # Check for pattern repetition within the window
         if len(self._tool_call_history) >= 4:
             # Look for AB-AB patterns
-            recent_calls = self._tool_call_history[-4:]
+            recent_calls = list(self._tool_call_history)[-4:]
             if (
                 recent_calls[0]["tool_id"] == recent_calls[2]["tool_id"]
                 and recent_calls[1]["tool_id"] == recent_calls[3]["tool_id"]
@@ -772,7 +802,7 @@ class Agent:
 
     def get_dialogue_history(self) -> List[Dict[str, Any]]:
         """Get the complete dialogue history for this agent."""
-        return self.dialogue_history.copy()
+        return list(self.dialogue_history)
 
     def print_dialogue_summary(self) -> None:
         """Print a summary of the dialogue history."""
@@ -783,7 +813,7 @@ class Agent:
         print(f"\n📋 DIALOGUE SUMMARY - Agent '{self.role}' ({len(self.dialogue_history)} entries)")
         print("=" * 60)
 
-        for entry in self.dialogue_history:
+        for entry in list(self.dialogue_history):
             self._print_dialogue_entry(entry)
 
         print("=" * 60)

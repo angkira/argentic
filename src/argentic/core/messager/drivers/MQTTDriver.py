@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, cast
 from contextlib import AsyncExitStack
 
 import aiomqtt
+import weakref
 from aiomqtt import Client, MqttError, Message
 from aiomqtt.client import ProtocolVersion
 
@@ -24,8 +25,8 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
         self._subscriptions: Dict[str, Dict[str, tuple[MessageHandler, type]]] = {}
         self._message_task: Optional[asyncio.Task] = None
         self._stack: Optional[AsyncExitStack] = None
-        # EXPERIMENTAL: Task pool to prevent handler blocking
-        self._handler_tasks: set = set()
+        # Track handler tasks without leaking memory – WeakSet auto-removes finished tasks
+        self._handler_tasks: "weakref.WeakSet[asyncio.Task]" = weakref.WeakSet()
         self._max_concurrent_handlers = 50
         # Shadow ping to keep connection alive. Interval = keepalive / 2
         if self.config.keepalive is not None and self.config.keepalive > 0:
@@ -243,24 +244,20 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
 
                 # Spawn message processing as independent task
                 task = asyncio.create_task(self._process_message(message))
-                self._handler_tasks.add(task)
 
-                # Clean up completed tasks periodically
-                done_tasks = [t for t in self._handler_tasks if t.done()]
-                for task in done_tasks:
-                    self._handler_tasks.discard(task)
-                    if task.exception():
-                        logger.error(f"Handler task failed: {task.exception()}")
+                # Auto-remove from the tracking set once finished to avoid leaks
+                task.add_done_callback(self._handler_tasks.discard)
+
+                self._handler_tasks.add(task)
 
         except asyncio.CancelledError:
             logger.debug("Message handler task cancelled")
-            # Cancel all pending handler tasks
-            for task in self._handler_tasks:
-                if not task.done():
-                    task.cancel()
-            # Wait for all tasks to complete
-            if self._handler_tasks:
-                await asyncio.gather(*self._handler_tasks, return_exceptions=True)
+            # Cancel and gather remaining handler tasks (WeakSet auto-shrinks)
+            pending = [t for t in self._handler_tasks if not t.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
         except Exception as e:
             logger.error(f"Error in message handler: {e}")
 

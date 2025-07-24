@@ -1,0 +1,5 @@
+llm:
+  provider: google_gemini
+  google_gemini_model_name: gemini-2.5-flash # Using gemini-pro for general purposes
+  enable_google_search: false
+  
