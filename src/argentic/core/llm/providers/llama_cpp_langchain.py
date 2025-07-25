@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 
 try:
     from langchain_community.llms.llamacpp import LlamaCpp
+    from langchain_core.messages import AIMessage, BaseMessage
 
     LANGCHAIN_AVAILABLE = True
 except ImportError:
@@ -81,6 +82,9 @@ class LlamaCppLangchainProvider(ModelProvider):
             self.logger.error(f"Failed to initialize LlamaCpp: {e}")
             raise
 
+    def _to_ai(self, text: str) -> BaseMessage:
+        return AIMessage(content=str(text))
+
     def _parse_llm_result(self, result: Any) -> str:
         """Parse the result from LlamaCpp."""
         if isinstance(result, str):
@@ -98,40 +102,45 @@ class LlamaCppLangchainProvider(ModelProvider):
             formatted_messages.append(f"{role}: {content}")
         return "\n".join(formatted_messages)
 
-    def invoke(self, prompt: str, **kwargs: Any) -> str:
+    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         """Synchronously invoke the model with a single prompt."""
         try:
             result = self.llm.invoke(prompt, **kwargs)
-            return self._parse_llm_result(result)
+            return self._to_ai(self._parse_llm_result(result))
         except Exception as e:
             self.logger.error(f"LlamaCpp invoke failed: {e}")
             raise
 
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> str:
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         """Asynchronously invoke the model with a single prompt."""
         try:
             result = await self.llm.ainvoke(prompt, **kwargs)
-            return self._parse_llm_result(result)
+            return self._to_ai(self._parse_llm_result(result))
         except Exception as e:
             self.logger.error(f"LlamaCpp ainvoke failed: {e}")
             raise
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         """Synchronously invoke the model with chat messages."""
         try:
             prompt = self._convert_messages_to_prompt(messages)
             result = self.llm.invoke(prompt, **kwargs)
-            return self._parse_llm_result(result)
+            return self._to_ai(self._parse_llm_result(result))
         except Exception as e:
             self.logger.error(f"LlamaCpp chat failed: {e}")
             raise
 
-    async def achat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    async def achat(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Any]] = None,
+        **kwargs: Any,
+    ) -> BaseMessage:  # type: ignore[override]
         """Asynchronously invoke the model with chat messages."""
         try:
             prompt = self._convert_messages_to_prompt(messages)
             result = await self.llm.ainvoke(prompt, **kwargs)
-            return self._parse_llm_result(result)
+            return self._to_ai(self._parse_llm_result(result))
         except Exception as e:
             self.logger.error(f"LlamaCpp achat failed: {e}")
             raise
@@ -143,3 +152,25 @@ class LlamaCppLangchainProvider(ModelProvider):
     async def stop(self) -> None:
         """Optional cleanup method."""
         self.logger.info("LlamaCpp provider stopped")
+
+    # ------------------------------------------------------------------
+    # Unified interface helpers (parity with GoogleGeminiProvider)
+    # ------------------------------------------------------------------
+
+    def get_model_name(self) -> str:
+        import os
+
+        return str(os.path.basename(self.model_path))
+
+    def supports_tools(self) -> bool:
+        return False
+
+    def supports_streaming(self) -> bool:
+        return False
+
+    def get_available_models(self) -> List[str]:
+        return [self.get_model_name()]
+
+    # ------------------------------------------------------------------
+    # End of LlamaCppLangchainProvider extension
+    # ------------------------------------------------------------------

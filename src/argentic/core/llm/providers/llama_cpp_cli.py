@@ -6,6 +6,10 @@ from typing import Any, Dict, List, Optional
 from .base import ModelProvider
 from argentic.core.logger import get_logger
 
+from typing import Optional, Any, Dict, List
+
+from langchain_core.messages import AIMessage, BaseMessage
+
 
 class LlamaCppCLIProvider(ModelProvider):
     def __init__(self, config: Dict[str, Any], messager: Optional[Any] = None):
@@ -71,9 +75,20 @@ class LlamaCppCLIProvider(ModelProvider):
         if "temp" in kwargs:
             cmd.extend(["--temp", str(kwargs["temp"])])
         # Add other relevant llama.cpp params from kwargs as needed
-        return cmd
+        # Cast to satisfy static typing (all elements are stringified)
+        from typing import cast, List
 
-    def invoke(self, prompt: str, **kwargs: Any) -> str:
+        return cast(List[str], cmd)
+
+    def _to_ai(self, text: str) -> "BaseMessage":
+        """Utility to wrap plain text into an AIMessage."""
+        return AIMessage(content=text)
+
+    # ------------------------------------------------------------------
+    # ModelProvider required implementations returning BaseMessage
+    # ------------------------------------------------------------------
+
+    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         cmd = self._build_command(prompt, **kwargs)
         self.logger.debug(f"Executing Llama.cpp CLI: {' '.join(cmd)}")
         try:
@@ -85,18 +100,17 @@ class LlamaCppCLIProvider(ModelProvider):
             # A common pattern is that the completion starts after the prompt.
             # This might need adjustment based on the exact llama.cpp version and verbosity.
             output = result.stdout.strip()
-            # A simple way to get text after prompt, assuming prompt is at the start of output
             if output.startswith(prompt.strip()):
                 # Add one for potential space or newline after prompt in output
-                return output[len(prompt.strip()) :].strip()
-            return output  # Fallback if prompt not found at start
+                output = output[len(prompt.strip()) :].strip()
+            return self._to_ai(output)  # type: ignore[return-value]
         except subprocess.CalledProcessError as e:
             self.logger.error(
                 f"Llama.cpp CLI execution failed. CMD: {' '.join(e.cmd)}. Error: {e.stderr}"
             )
             raise RuntimeError(f"Llama.cpp CLI error: {e.stderr}") from e
 
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> str:
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         cmd = self._build_command(prompt, **kwargs)
         self.logger.debug(f"Executing Llama.cpp CLI (async): {' '.join(cmd)}")
         try:
@@ -113,16 +127,47 @@ class LlamaCppCLIProvider(ModelProvider):
 
             output = stdout.decode(errors="ignore").strip()
             if output.startswith(prompt.strip()):
-                return output[len(prompt.strip()) :].strip()
-            return output
+                output = output[len(prompt.strip()) :].strip()
+            return self._to_ai(output)
         except Exception as e:
             self.logger.error(f"Async Llama.cpp CLI execution failed: {e}")
             raise RuntimeError(f"Async Llama.cpp CLI error: {e}") from e
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         prompt = self._format_chat_messages_to_prompt(messages)
         return self.invoke(prompt, **kwargs)
 
-    async def achat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    async def achat(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Any]] = None,  # tools ignored for llama.cpp CLI
+        **kwargs: Any,
+    ) -> BaseMessage:  # type: ignore[override]
         prompt = self._format_chat_messages_to_prompt(messages)
         return await self.ainvoke(prompt, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Unified interface helpers (parity with GoogleGeminiProvider)
+    # ------------------------------------------------------------------
+
+    def get_model_name(self) -> str:
+        """Return the underlying GGUF model file name."""
+        import os
+
+        return str(os.path.basename(self.model_path))
+
+    def supports_tools(self) -> bool:
+        """llama.cpp CLI does not support structured tool-calling by itself."""
+        return False
+
+    def supports_streaming(self) -> bool:
+        """Streaming of tokens can be enabled via CLI flags, but is not exposed here."""
+        return False
+
+    def get_available_models(self) -> List[str]:
+        """Return list containing only the current model; discovery is not available."""
+        return [self.get_model_name()]
+
+    # ------------------------------------------------------------------
+    # End of LlamaCppCLIProvider extension
+    # ------------------------------------------------------------------

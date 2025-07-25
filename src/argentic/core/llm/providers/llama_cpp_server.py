@@ -3,6 +3,7 @@ import asyncio
 import subprocess
 from subprocess import Popen
 from typing import Any, Dict, List, Optional
+from langchain_core.messages import AIMessage, BaseMessage
 
 import httpx  # Using httpx for async requests
 
@@ -139,11 +140,14 @@ class LlamaCppServerProvider(ModelProvider):
                     f"Llama.cpp server error: {e.response.status_code} - {e.response.text}"
                 ) from e
 
-    def invoke(self, prompt: str, **kwargs: Any) -> str:
+    def _to_ai(self, text: str) -> BaseMessage:
+        return AIMessage(content=str(text))
+
+    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         # Use Langchain if available and configured
         if self.use_langchain and self.langchain_llm is not None:
             try:
-                return self.langchain_llm.invoke(prompt, **kwargs)
+                return self._to_ai(self.langchain_llm.invoke(prompt, **kwargs))  # type: ignore[arg-type]
             except Exception as e:
                 self.logger.error(f"Langchain LlamaCpp invoke failed: {e}, falling back to HTTP")
 
@@ -180,13 +184,13 @@ class LlamaCppServerProvider(ModelProvider):
                     response_data = future.result(timeout=self.timeout)
             else:
                 response_data = asyncio.run(self._make_request("/completion", payload))
-        return response_data.get("content", "")
+        return self._to_ai(response_data.get("content", ""))
 
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> str:
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         # Use Langchain if available and configured
         if self.use_langchain and self.langchain_llm is not None:
             try:
-                return await self.langchain_llm.ainvoke(prompt, **kwargs)
+                return self._to_ai(await self.langchain_llm.ainvoke(prompt, **kwargs))  # type: ignore[arg-type]
             except Exception as e:
                 self.logger.error(f"Langchain LlamaCpp ainvoke failed: {e}, falling back to HTTP")
 
@@ -200,15 +204,15 @@ class LlamaCppServerProvider(ModelProvider):
         payload.pop("messages", None)
 
         response_data = await self._make_request("/completion", payload)
-        return response_data.get("content", "")
+        return self._to_ai(response_data.get("content", ""))
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:  # type: ignore[override]
         # Use Langchain if available and configured
         if self.use_langchain and self.langchain_llm is not None:
             try:
                 # Convert messages to prompt for Langchain LlamaCpp
                 prompt = self._format_chat_messages_to_prompt(messages)
-                return self.langchain_llm.invoke(prompt, **kwargs)
+                return self._to_ai(self.langchain_llm.invoke(prompt, **kwargs))  # type: ignore[arg-type]
             except Exception as e:
                 self.logger.error(f"Langchain LlamaCpp chat failed: {e}, falling back to HTTP")
 
@@ -242,16 +246,21 @@ class LlamaCppServerProvider(ModelProvider):
                 response_data = asyncio.run(self._make_request("/v1/chat/completions", payload))
 
         if response_data.get("choices") and response_data["choices"][0].get("message"):
-            return response_data["choices"][0]["message"].get("content", "")
-        return ""
+            return self._to_ai(response_data["choices"][0]["message"].get("content", ""))
+        return self._to_ai("")
 
-    async def achat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
+    async def achat(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Any]] = None,
+        **kwargs: Any,
+    ) -> BaseMessage:  # type: ignore[override]
         # Use Langchain if available and configured
         if self.use_langchain and self.langchain_llm is not None:
             try:
                 # Convert messages to prompt for Langchain LlamaCpp
                 prompt = self._format_chat_messages_to_prompt(messages)
-                return await self.langchain_llm.ainvoke(prompt, **kwargs)
+                return self._to_ai(await self.langchain_llm.ainvoke(prompt, **kwargs))  # type: ignore[arg-type]
             except Exception as e:
                 self.logger.error(f"Langchain LlamaCpp achat failed: {e}, falling back to HTTP")
 
@@ -263,5 +272,28 @@ class LlamaCppServerProvider(ModelProvider):
 
         response_data = await self._make_request("/v1/chat/completions", payload)
         if response_data.get("choices") and response_data["choices"][0].get("message"):
-            return response_data["choices"][0]["message"].get("content", "")
-        return ""
+            return self._to_ai(response_data["choices"][0]["message"].get("content", ""))
+        return self._to_ai("")
+
+    # ------------------------------------------------------------------
+    # Unified interface helpers (parity with GoogleGeminiProvider)
+    # ------------------------------------------------------------------
+
+    def get_model_name(self) -> str:
+        import os
+
+        return os.path.basename(self.model_path) if self.model_path else "llama.cpp-server"
+
+    def supports_tools(self) -> bool:
+        return False
+
+    def supports_streaming(self) -> bool:
+        # llama.cpp server supports streaming via SSE but not implemented
+        return False
+
+    def get_available_models(self) -> List[str]:
+        return [self.get_model_name()]
+
+    # ------------------------------------------------------------------
+    # End of LlamaCppServerProvider extension
+    # ------------------------------------------------------------------
