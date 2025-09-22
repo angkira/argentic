@@ -6,6 +6,7 @@ import functools
 import concurrent.futures
 import time
 from collections import deque
+from enum import Enum
 
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
@@ -75,6 +76,11 @@ class LLMResponse(BaseModel):
     result: Optional[str] = None
 
 
+class AgentStateMode(str, Enum):
+    STATEFUL = "stateful"
+    STATELESS = "stateless"
+
+
 class Agent:
     """Manages interaction with LLM and ToolManager (Async Version)."""
 
@@ -111,6 +117,7 @@ class Agent:
         publish_to_supervisor: bool = True,  # Publish results to supervisor
         publish_to_agent_topic: bool = True,  # Publish to agent-specific topic
         enable_tool_result_publishing: bool = False,  # Publish individual tool results
+        state_mode: AgentStateMode = AgentStateMode.STATEFUL,  # Stateful vs Stateless LLM calls
     ):
         self.llm = llm
         self.messager = messager
@@ -126,6 +133,7 @@ class Agent:
         self.expected_output_format = expected_output_format  # Store new parameter
         self.llm_config = llm_config if llm_config is not None else {}  # Store llm_config
         self.task_handling = task_handling  # Store task_handling parameter
+        self.state_mode = state_mode
 
         if isinstance(log_level, str):
             self.log_level = parse_log_level(log_level)
@@ -210,12 +218,29 @@ class Agent:
         # Convert Langchain messages from state to our internal protocol messages
         protocol_messages = self._convert_langchain_to_protocol_messages(state["messages"])
 
-        # Build LLM input: start with system prompt so the model always sees it
+        # Build LLM input respecting state mode
         llm_input_messages = []
         if self.system_prompt:
             llm_input_messages.append({"role": LLMRole.SYSTEM.value, "content": self.system_prompt})
 
-        llm_input_messages.extend(self._convert_protocol_history_to_llm_format(protocol_messages))
+        if self.state_mode == AgentStateMode.STATEFUL:
+            llm_input_messages.extend(
+                self._convert_protocol_history_to_llm_format(protocol_messages)
+            )
+        else:
+            # Stateless: include only the most recent relevant message
+            relevant_protocol_message = None
+            for msg in reversed(protocol_messages):
+                if isinstance(msg, AskQuestionMessage):
+                    relevant_protocol_message = msg
+                    break
+            if relevant_protocol_message is None and protocol_messages:
+                relevant_protocol_message = protocol_messages[-1]
+
+            if relevant_protocol_message is not None:
+                llm_input_messages.extend(
+                    self._convert_protocol_history_to_llm_format([relevant_protocol_message])
+                )
 
         # The Supervisor will have agent_tools, a regular agent will not.
         tools = getattr(self, "agent_tools", None)
@@ -1212,8 +1237,11 @@ HANDLING TOOL RESULTS:
                 question=current_question_for_llm_turn,
             )
 
-            # Truncate history to manage context size for endless cycles
-            truncated_history = self._truncate_history_for_context(self.history)
+            # Truncate or drop history depending on state mode
+            if self.state_mode == AgentStateMode.STATEFUL:
+                truncated_history = self._truncate_history_for_context(self.history)
+            else:
+                truncated_history = []
 
             # Create AgentLLMRequestMessage for this turn's interaction (not added to history before conversion)
             llm_input_messages = self._convert_protocol_history_to_llm_format(truncated_history)
