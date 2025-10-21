@@ -1,0 +1,69 @@
+---
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (leave empty for current version)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install build tools
+        run: |
+          uv pip install build twine
+
+      - name: Build package
+        run: |
+          rm -rf dist build *.egg-info
+          uv run python -m build
+
+      - name: Check version consistency
+        run: |
+          VERSION=$(grep 'version = ' pyproject.toml | cut -d'"' -f2)
+          echo "Package version: $VERSION"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            if [ "$VERSION" != "$TAG" ]; then
+              echo "❌ Version mismatch: pyproject.toml has $VERSION but release tag is $TAG"
+              exit 1
+            fi
+          fi
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          uv run python -m twine upload dist/* --non-interactive
+
+      - name: Output success message
+        run: |
+          VERSION=$(grep 'version = ' pyproject.toml | cut -d'"' -f2)
+          echo "✅ Successfully published argentic $VERSION to PyPI!"
+          echo "🌐 https://pypi.org/project/argentic/$VERSION/"
+
