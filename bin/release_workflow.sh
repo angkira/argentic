@@ -17,7 +17,9 @@ if [ ! -f .env ]; then
 fi
 
 # Source environment variables
-export $(grep -v '^#' .env | xargs)
+set -a
+source .env
+set +a
 
 # Check for PyPI token
 if [ -z "$PY_PI_TOKEN" ]; then
