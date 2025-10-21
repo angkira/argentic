@@ -8,6 +8,13 @@ Microframework for building and running local AI agents.
 
 Argentic provides a lightweight, configurable framework designed to simplify the setup and operation of local AI agents. It integrates with various Large Language Model (LLM) backends and utilizes a messaging protocol (currently MQTT) for flexible communication between the core agent, tools, and clients.
 
+> **📘 For AI Coding Agents**: This repository includes comprehensive AI agent documentation:
+> - **Claude Skill** (`argentic-skill.zip`) - For Claude Desktop/Code with automatic loading
+> - **`.cursorrules`** - For Cursor AI with automatic loading
+> - **`ARGENTIC_QUICKREF.md`** - Universal reference for any AI agent
+> 
+> See `CLAUDE_SKILL_GUIDE.md` for Claude Skill installation instructions.
+
 ## Features
 
 - **Modular Design**: Core components include an `Agent`, a `Messager` for communication, and an `LLMProvider` for interacting with language models.

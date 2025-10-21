@@ -54,6 +54,7 @@ nav:
       - Messaging Drivers: api/drivers.md
   - Guides:
       - Multi-Agent Systems: guides/multi_agent.md
+      - AI Agent Documentation: ai-agent-guide.md
   # Add other pages and sections here
   # Example:
   # - User Guide:

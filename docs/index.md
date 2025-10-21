@@ -249,6 +249,13 @@ python -m pytest -m "e2e and not kafka"
   - [BaseTool API](api/base-tool.md) - Custom tool development
   - [ToolManager API](api/tool-manager.md) - Tool execution and management
 
+### 🤖 AI Agent Documentation
+
+- **[AI Agent Guide](ai-agent-guide.md)** - Documentation optimized for AI coding agents
+  - `.cursorrules` - Auto-loaded reference for Cursor/Claude Code
+  - `ARGENTIC_QUICKREF.md` - Extended API reference and examples
+  - Designed for quick framework understanding and implementation
+
 ### ⚙️ Configuration Guides
 
 - **[Messaging Configuration](messaging-configuration.md)** - MQTT setup and topic management
