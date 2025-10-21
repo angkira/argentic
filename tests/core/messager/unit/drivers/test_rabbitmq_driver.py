@@ -1,7 +1,8 @@
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock, Mock
-import sys
 import os
+import sys
+from unittest.mock import Mock, patch
+
+import pytest
 
 try:
     import aio_pika  # noqa: F401
@@ -15,8 +16,8 @@ except Exception:  # pragma: no cover
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
 
-from argentic.core.messager.drivers.RabbitMQDriver import RabbitMQDriver
 from argentic.core.messager.drivers import DriverConfig
+from argentic.core.messager.drivers.RabbitMQDriver import RabbitMQDriver
 
 
 @pytest.fixture

@@ -1,4 +1,5 @@
 import asyncio
+
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError
 

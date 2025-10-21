@@ -1,12 +1,11 @@
-from argentic.core.messager.drivers import DriverConfig
-from argentic.core.protocol.message import BaseMessage
-from argentic.core.messager.drivers.KafkaDriver import KafkaDriver
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-import asyncio
+from unittest.mock import Mock, patch
 
 import pytest
+
+from argentic.core.messager.drivers import DriverConfig
+from argentic.core.messager.drivers.KafkaDriver import KafkaDriver
 
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../")))

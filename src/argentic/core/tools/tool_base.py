@@ -1,20 +1,19 @@
 import logging
 import traceback
-from typing import Coroutine, Dict, Any, Type, Optional, Union
 from abc import ABC, abstractmethod
+from typing import Any, Coroutine, Dict, Optional, Type, Union
 
 from pydantic import BaseModel, ValidationError
 
-from argentic.core.protocol.task import TaskErrorMessage
+from argentic.core.protocol.task import TaskErrorMessage, TaskMessage, TaskResultMessage, TaskStatus
 from argentic.core.protocol.tool import (
     RegisterToolMessage,
     ToolRegisteredMessage,
     ToolRegistrationErrorMessage,
     UnregisterToolMessage,
 )
-from ..messager.messager import Messager
 
-from argentic.core.protocol.task import TaskMessage, TaskResultMessage, TaskStatus
+from ..messager.messager import Messager
 
 
 class BaseTool(ABC):
@@ -36,7 +35,7 @@ class BaseTool(ABC):
         argument_schema: Type[BaseModel],
         messager: Messager,
     ):
-        from argentic.core.logger import get_logger, LogLevel
+        from argentic.core.logger import LogLevel, get_logger
 
         self.name = name
         self.argument_schema = argument_schema

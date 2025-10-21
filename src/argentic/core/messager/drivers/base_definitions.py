@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Coroutine, Optional, Type, TypeVar, Generic
+from typing import Any, Callable, Coroutine, Generic, Optional, Type, TypeVar
 
 from pydantic import BaseModel
-from argentic.core.protocol.message import BaseMessage
 
+from argentic.core.protocol.message import BaseMessage
 
 MessageHandler = Callable[[BaseMessage], Coroutine[Any, Any, None]]
 

@@ -1,16 +1,16 @@
-import time
 import json
-from typing import List, Dict, Any, Optional, Union
+import time
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
-from langchain.docstore.document import Document
 
-# Assuming RAGManager and Messager are accessible or passed during initialization
-from argentic.tools.RAG.rag import RAGManager
+from argentic.core.logger import LogLevel, get_logger, parse_log_level
 from argentic.core.messager.messager import Messager
 from argentic.core.tools.tool_base import BaseTool  # Import BaseTool
-from argentic.core.logger import get_logger, LogLevel, parse_log_level
+
+# Assuming RAGManager and Messager are accessible or passed during initialization
+from argentic.tools.RAG.rag import Document, RAGManager
 
 
 # --- Argument Schema --- Define actions

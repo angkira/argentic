@@ -1,9 +1,9 @@
-from functools import wraps
-from typing import Callable, Any, Optional, Coroutine
 import inspect
+from functools import wraps
+from typing import Any, Callable, Coroutine, Optional
 
-from argentic.core.messager.messager import Messager
 from argentic.core.agent.agent import Agent
+from argentic.core.messager.messager import Messager
 from argentic.core.protocol.message import BaseMessage
 
 

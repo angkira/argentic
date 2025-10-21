@@ -1,5 +1,6 @@
 import logging
 import sys
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -62,17 +63,17 @@ print(
 # --- End of Logging Configuration ---
 
 import asyncio
-import os
-import time
-import uuid
 import json
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
-from python_on_whales import docker as pow_docker_module, DockerException, DockerClient, Container
-from typing import List
+import os
 
 # Add src to path to fix import issues
 import sys
+import uuid
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
+from python_on_whales import DockerClient, DockerException
+from python_on_whales import docker as pow_docker_module
 
 # Insert the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
@@ -670,7 +671,7 @@ class TestMessagerE2E:
                     print(f"Pre-publishing to topic '{test_topic}' to ensure creation...")
                     dummy_creation_message = TestMessage(message="topic_creation_ping", value=0)
                     await publisher.publish(test_topic, dummy_creation_message)
-                    print(f"Pre-published. Waiting 5s for topic metadata to propagate...")
+                    print("Pre-published. Waiting 5s for topic metadata to propagate...")
                     await asyncio.sleep(5)  # Give Kafka time for topic creation/metadata
 
                     # For subscriber, connect it to initialize its driver.

@@ -6,12 +6,13 @@ This can be run independently to test tool functionality.
 
 import asyncio
 import os
+
 import yaml
 from dotenv import load_dotenv
-
-from argentic.core.messager.messager import Messager
 from email_tool import EmailTool
 from note_creator_tool import NoteCreatorTool
+
+from argentic.core.messager.messager import Messager
 
 
 async def test_tools():

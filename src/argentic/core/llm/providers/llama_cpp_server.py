@@ -1,23 +1,19 @@
-import os
 import asyncio
+import os
 import subprocess
 from subprocess import Popen
 from typing import Any, Dict, List, Optional
-from langchain_core.messages import AIMessage, BaseMessage
 
 import httpx  # Using httpx for async requests
 
-# Langchain imports for alternative implementation
-try:
-    from langchain_community.llms.llamacpp import LlamaCpp
-
-    LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LlamaCpp = None
-    LANGCHAIN_AVAILABLE = False
+from argentic.core.logger import get_logger
+from argentic.core.protocol.chat_message import AssistantMessage, LLMChatResponse
 
 from .base import ModelProvider
-from argentic.core.logger import get_logger
+
+# Removed LangChain dependency - using our own message types and httpx for HTTP calls
+
+
 
 
 class LlamaCppServerProvider(ModelProvider):
@@ -40,40 +36,8 @@ class LlamaCppServerProvider(ModelProvider):
         self._process: Optional[Popen] = None
         self.timeout = 600  # seconds for requests
 
-        # Langchain integration option
-        self.use_langchain = self._get_config_value("llama_cpp_use_langchain", False)
-        self.model_path = self._get_config_value("llama_cpp_model_path", "")
-
         # Get advanced parameters from config
         self.server_params = self._get_config_value("llama_cpp_server_parameters", {}) or {}
-
-        # Initialize Langchain LLM if requested and available
-        self.langchain_llm: Optional[Any] = None
-        if self.use_langchain and LANGCHAIN_AVAILABLE and self.model_path and LlamaCpp is not None:
-            try:
-                # Use langchain parameters if available, otherwise fall back to server params
-                langchain_params = (
-                    self._get_config_value("llama_cpp_langchain_parameters", {}) or {}
-                )
-
-                self.langchain_llm = LlamaCpp(
-                    model_path=self.model_path,
-                    temperature=langchain_params.get(
-                        "temperature", self.server_params.get("temperature", 0.7)
-                    ),
-                    max_tokens=langchain_params.get(
-                        "max_tokens", self.server_params.get("n_predict", 256)
-                    ),
-                    n_ctx=langchain_params.get("n_ctx", self.server_params.get("n_ctx", 2048)),
-                    n_gpu_layers=langchain_params.get(
-                        "n_gpu_layers", self.server_params.get("n_gpu_layers", 0)
-                    ),
-                    verbose=langchain_params.get("verbose", False),
-                )
-                self.logger.info(f"Initialized Langchain LlamaCpp with model: {self.model_path}")
-            except Exception as e:
-                self.logger.error(f"Failed to initialize Langchain LlamaCpp: {e}")
-                self.use_langchain = False
 
         # Validate server binary path if auto_start is enabled
         if self.auto_start and not self.server_binary:
@@ -140,16 +104,14 @@ class LlamaCppServerProvider(ModelProvider):
                     f"Llama.cpp server error: {e.response.status_code} - {e.response.text}"
                 ) from e
 
-    def _to_ai(self, text: str) -> BaseMessage:
-        return AIMessage(content=str(text))
+    def _to_ai(self, text: str) -> LLMChatResponse:
+        return LLMChatResponse(
+            message=AssistantMessage(role="assistant", content=str(text)),
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="stop",
+        )
 
-    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
-        # Use Langchain if available and configured
-        if self.use_langchain and self.langchain_llm is not None:
-            try:
-                return self._to_ai(self.langchain_llm.invoke(prompt, **kwargs))  # type: ignore[arg-type]
-            except Exception as e:
-                self.logger.error(f"Langchain LlamaCpp invoke failed: {e}, falling back to HTTP")
+    def invoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:  # type: ignore[override]
 
         # Fallback to HTTP server approach
         # llama.cpp server /completion endpoint
@@ -173,7 +135,6 @@ class LlamaCppServerProvider(ModelProvider):
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
-                import threading
 
                 # Run in a separate thread to avoid blocking the current event loop
                 def _sync_request():
@@ -186,13 +147,7 @@ class LlamaCppServerProvider(ModelProvider):
                 response_data = asyncio.run(self._make_request("/completion", payload))
         return self._to_ai(response_data.get("content", ""))
 
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
-        # Use Langchain if available and configured
-        if self.use_langchain and self.langchain_llm is not None:
-            try:
-                return self._to_ai(await self.langchain_llm.ainvoke(prompt, **kwargs))  # type: ignore[arg-type]
-            except Exception as e:
-                self.logger.error(f"Langchain LlamaCpp ainvoke failed: {e}, falling back to HTTP")
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:  # type: ignore[override]
 
         # Fallback to HTTP server approach
         # Start with configured parameters, then override with kwargs
@@ -206,15 +161,7 @@ class LlamaCppServerProvider(ModelProvider):
         response_data = await self._make_request("/completion", payload)
         return self._to_ai(response_data.get("content", ""))
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:  # type: ignore[override]
-        # Use Langchain if available and configured
-        if self.use_langchain and self.langchain_llm is not None:
-            try:
-                # Convert messages to prompt for Langchain LlamaCpp
-                prompt = self._format_chat_messages_to_prompt(messages)
-                return self._to_ai(self.langchain_llm.invoke(prompt, **kwargs))  # type: ignore[arg-type]
-            except Exception as e:
-                self.logger.error(f"Langchain LlamaCpp chat failed: {e}, falling back to HTTP")
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> LLMChatResponse:  # type: ignore[override]
 
         # Fallback to HTTP server approach
         # llama.cpp server /v1/chat/completions endpoint (OpenAI compatible)
@@ -233,7 +180,6 @@ class LlamaCppServerProvider(ModelProvider):
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
-                import threading
 
                 # Run in a separate thread to avoid blocking the current event loop
                 def _sync_request():
@@ -254,15 +200,7 @@ class LlamaCppServerProvider(ModelProvider):
         messages: List[Dict[str, str]],
         tools: Optional[List[Any]] = None,
         **kwargs: Any,
-    ) -> BaseMessage:  # type: ignore[override]
-        # Use Langchain if available and configured
-        if self.use_langchain and self.langchain_llm is not None:
-            try:
-                # Convert messages to prompt for Langchain LlamaCpp
-                prompt = self._format_chat_messages_to_prompt(messages)
-                return self._to_ai(await self.langchain_llm.ainvoke(prompt, **kwargs))  # type: ignore[arg-type]
-            except Exception as e:
-                self.logger.error(f"Langchain LlamaCpp achat failed: {e}, falling back to HTTP")
+    ) -> LLMChatResponse:  # type: ignore[override]
 
         # Fallback to HTTP server approach
         # Start with configured parameters, then override with kwargs
@@ -280,9 +218,7 @@ class LlamaCppServerProvider(ModelProvider):
     # ------------------------------------------------------------------
 
     def get_model_name(self) -> str:
-        import os
-
-        return os.path.basename(self.model_path) if self.model_path else "llama.cpp-server"
+        return "llama.cpp-server"
 
     def supports_tools(self) -> bool:
         return False

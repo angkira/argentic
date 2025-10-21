@@ -1,18 +1,20 @@
+import argparse
 import asyncio
+import os
 import signal
 from typing import Optional
+
 import yaml
 from dotenv import load_dotenv
-import argparse
-import os
+
+from argentic.core.agent.agent import Agent
+from argentic.core.llm.llm_factory import LLMFactory  # Import LLMFactory
+from argentic.core.llm.providers.base import ModelProvider  # Import ModelProvider for type hinting
+from argentic.core.logger import get_logger, parse_log_level
 
 # Core components
 from argentic.core.messager.messager import Messager
-from argentic.core.agent.agent import Agent
-from argentic.core.logger import get_logger, parse_log_level
 from argentic.core.protocol.message import AskQuestionMessage
-from argentic.core.llm.llm_factory import LLMFactory  # Import LLMFactory
-from argentic.core.llm.providers.base import ModelProvider  # Import ModelProvider for type hinting
 
 # --- Global Variables ---
 stop_event = asyncio.Event()

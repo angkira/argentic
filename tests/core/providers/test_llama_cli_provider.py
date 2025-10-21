@@ -1,6 +1,4 @@
 import subprocess
-import types
-import sys
 
 import pytest
 
@@ -50,14 +48,14 @@ def test_llama_cli_provider_invoke_and_chat():
     provider = _create_provider()
 
     response = provider.invoke("Hello")
-    assert response.content and "mock-response" in response.content
+    assert response.message.content and "mock-response" in response.message.content
 
     messages = [
         {"role": "user", "content": "Hi"},
         {"role": "assistant", "content": "Yo"},
     ]
     chat_resp = provider.chat(messages)
-    assert hasattr(chat_resp, "content")
+    assert hasattr(chat_resp, "message") and hasattr(chat_resp.message, "content")
 
 
 def test_llama_cli_provider_metadata():

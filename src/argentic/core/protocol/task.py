@@ -1,8 +1,10 @@
-from enum import Enum
-from typing import Any, Optional, Dict
 import uuid
-from argentic.core.protocol.message import BaseMessage
+from enum import Enum
+from typing import Any, Dict, Optional
+
 from pydantic import Field
+
+from argentic.core.protocol.message import BaseMessage
 
 
 class TaskStatus(str, Enum):

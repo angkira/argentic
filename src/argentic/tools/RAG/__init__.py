@@ -1,5 +1,4 @@
-from . import knowledge_base_tool
-from . import rag
+from . import knowledge_base_tool, rag
 
 __all__ = [
     "knowledge_base_tool",

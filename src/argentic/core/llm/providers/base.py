@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-from langchain_core.messages import BaseMessage  # Import BaseMessage
+
+from argentic.core.protocol.chat_message import LLMChatResponse
 
 
 class ModelProvider(ABC):
@@ -11,24 +12,24 @@ class ModelProvider(ABC):
         self.messager = messager  # For logging or other interactions if needed
 
     @abstractmethod
-    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:
+    def invoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:
         """Synchronously invoke the model with a single prompt."""
         pass
 
     @abstractmethod
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:
         """Asynchronously invoke the model with a single prompt."""
         pass
 
     @abstractmethod
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> LLMChatResponse:
         """Synchronously invoke the model with a list of chat messages."""
         pass
 
     @abstractmethod
     async def achat(
         self, messages: List[Dict[str, str]], tools: Optional[List[Any]] = None, **kwargs: Any
-    ) -> BaseMessage:
+    ) -> LLMChatResponse:
         """Asynchronously invoke the model with a list of chat messages."""
         pass
 

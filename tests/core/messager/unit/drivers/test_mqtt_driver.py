@@ -1,14 +1,14 @@
-import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import sys
 import os
+import sys
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))
 
-from argentic.core.messager.drivers.MQTTDriver import MQTTDriver
 from argentic.core.messager.drivers import DriverConfig
+from argentic.core.messager.drivers.MQTTDriver import MQTTDriver
 
 
 @pytest.fixture
@@ -108,7 +108,6 @@ class TestMQTTDriver:
         driver = MQTTDriver(driver_config)
 
         # Simulate the client creation logic without async context
-        from argentic.core.messager.drivers.MQTTDriver import Client
 
         # Test parameter mapping
         expected_params = {

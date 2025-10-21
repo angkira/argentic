@@ -1,9 +1,7 @@
 import sys
 import types
-import asyncio
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures to stub out external dependencies that may not be installed during
@@ -56,6 +54,10 @@ def _stub_langchain_ollama(monkeypatch):
 # Actual tests
 # ---------------------------------------------------------------------------
 
+from unittest.mock import AsyncMock, patch
+
+import httpx
+
 from argentic.core.llm.providers.ollama import OllamaProvider  # noqa: E402 – import after stubs
 
 
@@ -74,25 +76,39 @@ def _create_provider() -> OllamaProvider:
 async def test_ollama_provider_invoke_and_chat():
     provider = _create_provider()
 
-    # Test sync invoke (wrapped in thread within provider)
-    response_message = provider.invoke("Hello")
-    assert response_message.content == "dummy"
+    # Prepare a dummy API response
+    dummy_api = {"message": {"role": "assistant", "content": "dummy"}, "done": True}
 
-    # Test async ainvoke
-    response_text_async = await provider.ainvoke("Hello async")
-    assert response_text_async.content == "dummy"
+    # Stub both sync and async HTTP calls used internally
+    def _sync_post(*args, **kwargs):
+        return httpx.Response(200, json=dummy_api)
 
-    # Test chat invocation
-    messages = [
-        {"role": "user", "content": "Hi there"},
-        {"role": "assistant", "content": "Greetings"},
-    ]
-    chat_response = provider.chat(messages)
-    assert chat_response.content == "dummy"
+    async def _async_post(*args, **kwargs):
+        return httpx.Response(200, json=dummy_api)
 
-    # Async chat
-    async_chat_response = await provider.achat(messages)
-    assert async_chat_response.content == "dummy"
+    with (
+        patch("httpx.Client.post", side_effect=_sync_post),
+        patch("httpx.AsyncClient.post", new=AsyncMock(side_effect=_async_post)),
+    ):
+        # Test sync invoke (uses internal sync httpx fallback when asyncio.run not applicable)
+        response = provider.invoke("Hello")
+        assert response.message.content == "dummy"
+
+        # Test async ainvoke
+        response_text_async = await provider.ainvoke("Hello async")
+        assert response_text_async.message.content == "dummy"
+
+        # Test chat invocation
+        messages = [
+            {"role": "user", "content": "Hi there"},
+            {"role": "assistant", "content": "Greetings"},
+        ]
+        chat_response = provider.chat(messages)
+        assert chat_response.message.content == "dummy"
+
+        # Async chat
+        async_chat_response = await provider.achat(messages)
+        assert async_chat_response.message.content == "dummy"
 
 
 def test_ollama_provider_metadata():

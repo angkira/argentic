@@ -1,24 +1,26 @@
 import asyncio
-import sys
-import signal
 import select
-import tty
+import signal
+import sys
 import termios
-from typing import Optional, Any, Dict
-import yaml
+import tty
 import uuid
+from collections import deque
+from typing import Any, Callable, Dict, Optional, cast
+
+import yaml
 
 from argentic.core.client import Client
+from argentic.core.logger import LogLevel, get_logger
 from argentic.core.messager.messager import Messager
 from argentic.core.messager.protocols import MessagerProtocol
 from argentic.core.protocol.message import (
-    BaseMessage,
+    AgentLLMResponseMessage,
     AnswerMessage,
     AskQuestionMessage,
-    AgentLLMResponseMessage,
+    BaseMessage,
 )
-from argentic.core.protocol.task import TaskResultMessage, TaskErrorMessage
-from argentic.core.logger import LogLevel, get_logger
+from argentic.core.protocol.task import TaskErrorMessage, TaskResultMessage
 
 
 class CliClient(Client):
@@ -75,6 +77,9 @@ class CliClient(Client):
 
         self._shutdown_flag = asyncio.Event()
         self._input_task: Optional[asyncio.Task] = None
+        self._waiting_task: Optional[asyncio.Task] = None
+        self._spinner: Optional[Any] = None
+        self._answer_timeout_seconds: float = 120.0
         self._cleanup_started = False
         self.answer_received_event: Optional[asyncio.Event] = None
         self._original_tty_settings: Optional[Any] = None
@@ -82,6 +87,119 @@ class CliClient(Client):
 
         # Will be properly initialized in initialize()
         self.messager: Optional[Messager] = None
+        # De-duplicate received messages by ID (LRU window)
+        self._recent_message_ids: "deque[str]" = deque(maxlen=1024)
+
+    # -------------------------
+    # Spinner and waiting logic
+    # -------------------------
+    def _is_waiting(self) -> bool:
+        return bool(self._waiting_task and not self._waiting_task.done())
+
+    def _start_wait_for_answer(self, timeout_seconds: float) -> None:
+        if self.answer_received_event is None:
+            self.answer_received_event = asyncio.Event()
+        # Ensure no double waiting
+        if self._is_waiting():
+            return
+        self._waiting_task = asyncio.create_task(self._wait_for_answer(timeout_seconds))
+
+    async def _wait_for_answer(self, timeout_seconds: float) -> None:
+        try:
+            # Wait for either answer, shutdown, or timeout
+            tasks = []
+            if self.answer_received_event is not None:
+                tasks.append(asyncio.create_task(self.answer_received_event.wait()))
+            tasks.append(asyncio.create_task(self._shutdown_flag.wait()))
+
+            done: set
+            pending: set
+            try:
+                done, pending = await asyncio.wait(
+                    tasks,
+                    timeout=timeout_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                # Cancel any waiting tasks left
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+
+            if self._shutdown_flag.is_set():
+                return
+
+            # If answer not received in time
+            if self.answer_received_event and not self.answer_received_event.is_set():
+                await self._stop_spinner()
+                self._print_with_proper_formatting(
+                    "\n--- No final answer received within timeout. Check for thinking steps. ---"
+                )
+                if not self._shutdown_flag.is_set() and sys.stdin.isatty():
+                    print("> ", end="", flush=True)
+        except asyncio.CancelledError:
+            # Expected on cancellation
+            raise
+
+    async def _cancel_waiting(self) -> None:
+        # Cancel waiter and spinner
+        if self._waiting_task and not self._waiting_task.done():
+            self._waiting_task.cancel()
+            try:
+                await asyncio.wait_for(self._waiting_task, timeout=0.5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        await self._stop_spinner()
+        self._print_with_proper_formatting("\nCancelled waiting.")
+
+    def _start_spinner(self, prefix_text: str) -> None:
+        # Avoid double start
+        if self._spinner is not None:
+            return
+        # In non-TTY, print once and skip animation
+        if not sys.stdin.isatty():
+            self._print_with_proper_formatting(f"{prefix_text}")
+            return
+        try:
+            from yaspin import yaspin  # type: ignore
+        except Exception:
+            # Fallback: simple print if yaspin not available
+            self._print_with_proper_formatting(f"{prefix_text}")
+            return
+
+        try:
+            # Use a built-in fast spinner preset for responsiveness
+            try:
+                from yaspin.spinners import Spinners  # type: ignore
+
+                spinner = yaspin(spinner=Spinners.dots, text=prefix_text, color="yellow")
+            except Exception:
+                spinner = yaspin(text=prefix_text, color="yellow")
+            spinner.start()
+            self._spinner = spinner
+        except Exception:
+            # Fallback: simple print
+            self._spinner = None
+            self._print_with_proper_formatting(f"{prefix_text}")
+
+    async def _stop_spinner(self, ok: bool | None = None, text: Optional[str] = None) -> None:
+        try:
+            if self._spinner is not None:
+                # Persist result if requested, else just stop quietly
+                if ok is True and text is not None:
+                    try:
+                        self._spinner.ok(text)
+                    except Exception:
+                        self._spinner.stop()
+                elif ok is False and text is not None:
+                    try:
+                        self._spinner.fail(text)
+                    except Exception:
+                        self._spinner.stop()
+                else:
+                    self._spinner.stop()
+        finally:
+            self._spinner = None
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         try:
@@ -173,13 +291,34 @@ class CliClient(Client):
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
 
+        # Fallback synchronous signal handlers (used only in _start_sync context)
         def signal_handler(signum, frame):
             self.logger.info(f"Received signal {signum}, setting shutdown flag...")
             if not self._shutdown_flag.is_set():
-                self._shutdown_flag.set()
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.call_soon_threadsafe(cast(Callable[..., object], self._shutdown_flag.set))
+                except RuntimeError:
+                    # No running loop; set directly as a last resort
+                    self._shutdown_flag.set()
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+    def _install_asyncio_signal_handlers(self, loop: asyncio.AbstractEventLoop):
+        """Install asyncio-aware signal handlers to trigger shutdown cleanly."""
+
+        def _set_shutdown() -> None:
+            if not self._shutdown_flag.is_set():
+                self._shutdown_flag.set()
+
+        try:
+            cb_any = cast(Callable[..., object], _set_shutdown)
+            loop.add_signal_handler(signal.SIGINT, cb_any)
+            loop.add_signal_handler(signal.SIGTERM, cb_any)
+        except NotImplementedError:
+            # Fallback for platforms without add_signal_handler
+            self._setup_signal_handlers()
 
     def _setup_terminal(self):
         """Setup terminal for non-blocking input"""
@@ -212,6 +351,14 @@ class CliClient(Client):
 
     def _print_with_proper_formatting(self, text: str):
         """Print text with proper line formatting, temporarily restoring terminal if needed"""
+        # If spinner is active, write via spinner to avoid breaking the animation line
+        if self._spinner is not None and sys.stdin.isatty():
+            try:
+                self._spinner.write(text)
+                return
+            except Exception:
+                # Fall back to normal printing path
+                pass
         if self._original_tty_settings is not None:
             # Temporarily restore terminal for proper output
             try:
@@ -235,9 +382,29 @@ class CliClient(Client):
         self.logger.debug(f"Received message of type: {type(message)}")
 
         if isinstance(message, AnswerMessage):
+            # De-duplicate on message_id
+            try:
+                msg_id = getattr(message, "message_id", None)
+                if msg_id is not None:
+                    if msg_id in self._recent_message_ids:
+                        self.logger.debug(f"Duplicate answer message ignored: {msg_id}")
+                        return
+                    self._recent_message_ids.append(msg_id)
+            except Exception:
+                pass
+            # Filter out answers for other users (when subscribed to base topic too)
+            if message.user_id and message.user_id != self.user_id:
+                self.logger.debug(
+                    f"Ignoring answer for different user: {message.user_id} != {self.user_id}"
+                )
+                return
             # No need for user_id filtering since we're subscribed to user-specific topic
             self.logger.debug(f"Processing answer message for user: {message.user_id}")
-
+            # Stop any spinner before printing the answer
+            try:
+                await self._stop_spinner()
+            except Exception:
+                pass
             # Use proper formatting for the answer display
             self._print_with_proper_formatting("\n--- Agent Final Answer ---")
             self._print_with_proper_formatting(f"Question: {message.question}")
@@ -250,9 +417,12 @@ class CliClient(Client):
                     f"Received unexpected response format: {message.model_dump_json(indent=2)}"
                 )
             self._print_with_proper_formatting("----------------------")
-
+            # Signal any waiter tasks that the answer has arrived
             if self.answer_received_event:
                 self.answer_received_event.set()
+            # Re-prompt if interactive and not shutting down
+            if not self._shutdown_flag.is_set() and sys.stdin.isatty():
+                print("> ", end="", flush=True)
         else:
             self.logger.warning(f"Received non-AnswerMessage: {type(message)}")
 
@@ -319,7 +489,7 @@ class CliClient(Client):
                 try:
                     if is_tty and self._original_tty_settings is not None:
                         # Use raw terminal mode for better control in interactive mode
-                        ready, _, _ = select.select([sys.stdin], [], [], 0.1)  # 100ms timeout
+                        ready, _, _ = select.select([sys.stdin], [], [], 0.01)  # 10ms timeout
                         if ready:
                             char = sys.stdin.read(1)
                             if char:
@@ -342,6 +512,13 @@ class CliClient(Client):
                                             self._shutdown_flag.set()
                                             break
 
+                                        # Allow cancelling current waiting state
+                                        if user_input.lower() == "cancel":
+                                            await self._cancel_waiting()
+                                            if not self._shutdown_flag.is_set():
+                                                print("> ", end="", flush=True)
+                                            continue
+
                                         if not self._shutdown_flag.is_set():
                                             await self._process_user_input(user_input)
                                     else:
@@ -359,7 +536,7 @@ class CliClient(Client):
                                     print(char, end="", flush=True)
                     else:
                         # Handle piped input or non-TTY environments
-                        ready, _, _ = select.select([sys.stdin], [], [], 0.1)  # 100ms timeout
+                        ready, _, _ = select.select([sys.stdin], [], [], 0.05)  # 50ms timeout
                         if ready:
                             try:
                                 line = sys.stdin.readline()
@@ -375,6 +552,10 @@ class CliClient(Client):
                                         self._shutdown_flag.set()
                                         break
 
+                                    if user_input.lower() == "cancel":
+                                        await self._cancel_waiting()
+                                        continue
+
                                     if not self._shutdown_flag.is_set():
                                         await self._process_user_input(user_input)
                             except EOFError:
@@ -388,13 +569,16 @@ class CliClient(Client):
                 except (OSError, select.error) as e:
                     # Handle errors gracefully - probably non-TTY environment
                     self.logger.debug(f"Input reading error (non-TTY?): {e}")
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05)
                     if self._shutdown_flag.is_set():
                         break
                 except Exception as e:
                     if not self._shutdown_flag.is_set():
                         self.logger.error(f"Error reading input: {e}")
                     break
+
+                # Yield control to let other tasks (MQTT handlers, spinner) run smoothly
+                await asyncio.sleep(0)
 
         except asyncio.CancelledError:
             self.logger.info("Input reading task was cancelled")
@@ -404,25 +588,22 @@ class CliClient(Client):
                 self._restore_terminal()
 
     async def _process_user_input(self, user_input: str):
-        """Process a user input question"""
+        """Process a user input question non-blockingly: publish and start waiter/spinner."""
+        # If a previous question is still waiting, ask user to cancel first
+        if self._is_waiting():
+            self._print_with_proper_formatting(
+                "Already waiting for a response. Type 'cancel' to abort or wait."
+            )
+            return
+
         if self.answer_received_event:
             self.answer_received_event.clear()
         await self.ask_question(user_input, self.ask_topic)
         self.logger.debug(f"Waiting for final answer to: '{user_input}'...")
 
-        try:
-            if self.answer_received_event:
-                await asyncio.wait_for(
-                    self.answer_received_event.wait(),
-                    timeout=120.0,
-                )
-        except asyncio.TimeoutError:
-            self._print_with_proper_formatting(
-                "\n--- No final answer received within timeout. Check for thinking steps. ---"
-            )
-        finally:
-            if not self._shutdown_flag.is_set() and sys.stdin.isatty():
-                print("> ", end="", flush=True)
+        # Start spinner and waiter in background
+        self._start_spinner("Waiting for response...")
+        self._start_wait_for_answer(self._answer_timeout_seconds)
 
     async def _cleanup(self):
         """Centralized cleanup method"""
@@ -440,6 +621,21 @@ class CliClient(Client):
                 await asyncio.wait_for(self._input_task, timeout=2.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self.logger.info("Input task cancelled or timed out")
+
+        # Cancel waiter and spinner if running
+        if self._waiting_task and not self._waiting_task.done():
+            self.logger.info("Cancelling waiting task...")
+            self._waiting_task.cancel()
+            try:
+                await asyncio.wait_for(self._waiting_task, timeout=1.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self.logger.info("Waiting task cancelled or timed out")
+        # Stop spinner if present
+        if self._spinner is not None:
+            try:
+                await self._stop_spinner()
+            except Exception:
+                self._spinner = None
 
         # Restore terminal
         self._restore_terminal()
@@ -465,6 +661,13 @@ class CliClient(Client):
             await self.initialize()
             self.logger.debug("Initialization complete")
 
+            # Install asyncio-aware signal handlers so Ctrl+C always triggers shutdown
+            try:
+                loop = asyncio.get_running_loop()
+                self._install_asyncio_signal_handlers(loop)
+            except Exception as e:
+                self.logger.debug(f"Could not install asyncio signal handlers: {e}")
+
             if not self.messager:
                 self.logger.error("CLI Error: Messager failed to initialize.")
                 return False
@@ -485,6 +688,17 @@ class CliClient(Client):
                 self.user_answer_topic, self.handle_answer, message_cls=AnswerMessage
             )
             self.logger.info(f"Subscribed to user-specific answer topic: {self.user_answer_topic}")
+
+            # Subscribe to the base answer topic as a fallback (filter by user_id in handler)
+            try:
+                await self.messager.subscribe(
+                    self.messaging_topic_answer, self.handle_answer, message_cls=AnswerMessage
+                )
+                self.logger.info(
+                    f"Subscribed to base answer topic (fallback): {self.messaging_topic_answer}"
+                )
+            except Exception as e:
+                self.logger.debug(f"Fallback base answer topic subscribe skipped/failed: {e}")
 
             if self.messaging_topic_agent_llm_response:
                 self.logger.debug(
@@ -565,7 +779,7 @@ class CliClient(Client):
 
     def _start_sync(self) -> bool:
         """Synchronous entry point for the CLI - expected by main module"""
-        # Setup signal handlers
+        # Setup basic (fallback) signal handlers. Async-aware handlers are installed later.
         self._setup_signal_handlers()
 
         loop = asyncio.new_event_loop()

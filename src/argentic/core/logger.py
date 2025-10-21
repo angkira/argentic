@@ -1,12 +1,12 @@
+import functools
 import logging
 import logging.handlers
-import sys
 import os
+import sys
+import threading
 from enum import Enum
 from pathlib import Path
 from typing import Dict, Optional, Union
-import threading
-import functools
 
 
 class LogLevel(Enum):

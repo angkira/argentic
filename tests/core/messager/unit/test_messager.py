@@ -1,16 +1,16 @@
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from typing import Dict, Any
-import sys
 import os
+import sys
+from typing import Any, Dict
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
-from argentic.core.messager.messager import Messager
-from argentic.core.messager.drivers import DriverConfig, BaseDriver
-from argentic.core.protocol.message import BaseMessage
 from argentic.core.logger import LogLevel
+from argentic.core.messager.messager import Messager
+from argentic.core.protocol.message import BaseMessage
 
 
 class MockBaseMessage(BaseMessage):
@@ -204,12 +204,9 @@ class TestMessager:
         )
 
     @patch("argentic.core.messager.messager.create_driver")
-    @patch("argentic.core.messager.messager.asyncio.create_task")
-    async def test_subscribe(self, mock_create_task, mock_create_driver, messager_config):
+    async def test_subscribe(self, mock_create_driver, messager_config):
         """Test subscribe method"""
         mock_create_driver.return_value = self.driver
-        # Make create_task return the coroutine itself for simplicity
-        mock_create_task.side_effect = lambda coro: coro
 
         # Make sure subscribe resolves properly
         self.driver.subscribe.return_value = None
@@ -241,7 +238,6 @@ class TestMessager:
         test_handler.assert_called_once_with(message)
 
     @patch("argentic.core.messager.messager.create_driver")
-    @patch("argentic.core.messager.messager.asyncio.create_task")
     @pytest.mark.parametrize(
         "payload,should_match_specific",
         [
@@ -255,14 +251,10 @@ class TestMessager:
         ],
     )
     async def test_subscribe_message_type_handling(
-        self, mock_create_task, mock_create_driver, payload, should_match_specific, messager_config
+        self, mock_create_driver, payload, should_match_specific, messager_config
     ):
         """Test subscribe method's handler_adapter message type processing"""
         mock_create_driver.return_value = self.driver
-
-        # Save the task that would be created so we can examine it
-        created_tasks = []
-        mock_create_task.side_effect = lambda coro: created_tasks.append(coro) or coro
 
         messager = Messager(**messager_config)
         test_topic = "test/subscribe/types"
@@ -272,7 +264,7 @@ class TestMessager:
         specific_handler.__name__ = "specific_handler"
 
         # Mock the driver.subscribe to capture the handler_adapter
-        async def capture_handler_adapter(topic, handler):
+        async def capture_handler_adapter(topic, handler, **kwargs):
             # Store the handler for later use
             self.captured_handler = handler
 
@@ -304,16 +296,9 @@ class TestMessager:
         specific_handler.reset_mock()
 
     @patch("argentic.core.messager.messager.create_driver")
-    @patch("argentic.core.messager.messager.asyncio.create_task")
-    async def test_subscribe_with_invalid_json(
-        self, mock_create_task, mock_create_driver, messager_config
-    ):
+    async def test_subscribe_with_invalid_json(self, mock_create_driver, messager_config):
         """Test subscribe method's handler_adapter with non-matching message types"""
         mock_create_driver.return_value = self.driver
-
-        # Save the task that would be created so we can examine it
-        created_tasks = []
-        mock_create_task.side_effect = lambda coro: created_tasks.append(coro) or coro
 
         messager = Messager(**messager_config)
         test_topic = "test/subscribe/invalid"
@@ -323,7 +308,7 @@ class TestMessager:
         handler.__name__ = "test_handler"
 
         # Mock the driver.subscribe to capture the handler_adapter
-        async def capture_handler_adapter(topic, handler):
+        async def capture_handler_adapter(topic, handler, **kwargs):
             # Store the handler for later use
             self.captured_handler = handler
 
