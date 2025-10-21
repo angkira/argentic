@@ -1,5 +1,5 @@
 ---
-name: Argentic Framework Development
+name: argentic-framework-development
 description: Expert knowledge for building AI agents with Argentic - a Python microframework for async MQTT-based agents with multi-LLM support, custom tools, and multi-agent orchestration
 ---
 
