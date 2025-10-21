@@ -1,12 +1,12 @@
 import asyncio
-from collections import deque
 import select
 import signal
 import sys
 import termios
 import tty
 import uuid
-from typing import Any, Dict, Optional, Callable, cast
+from collections import deque
+from typing import Any, Callable, Dict, Optional, cast
 
 import yaml
 

@@ -1,30 +1,29 @@
 import subprocess
 import types
 
-import pytest
-from langchain_core.messages import BaseMessage
-
 # Stubs moved to tests/conftest.py to ensure global availability.
 # -----------------------------------------------------------------------------
 # Now import providers
 # -----------------------------------------------------------------------------
 from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
-from argentic.core.llm.providers.ollama import OllamaProvider
 from argentic.core.llm.providers.llama_cpp_cli import LlamaCppCLIProvider
-from argentic.core.llm.providers.llama_cpp_langchain import LlamaCppLangchainProvider
+
+# LlamaCppLangchainProvider removed - LangChain dependency eliminated
 from argentic.core.llm.providers.llama_cpp_server import LlamaCppServerProvider
 from argentic.core.llm.providers.mock import MockLLMProvider
-
+from argentic.core.llm.providers.ollama import OllamaProvider
+from argentic.core.protocol.chat_message import LLMChatResponse
 
 # -----------------------------------------------------------------------------
 # Helper fixtures / utilities
 # -----------------------------------------------------------------------------
 
 
-def _assert_base_message(msg: BaseMessage):
-    """Common assertion helper."""
-    assert isinstance(msg, BaseMessage)
-    assert msg.content, "Message content should not be empty"
+def _assert_base_message(msg):
+    """Common assertion helper for response types."""
+    # All providers should now return LLMChatResponse
+    assert isinstance(msg, LLMChatResponse), f"Expected LLMChatResponse, got {type(msg)}"
+    assert msg.message.content, "Message content should not be empty"
 
 
 # -----------------------------------------------------------------------------
@@ -71,10 +70,7 @@ def test_llama_cpp_cli_provider_invoke(monkeypatch):
     _assert_base_message(result)
 
 
-def test_llama_cpp_langchain_provider_invoke():
-    provider = LlamaCppLangchainProvider({"llm": {"llama_cpp_model_path": "/models/model.gguf"}})
-    result = provider.invoke("Test prompt")
-    _assert_base_message(result)
+# LlamaCppLangchainProvider test removed - LangChain dependency eliminated
 
 
 def test_llama_cpp_server_provider_invoke(monkeypatch):

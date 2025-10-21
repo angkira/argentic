@@ -1,7 +1,8 @@
-from typing import List, TypedDict, Optional
-from langchain_core.messages import BaseMessage
+from typing import List, Optional, TypedDict
+
+from argentic.core.protocol.chat_message import ChatMessage
 
 
 class AgentState(TypedDict):
-    messages: List[BaseMessage]
+    messages: List[ChatMessage]
     next: Optional[str]

@@ -1,11 +1,11 @@
-import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import List, Dict, Any
 
-from langchain_core.messages import HumanMessage, AIMessage
+import pytest
 
 from argentic.core.agent.agent import Agent
+from argentic.core.graph.state import AgentState
+from argentic.core.llm.providers.mock import LcAIMessage as AIMessage
+from argentic.core.llm.providers.mock import LcHumanMessage as HumanMessage
 from argentic.core.llm.providers.mock import (
     MockLLMProvider,
     MockResponse,
@@ -14,15 +14,13 @@ from argentic.core.llm.providers.mock import (
     MockToolCall,
 )
 from argentic.core.messager.messager import Messager
+from argentic.core.protocol.enums import MessageSource
 from argentic.core.protocol.message import (
     AgentLLMResponseMessage,
-    AskQuestionMessage,
     AnswerMessage,
-    BaseMessage,
+    AskQuestionMessage,
 )
-from argentic.core.protocol.enums import MessageSource
 from argentic.core.protocol.task import TaskResultMessage, TaskStatus
-from argentic.core.graph.state import AgentState
 
 
 class TestAgent:
@@ -370,19 +368,14 @@ class TestAgent:
             assert isinstance(result, str)
             mock_get_results.assert_called_once()
 
+    @pytest.mark.skip(
+        reason="LangChain to protocol conversion removed - LangChain fully eliminated"
+    )
     @pytest.mark.asyncio
     async def test_message_conversion_langchain_to_protocol(self, agent):
         """Test conversion from LangChain messages to protocol messages."""
-        langchain_messages = [
-            HumanMessage(content="Human message"),
-            AIMessage(content="AI response"),
-        ]
-
-        protocol_messages = agent._convert_langchain_to_protocol_messages(langchain_messages)
-
-        assert len(protocol_messages) == 2
-        assert isinstance(protocol_messages[0], AskQuestionMessage)
-        assert protocol_messages[0].question == "Human message"
+        # This test is no longer relevant since we removed LangChain completely
+        pass
 
     @pytest.mark.asyncio
     async def test_message_conversion_protocol_to_langchain(self, agent):
@@ -392,7 +385,7 @@ class TestAgent:
             AgentLLMResponseMessage(raw_content="Test response", source=MessageSource.LLM),
         ]
 
-        langchain_messages = agent._convert_protocol_to_langchain_messages(protocol_messages)
+        langchain_messages = agent._convert_protocol_to_chat_messages(protocol_messages)
 
         assert len(langchain_messages) == 2
         assert isinstance(langchain_messages[0], HumanMessage)

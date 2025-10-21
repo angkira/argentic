@@ -1,14 +1,16 @@
-import os
 import asyncio
+import os
 import subprocess
 from typing import Any, Dict, List, Optional
 
-from .base import ModelProvider
 from argentic.core.logger import get_logger
+from argentic.core.protocol.chat_message import AssistantMessage, LLMChatResponse
 
-from typing import Optional, Any, Dict, List
+from .base import ModelProvider
 
-from langchain_core.messages import AIMessage, BaseMessage
+# Removed LangChain dependency - using our own message types
+
+
 
 
 class LlamaCppCLIProvider(ModelProvider):
@@ -76,19 +78,23 @@ class LlamaCppCLIProvider(ModelProvider):
             cmd.extend(["--temp", str(kwargs["temp"])])
         # Add other relevant llama.cpp params from kwargs as needed
         # Cast to satisfy static typing (all elements are stringified)
-        from typing import cast, List
+        from typing import List, cast
 
         return cast(List[str], cmd)
 
-    def _to_ai(self, text: str) -> "BaseMessage":
-        """Utility to wrap plain text into an AIMessage."""
-        return AIMessage(content=text)
+    def _to_ai(self, text: str) -> LLMChatResponse:
+        """Utility to wrap plain text into an LLMChatResponse."""
+        return LLMChatResponse(
+            message=AssistantMessage(role="assistant", content=text),
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="stop",
+        )
 
     # ------------------------------------------------------------------
     # ModelProvider required implementations returning BaseMessage
     # ------------------------------------------------------------------
 
-    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
+    def invoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:  # type: ignore[override]
         cmd = self._build_command(prompt, **kwargs)
         self.logger.debug(f"Executing Llama.cpp CLI: {' '.join(cmd)}")
         try:
@@ -110,7 +116,7 @@ class LlamaCppCLIProvider(ModelProvider):
             )
             raise RuntimeError(f"Llama.cpp CLI error: {e.stderr}") from e
 
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:  # type: ignore[override]
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:  # type: ignore[override]
         cmd = self._build_command(prompt, **kwargs)
         self.logger.debug(f"Executing Llama.cpp CLI (async): {' '.join(cmd)}")
         try:
@@ -133,7 +139,7 @@ class LlamaCppCLIProvider(ModelProvider):
             self.logger.error(f"Async Llama.cpp CLI execution failed: {e}")
             raise RuntimeError(f"Async Llama.cpp CLI error: {e}") from e
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:  # type: ignore[override]
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> LLMChatResponse:  # type: ignore[override]
         prompt = self._format_chat_messages_to_prompt(messages)
         return self.invoke(prompt, **kwargs)
 
@@ -142,7 +148,7 @@ class LlamaCppCLIProvider(ModelProvider):
         messages: List[Dict[str, str]],
         tools: Optional[List[Any]] = None,  # tools ignored for llama.cpp CLI
         **kwargs: Any,
-    ) -> BaseMessage:  # type: ignore[override]
+    ) -> LLMChatResponse:  # type: ignore[override]
         prompt = self._format_chat_messages_to_prompt(messages)
         return await self.ainvoke(prompt, **kwargs)
 

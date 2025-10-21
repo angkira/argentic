@@ -1,10 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+import pytest
 
 from argentic.core.agent.agent import Agent, AgentStateMode
 from argentic.core.llm.providers.mock import (
+    LcHumanMessage,
+    LcSystemMessage,
     MockLLMProvider,
     MockResponse,
     MockResponseType,
@@ -54,9 +55,9 @@ async def test_query_stateful_includes_history(mock_messager, direct_llm):
     captured = direct_llm.get_captured_messages()
 
     # Should include prior context: System + original question + formatted turn prompt
-    assert any(isinstance(m, SystemMessage) for m in captured)
-    assert any(isinstance(m, HumanMessage) and m.content == question for m in captured)
-    assert len([m for m in captured if isinstance(m, HumanMessage)]) >= 2
+    assert any(isinstance(m, LcSystemMessage) for m in captured)
+    assert any(isinstance(m, LcHumanMessage) and m.content == question for m in captured)
+    assert len([m for m in captured if isinstance(m, LcHumanMessage)]) >= 2
 
 
 @pytest.mark.asyncio
@@ -75,9 +76,9 @@ async def test_query_stateless_sends_single_formatted_prompt(mock_messager, dire
 
     captured = direct_llm.get_captured_messages()
     # Stateless query() should not send previous messages as separate entries
-    assert all(not isinstance(m, SystemMessage) for m in captured)
+    assert all(not isinstance(m, LcSystemMessage) for m in captured)
     assert len(captured) == 1
-    assert isinstance(captured[0], HumanMessage)
+    assert isinstance(captured[0], LcHumanMessage)
     assert "QUESTION: " in captured[0].content
     assert question in captured[0].content
     # System prompt content should be embedded into the formatted user prompt
@@ -96,7 +97,7 @@ async def test_invoke_stateful_uses_full_history(mock_messager, direct_llm):
     )
 
     state = {
-        "messages": [HumanMessage(content="First"), HumanMessage(content="Second")],
+        "messages": [LcHumanMessage(content="First"), LcHumanMessage(content="Second")],
         "next": None,
     }
     await agent.invoke(state)
@@ -105,7 +106,7 @@ async def test_invoke_stateful_uses_full_history(mock_messager, direct_llm):
     contents = [getattr(m, "content", "") for m in captured]
 
     # Should include system + both human messages
-    assert any(isinstance(m, SystemMessage) for m in captured)
+    assert any(isinstance(m, LcSystemMessage) for m in captured)
     assert "First" in contents
     assert "Second" in contents
 
@@ -122,15 +123,15 @@ async def test_invoke_stateless_uses_only_last_message(mock_messager, direct_llm
     )
 
     state = {
-        "messages": [HumanMessage(content="First"), HumanMessage(content="Second")],
+        "messages": [LcHumanMessage(content="First"), LcHumanMessage(content="Second")],
         "next": None,
     }
     await agent.invoke(state)
 
     captured = direct_llm.get_captured_messages()
     # Stateless invoke() should include system + only the most recent user message
-    assert any(isinstance(m, SystemMessage) for m in captured)
-    human_msgs = [m for m in captured if isinstance(m, HumanMessage)]
+    assert any(isinstance(m, LcSystemMessage) for m in captured)
+    human_msgs = [m for m in captured if isinstance(m, LcHumanMessage)]
     assert len(human_msgs) == 1
     assert human_msgs[0].content == "Second"
     assert all(getattr(m, "content", "") != "First" for m in captured)

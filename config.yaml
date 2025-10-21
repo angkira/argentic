@@ -119,24 +119,6 @@ llm:
     mlock: false
     no_mmap: false
 
-  # Llama.cpp Langchain specific settings
-  llama_cpp_model_path: ~/llama.cpp/models/gemma-3-12b-it-q4_0.gguf
-
-  # Llama.cpp Langchain Advanced Parameters
-  llama_cpp_langchain_parameters:
-    temperature: 0.7
-    max_tokens: 256
-    top_p: 0.95
-    top_k: 40
-    repeat_penalty: 1.1
-    n_ctx: 2048
-    n_batch: 8
-    n_threads: -1 # -1 for auto
-    n_gpu_layers: 0
-    f16_kv: true
-    use_mlock: false
-    use_mmap: true
-    verbose: false
 
   # Google Gemini specific settings
   provider: google_gemini

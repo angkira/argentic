@@ -1,12 +1,12 @@
-from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
-from argentic.core.protocol.message import BaseMessage
-from .configs import RabbitMQDriverConfig
-
-from typing import Optional, List, Dict, Any, Type
+import logging
+from typing import Dict, List, Optional, Type
 
 import aio_pika
-import json
-import logging
+
+from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
+from argentic.core.protocol.message import BaseMessage
+
+from .configs import RabbitMQDriverConfig
 
 
 class RabbitMQDriver(BaseDriver[RabbitMQDriverConfig]):

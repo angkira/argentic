@@ -1,8 +1,8 @@
 import asyncio
 import os
 import sys
+
 import yaml
-import logging
 from dotenv import load_dotenv
 
 # Fix for local imports: add current directory to path
@@ -13,8 +13,6 @@ from argentic.core.agent.agent import Agent
 from argentic.core.graph.supervisor import Supervisor
 from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
 from argentic.core.messager.messager import Messager
-from argentic.core.tools.tool_manager import ToolManager
-from argentic.core.protocol.message import AgentTaskMessage
 
 try:
     from email_tool import EmailTool  # local import when running from examples/
@@ -229,11 +227,11 @@ async def main():
             await asyncio.wait_for(workflow_complete.wait(), timeout=180.0)  # 3 minute timeout
 
             if final_result.get("success"):
-                print(f"\n✅ WORKFLOW COMPLETED SUCCESSFULLY!")
+                print("\n✅ WORKFLOW COMPLETED SUCCESSFULLY!")
                 print(f"Task ID: {final_result['task_id']}")
                 print(f"Final Result: {final_result['result'][:200]}...")
             else:
-                print(f"\n❌ WORKFLOW FAILED!")
+                print("\n❌ WORKFLOW FAILED!")
                 print(f"Error: {final_result.get('error', 'Unknown error')}")
 
         except asyncio.TimeoutError:

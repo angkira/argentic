@@ -1,13 +1,14 @@
 import asyncio
 import os
+
 import yaml
 from dotenv import load_dotenv
 
 from argentic.core.agent.agent import Agent
 from argentic.core.llm.providers.google_gemini import GoogleGeminiProvider
 from argentic.core.messager.messager import Messager
-from argentic.core.tools.tool_manager import ToolManager
 from argentic.core.protocol.message import AgentTaskMessage, AgentTaskResultMessage
+from argentic.core.tools.tool_manager import ToolManager
 
 
 async def main():
@@ -140,7 +141,7 @@ async def main():
         if task_msg.task_id in results_received:
             result_info = results_received[task_msg.task_id]
             if result_info["success"]:
-                print(f"✅ Task completed successfully!")
+                print("✅ Task completed successfully!")
                 print(f"📄 Result: {result_info['result'][:300]}...")
             else:
                 print(f"❌ Task failed: {result_info['error']}")

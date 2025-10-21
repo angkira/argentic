@@ -1,6 +1,5 @@
-import types
 import sys
-import asyncio
+import types
 
 import pytest
 
@@ -60,18 +59,18 @@ async def test_llama_server_provider_invoke_and_chat(monkeypatch):
     monkeypatch.setattr(provider, "_make_request", _fake_make_request)
 
     resp = provider.invoke("Hello")
-    assert resp.content == "dummy"
+    assert resp.message.content == "dummy"
 
     messages = [{"role": "user", "content": "Hi"}]
     chat_resp = provider.chat(messages)
-    assert chat_resp.content == "dummy"
+    assert chat_resp.message.content == "dummy"
 
     # Async counterparts
     async_resp = await provider.ainvoke("Hi async")
-    assert async_resp.content == "dummy"
+    assert async_resp.message.content == "dummy"
 
     async_chat_resp = await provider.achat(messages)
-    assert async_chat_resp.content == "dummy"
+    assert async_chat_resp.message.content == "dummy"
 
 
 def test_llama_server_metadata():

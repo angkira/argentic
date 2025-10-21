@@ -1,18 +1,18 @@
 import pytest
 
 pytest.skip("Skipping legacy Messager tests due to new API", allow_module_level=True)
-from unittest.mock import AsyncMock, patch, MagicMock
-from typing import Dict, Any
-import sys
 import os
+import sys
+from typing import Any, Dict
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
+from argentic.core.logger import LogLevel
 from argentic.core.messager.messager import Messager
 from argentic.core.messager.protocols import MessagerProtocol
 from argentic.core.protocol.message import BaseMessage
-from argentic.core.logger import LogLevel
 
 
 class MockBaseMessage(BaseMessage):

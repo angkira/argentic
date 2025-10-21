@@ -1,20 +1,21 @@
-from typing import Dict, List, Optional, Type
-from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
-from argentic.core.protocol.message import BaseMessage
-from argentic.core.messager.drivers.configs import KafkaDriverConfig
 import asyncio  # Ensure asyncio is imported for Event
+import logging
+import uuid
+from typing import Dict, List, Optional, Type
 
 # Attempt to import aiokafka. If it fails, an ImportError will be raised,
 # and this module should not be used for Kafka operations.
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
-from aiokafka.errors import KafkaConnectionError, KafkaTimeoutError
 from aiokafka.abc import ConsumerRebalanceListener
+from aiokafka.errors import KafkaConnectionError, KafkaTimeoutError
+
+from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
+from argentic.core.messager.drivers.configs import KafkaDriverConfig
+from argentic.core.protocol.message import BaseMessage
 
 # No AIOKAFKA_INSTALLED flag or dummy types needed anymore.
 # If the imports above fail, this module won't load correctly for Kafka.
 
-import logging
-import uuid
 
 # Get a logger instance
 logger = logging.getLogger("KafkaDriver")

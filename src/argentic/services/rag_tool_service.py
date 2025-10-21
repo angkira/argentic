@@ -1,20 +1,36 @@
 import asyncio
-import yaml
-import signal
-import os
-import chromadb
-from typing import Optional
 import logging
+import os
+import signal
 
-from argentic.core.messager.messager import Messager
-from argentic.tools.RAG.rag import RAGManager
-from argentic.tools.RAG.knowledge_base_tool import KnowledgeBaseTool
-from argentic.core.logger import get_logger, parse_log_level, LogLevel  # Import LogLevel
+# LangChain removed - using stub embeddings
+from typing import List, Optional
 
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.embeddings.base import Embeddings
-
+import chromadb
+import yaml
 from dotenv import load_dotenv
+
+from argentic.tools.RAG.rag import Embeddings
+
+
+# Stub HuggingFace embeddings implementation
+class HuggingFaceEmbeddings:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        # Return dummy embeddings - RAG functionality disabled
+        return [[0.0] * 384 for _ in texts]
+
+    def embed_query(self, text: str) -> List[float]:
+        # Return dummy embedding - RAG functionality disabled
+        return [0.0] * 384
+
+
+from argentic.core.logger import parse_log_level  # Import LogLevel
+from argentic.core.messager.messager import Messager
+from argentic.tools.RAG.knowledge_base_tool import KnowledgeBaseTool
+from argentic.tools.RAG.rag import RAGManager
 
 load_dotenv()
 

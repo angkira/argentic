@@ -1,16 +1,15 @@
 import asyncio
 import time
-from typing import Optional, Dict, Any, cast
-from contextlib import AsyncExitStack
-
-import aiomqtt
 import weakref
-from aiomqtt import Client, MqttError, Message
-from aiomqtt.client import ProtocolVersion
+from contextlib import AsyncExitStack
+from typing import Dict, Optional, cast
 
-from argentic.core.protocol.message import BaseMessage, InfoMessage
-from argentic.core.logger import get_logger, LogLevel
+from aiomqtt import Client, Message, MqttError
+
+from argentic.core.logger import LogLevel, get_logger
 from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
+from argentic.core.protocol.message import BaseMessage, InfoMessage
+
 from .configs import MQTTDriverConfig
 
 logger = get_logger("mqtt_driver", LogLevel.DEBUG)
@@ -194,7 +193,10 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
             # Store the handler for this topic
             if topic not in self._subscriptions:
                 self._subscriptions[topic] = {}
-            self._subscriptions[topic][message_cls.__name__] = (handler, message_cls)
+            # Prefer the explicit message_cls provided via kwargs, fallback to the arg
+            explicit_cls = kwargs.pop("message_cls", None)
+            cls_to_use = explicit_cls or message_cls or BaseMessage
+            self._subscriptions[topic][cls_to_use.__name__] = (handler, cls_to_use)
 
             # Subscribe using aiomqtt
             await self._client.subscribe(topic, qos=kwargs.get("qos", 1))
@@ -292,23 +294,24 @@ class MQTTDriver(BaseDriver[MQTTDriverConfig]):
             # Call appropriate handlers based on message type compatibility
             for handler_cls_name, (handler, handler_cls) in handlers.items():
                 try:
-                    # Try to parse the message as the specific type
+                    # Parse as specific type early if provided
                     if handler_cls is BaseMessage:
-                        # Generic BaseMessage handler
                         await handler(base_message)
                     else:
-                        # Try to parse as specific type
                         try:
                             validate_method = getattr(handler_cls, "model_validate_json", None)
                             if validate_method:
-                                specific_message = validate_method(payload_str)
+                                specific_message = validate_method(
+                                    getattr(
+                                        base_message,
+                                        "_original_json",
+                                        base_message.model_dump_json(),
+                                    )
+                                )
                                 await handler(specific_message)
                             else:
-                                # Skip non-BaseMessage handlers
-                                logger.debug(f"Skipping non-BaseMessage handler {handler_cls_name}")
-                                continue
+                                await handler(base_message)
                         except Exception as parse_error:
-                            # Skip this handler if message doesn't match type
                             logger.debug(
                                 f"Message type mismatch for handler {handler_cls_name}: {parse_error}"
                             )

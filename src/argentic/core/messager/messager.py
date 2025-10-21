@@ -1,14 +1,12 @@
-import time
-import asyncio
-from typing import Dict, Optional, Union, Any, Type, List
 import ssl
+import time
+from typing import Any, Dict, List, Optional, Type, Union
 
 from pydantic import ValidationError
 
+from argentic.core.logger import LogLevel, get_logger, parse_log_level
 from argentic.core.messager.drivers import create_driver
 from argentic.core.messager.drivers.base_definitions import MessageHandler
-
-from argentic.core.logger import get_logger, LogLevel, parse_log_level
 from argentic.core.messager.protocols import MessagerProtocol
 from argentic.core.protocol.message import BaseMessage
 
@@ -260,7 +258,8 @@ class Messager:
             self._topic_dispatchers[topic] = _dispatcher
 
             # Only the FIRST registration performs the low-level subscribe
-            await self._driver.subscribe(topic, _dispatcher, **kwargs)
+            # Forward the specific message class down to the driver for early parsing
+            await self._driver.subscribe(topic, _dispatcher, message_cls=message_cls, **kwargs)
 
         # Always register the (handler, message_cls) pair in local registry
         self._topic_handlers[topic].append((handler, message_cls))

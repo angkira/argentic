@@ -2,8 +2,8 @@
 """Helper script to fix JSON serialization issues with TestMessage classes."""
 
 import json
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 
 def patch_json_module():

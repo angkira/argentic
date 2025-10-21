@@ -3,10 +3,10 @@ import pytest
 pytest.skip("Skipping legacy MQTT driver tests (old API)", allow_module_level=True)
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
-import sys
 import os
 import ssl
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add src to path to fix import issues
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../")))

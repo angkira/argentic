@@ -1,9 +1,10 @@
+import asyncio
+from typing import Dict, List, Optional, Type
+
 from argentic.core.messager.drivers.base_definitions import BaseDriver, MessageHandler
 from argentic.core.protocol.message import BaseMessage
-from .configs import RedisDriverConfig
 
-import asyncio
-from typing import Optional, List, Dict, Type
+from .configs import RedisDriverConfig
 
 try:
     import aioredis

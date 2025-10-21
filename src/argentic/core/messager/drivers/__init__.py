@@ -1,5 +1,5 @@
-from typing import Any, Callable, Coroutine, Dict, Type
 import importlib
+from typing import Any, Callable, Coroutine, Dict, Type
 
 from argentic.core.messager.protocols import MessagerProtocol
 from argentic.core.protocol.message import BaseMessage
@@ -9,14 +9,13 @@ from .base_definitions import (
     MessageHandler,
 )
 from .configs import (
-    MQTTDriverConfig,
-    RedisDriverConfig,
-    KafkaDriverConfig,
-    RabbitMQDriverConfig,
     BaseDriverConfig,
     DriverConfig,
+    KafkaDriverConfig,
+    MQTTDriverConfig,
+    RabbitMQDriverConfig,
+    RedisDriverConfig,
 )
-
 
 _DRIVER_MAPPING: Dict[MessagerProtocol, tuple[str, Type[BaseDriverConfig]]] = {
     MessagerProtocol.MQTT: ("MQTTDriver", MQTTDriverConfig),

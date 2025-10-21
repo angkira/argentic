@@ -1,6 +1,7 @@
-from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from typing import Optional
+
 from aiomqtt.client import ProtocolVersion
+from pydantic import BaseModel, Field
 
 
 class BaseDriverConfig(BaseModel):

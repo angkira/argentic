@@ -6,8 +6,8 @@ Usage: python -m argentic [subcommand] [options]
 
 import argparse
 import asyncio
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add src to path if not already there (for development mode)

@@ -1,19 +1,17 @@
 import asyncio
-from typing import List, Optional, Any, Dict, Union
-from collections import deque
-import uuid
-import json
 import time
+import uuid
+from collections import deque
+from typing import Any, Dict, Optional, Union
 
+from argentic.core.llm.providers.base import ModelProvider
+from argentic.core.logger import LogLevel, get_logger, parse_log_level
 from argentic.core.messager.messager import Messager
 from argentic.core.protocol.message import (
     AgentTaskMessage,
     AgentTaskResultMessage,
     BaseMessage,
 )
-from argentic.core.protocol.enums import MessageSource
-from argentic.core.logger import get_logger, LogLevel, parse_log_level
-from argentic.core.llm.providers.base import ModelProvider
 
 
 class Supervisor:
@@ -485,8 +483,18 @@ RESPONSE: Provide ONLY the agent role name or '__end__'"""
             response = await self.llm.achat(llm_messages)
 
             # Extract routing decision
-            if hasattr(response, "content") and response.content:
-                decision = str(response.content).strip().lower()
+            decision_text = None
+            if hasattr(response, "message") and getattr(response, "message") is not None:
+                # Our providers return LLMChatResponse
+                try:
+                    decision_text = str(response.message.content)
+                except Exception:
+                    decision_text = None
+            elif hasattr(response, "content"):
+                decision_text = str(response.content)
+
+            if decision_text:
+                decision = decision_text.strip().lower()
 
                 # Validate decision
                 valid_options = list(self._agents.keys()) + ["__end__"]
@@ -504,7 +512,7 @@ RESPONSE: Provide ONLY the agent role name or '__end__'"""
 
             # Fallback
             self.logger.warning(
-                f"Could not determine routing from LLM response: {response.content}"
+                f"Could not determine routing from LLM response: {getattr(response, 'message', None) or getattr(response, 'content', '')}"
             )
             return "__end__"
 

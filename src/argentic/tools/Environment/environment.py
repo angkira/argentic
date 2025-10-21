@@ -1,10 +1,11 @@
-from typing import List, Dict, Any, Optional, Literal, Union
 import time
+from typing import Any, Dict, List, Literal, Optional, Union
+
 import chromadb
 from pydantic import BaseModel, Field
 
-from argentic.core.protocol.message import BaseMessage
 from argentic.core.messager.messager import Messager
+from argentic.core.protocol.message import BaseMessage
 
 DEFAULT_ENVIRONMENT_COLLECTION = "default_environment"
 

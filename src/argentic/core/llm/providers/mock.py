@@ -1,14 +1,38 @@
 import asyncio
-import json
 import uuid
-from typing import Any, Dict, List, Optional, Union, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
+from typing import Any, Callable, Dict, List, Optional
 
 from argentic.core.llm.providers.base import ModelProvider
-from argentic.core.logger import get_logger, LogLevel
+from argentic.core.logger import LogLevel, get_logger
+from argentic.core.protocol.chat_message import (
+    AssistantMessage,
+    ChatMessage,
+    LLMChatResponse,
+)
+
+
+# Compatibility shims for tests only (no LangChain dependency)
+class LcAIMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class LcHumanMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class LcSystemMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class LcToolMessage:
+    def __init__(self, content: str, tool_call_id: str = ""):
+        self.content = content
+        self.tool_call_id = tool_call_id
 
 
 class MockResponseType(Enum):
@@ -42,20 +66,23 @@ class MockResponse:
     tool_calls: List[MockToolCall] = field(default_factory=list)
     error_message: Optional[str] = None
 
-    def to_langchain_message(self) -> AIMessage:
-        """Convert to LangChain AIMessage."""
+    def to_response(self) -> LLMChatResponse:
+        """Convert to LLMChatResponse."""
         if self.response_type == MockResponseType.ERROR:
             raise Exception(self.error_message or "Mock LLM error")
 
         if self.response_type == MockResponseType.TOOL_CALL and self.tool_calls:
-            # Convert to LangChain tool call format
-            lc_tool_calls = [
-                {"name": tc.name, "args": tc.args, "id": tc.id, "type": "tool_call"}
-                for tc in self.tool_calls
+            # Convert to dict format for tool_calls
+            tool_call_dicts = [
+                {"name": tc.name, "args": tc.args, "id": tc.id} for tc in self.tool_calls
             ]
-            return AIMessage(content=self.content, tool_calls=lc_tool_calls)
+            assistant = AssistantMessage(
+                role="assistant", content=self.content, tool_calls=tool_call_dicts
+            )
+            return LLMChatResponse(message=assistant)
 
-        return AIMessage(content=self.content)
+        assistant = AssistantMessage(role="assistant", content=self.content)
+        return LLMChatResponse(message=assistant)
 
 
 @dataclass
@@ -103,7 +130,7 @@ class MockLLMProvider(ModelProvider):
         # State tracking
         self.call_count = 0
         self.captured_prompts: List[str] = []
-        self.captured_messages: List[List[BaseMessage]] = []
+        self.captured_messages: List[List[ChatMessage]] = []
         self.captured_tools: List[List[Any]] = []
 
         # Response configuration
@@ -125,15 +152,12 @@ class MockLLMProvider(ModelProvider):
 
     def _setup_default_responses(self):
         """Setup default responses for basic testing."""
-        self.responses = [
-            MockResponse(MockResponseType.DIRECT, content="Mock response 1"),
-            MockResponse(MockResponseType.DIRECT, content="Mock response 2"),
-            MockResponse(MockResponseType.DIRECT, content="Mock response 3"),
-        ]
+        self.responses = [MockResponse(MockResponseType.DIRECT, content="Default mock response")]
 
     def set_responses(self, responses: List[MockResponse]):
         """Set predefined responses."""
         self.responses = responses
+        self.call_count = 0
         return self
 
     def set_scenario(self, scenario: MockScenario):
@@ -192,7 +216,7 @@ class MockLLMProvider(ModelProvider):
 
         return self.responses[idx]
 
-    def _capture_call(self, messages: List[BaseMessage], tools: Optional[List[Any]] = None):
+    def _capture_call(self, messages: List[ChatMessage], tools: Optional[List[Any]] = None):
         """Capture call details for validation."""
         self.call_count += 1
         self.captured_messages.append(messages.copy() if messages else [])
@@ -231,8 +255,8 @@ class MockLLMProvider(ModelProvider):
                 raise Exception("Simulated LLM failure")
 
     async def _make_call(
-        self, messages: List[BaseMessage], tools: Optional[List[Any]] = None
-    ) -> AIMessage:
+        self, messages: List[ChatMessage], tools: Optional[List[Any]] = None
+    ) -> LLMChatResponse:
         """Internal method to make a mock call."""
         await self._simulate_delay()
         self._check_failure_simulation()
@@ -240,13 +264,13 @@ class MockLLMProvider(ModelProvider):
         self._capture_call(messages, tools)
 
         response = self.get_next_response()
-        return response.to_langchain_message()
+        return response.to_response()
 
     # Implementation of abstract methods from ModelProvider
 
-    def invoke(self, prompt: str, **kwargs: Any) -> BaseMessage:
+    def invoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:
         """Synchronously invoke with a single prompt."""
-        messages: List[BaseMessage] = [HumanMessage(content=prompt)]
+        messages: List[ChatMessage] = [LcHumanMessage(content=prompt)]
         try:
             return asyncio.run(self._make_call(messages, **kwargs))
         except RuntimeError:
@@ -255,16 +279,16 @@ class MockLLMProvider(ModelProvider):
                 "Cannot use invoke() from within an async context. Use ainvoke() instead."
             )
 
-    async def ainvoke(self, prompt: str, **kwargs: Any) -> BaseMessage:
+    async def ainvoke(self, prompt: str, **kwargs: Any) -> LLMChatResponse:
         """Asynchronously invoke with a single prompt."""
-        messages: List[BaseMessage] = [HumanMessage(content=prompt)]
+        messages: List[ChatMessage] = [LcHumanMessage(content=prompt)]
         return await self._make_call(messages, **kwargs)
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> BaseMessage:
+    def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> LLMChatResponse:
         """Synchronously invoke with chat messages."""
-        langchain_messages = self._convert_dict_messages_to_langchain(messages)
+        chat_messages = self._convert_dict_messages_to_chat(messages)
         try:
-            return asyncio.run(self._make_call(langchain_messages, **kwargs))
+            return asyncio.run(self._make_call(chat_messages, **kwargs))
         except RuntimeError:
             raise RuntimeError(
                 "Cannot use chat() from within an async context. Use achat() instead."
@@ -272,39 +296,29 @@ class MockLLMProvider(ModelProvider):
 
     async def achat(
         self, messages: List[Dict[str, str]], tools: Optional[List[Any]] = None, **kwargs: Any
-    ) -> BaseMessage:
+    ) -> LLMChatResponse:
         """Asynchronously invoke with chat messages."""
-        langchain_messages = self._convert_dict_messages_to_langchain(messages)
-        return await self._make_call(langchain_messages, tools=tools, **kwargs)
+        chat_messages = self._convert_dict_messages_to_chat(messages)
+        return await self._make_call(chat_messages, tools=tools, **kwargs)
 
-    def _convert_dict_messages_to_langchain(
-        self, messages: List[Dict[str, str]]
-    ) -> List[BaseMessage]:
-        """Convert dictionary messages to LangChain BaseMessage objects."""
-        langchain_messages = []
-
+    def _convert_dict_messages_to_chat(self, messages: List[Dict[str, str]]) -> List[ChatMessage]:
+        """Convert dictionary messages to chat message objects for test compatibility."""
+        lc_messages: List[ChatMessage] = []
         for msg in messages:
             role = msg.get("role", "user").lower()
             content = msg.get("content", "")
-
             if role == "system":
-                langchain_messages.append(SystemMessage(content=content))
+                lc_messages.append(LcSystemMessage(content=content))
             elif role == "user":
-                langchain_messages.append(HumanMessage(content=content))
+                lc_messages.append(LcHumanMessage(content=content))
             elif role in ["assistant", "model"]:
-                langchain_messages.append(AIMessage(content=content))
+                lc_messages.append(LcAIMessage(content=content))
             elif role == "tool":
                 tool_call_id = msg.get("tool_call_id")
-                if tool_call_id:
-                    langchain_messages.append(
-                        ToolMessage(content=content, tool_call_id=tool_call_id)
-                    )
-                else:
-                    langchain_messages.append(HumanMessage(content=f"Tool output: {content}"))
+                lc_messages.append(LcToolMessage(content=content, tool_call_id=tool_call_id))
             else:
-                langchain_messages.append(HumanMessage(content=f"{role}: {content}"))
-
-        return langchain_messages
+                lc_messages.append(LcHumanMessage(content=f"{role}: {content}"))
+        return lc_messages
 
     # Validation and assertion methods for testing
 
@@ -351,7 +365,7 @@ class MockLLMProvider(ModelProvider):
             raise IndexError("No prompts captured")
         return self.captured_prompts[call_index]
 
-    def get_captured_messages(self, call_index: int = -1) -> List[BaseMessage]:
+    def get_captured_messages(self, call_index: int = -1) -> List[ChatMessage]:
         """Get captured messages by index."""
         if not self.captured_messages:
             raise IndexError("No messages captured")

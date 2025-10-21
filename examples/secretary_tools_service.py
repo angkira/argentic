@@ -3,11 +3,12 @@
 import asyncio
 import os
 import signal
+
 import yaml
 from dotenv import load_dotenv
 
+from argentic.core.logger import LogLevel, get_logger
 from argentic.core.messager.messager import Messager
-from argentic.core.logger import get_logger, LogLevel
 
 from .email_tool import EmailTool
 from .note_creator_tool import NoteCreatorTool

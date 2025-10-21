@@ -1,16 +1,16 @@
 import asyncio
-import yaml
-import signal
 import os
-import chromadb
+import signal
 from typing import Optional
 
+import chromadb
+import yaml
+from dotenv import load_dotenv
+
+from argentic.core.logger import get_logger, parse_log_level
 from argentic.core.messager.messager import Messager
 from argentic.tools.Environment.environment import EnvironmentManager
 from argentic.tools.Environment.environment_tool import EnvironmentTool
-from argentic.core.logger import get_logger, parse_log_level
-
-from dotenv import load_dotenv
 
 load_dotenv()
 
