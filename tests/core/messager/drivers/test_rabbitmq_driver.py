@@ -101,9 +101,8 @@ class TestRabbitMQDriver:
     @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.connect_robust")
     @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.Message")
     @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika.ExchangeType")
-    @patch("argentic.core.messager.drivers.RabbitMQDriver.json.dumps")
     async def test_publish(
-        self, mock_json_dumps, mock_exchange_type, mock_message_class, mock_connect, driver_config
+        self, mock_exchange_type, mock_message_class, mock_connect, driver_config
     ):
         """Test publish method"""
         mock_connect.return_value = self.mock_connection
@@ -116,9 +115,6 @@ class TestRabbitMQDriver:
         # Mock aio_pika.Message
         mock_message = MagicMock()
         mock_message_class.return_value = mock_message
-
-        # Mock json.dumps to return a known string
-        mock_json_dumps.return_value = '{"id":"test-id","type":"test-type"}'
 
         driver = RabbitMQDriver(driver_config)
         driver._connection = self.mock_connection
