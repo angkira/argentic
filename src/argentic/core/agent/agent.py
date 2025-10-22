@@ -574,24 +574,15 @@ class Agent:
                 getattr(self.messager, "disconnect")
             ):
                 if self.messager.is_connected():
-                    try:
-                        loop = asyncio.get_running_loop()
-                        # If we're inside an event loop, run disconnect asynchronously
-                        awaitable = self.messager.disconnect()
-                        if loop.is_running():
-                            awaitable  # type: ignore[func-returns-value]
-                        else:
-                            loop.run_until_complete(awaitable)
-                    except RuntimeError:
-                        # Not inside loop – create one
-                        asyncio.run(self.messager.disconnect())
+                    # Properly await the disconnect coroutine
+                    await self.messager.disconnect()
         except Exception as e:
             self.logger.debug(f"Messager disconnect raised: {e}")
 
         # Stop tool manager (cancel pending tasks etc.) – best-effort
         try:
-            if hasattr(self._tool_manager, "stop"):
-                self._tool_manager.stop()
+            if hasattr(self._tool_manager, "stop") and callable(self._tool_manager.stop):
+                await self._tool_manager.stop()
         except Exception as e:
             self.logger.debug(f"ToolManager stop raised: {e}")
 

@@ -436,23 +436,14 @@ class ToolManager:
     # Lifecycle helpers
     # ------------------------------------------------------------------
 
-    def cancel_pending_tasks(self) -> None:
+    async def cancel_pending_tasks(self) -> None:
         """Cancel all pending tool futures to speed up shutdown."""
         # Acquire lock briefly to snapshot and clear map
         pending: Dict[str, asyncio.Future] = {}
 
-        async def _inner():
-            async with self._pending_lock:
-                nonlocal pending
-                pending = self._pending_tasks.copy()
-                self._pending_tasks.clear()
-
-        # Run the coroutine synchronously – ToolManager may be called from sync context
-        try:
-            asyncio.get_running_loop().run_until_complete(_inner())
-        except RuntimeError:
-            # Not inside an event loop – ok to run a new one
-            asyncio.run(_inner())
+        async with self._pending_lock:
+            pending = self._pending_tasks.copy()
+            self._pending_tasks.clear()
 
         for fut in pending.values():
             if not fut.done():
@@ -460,8 +451,8 @@ class ToolManager:
         if pending:
             self.logger.info(f"Cancelled {len(pending)} pending tool task(s) during shutdown")
 
-    def stop(self) -> None:
-        """Public synchronous shutdown helper."""
-        self.cancel_pending_tasks()
+    async def stop(self) -> None:
+        """Public async shutdown helper."""
+        await self.cancel_pending_tasks()
         # Future: add topic unsubscriptions if needed
         self.logger.info("ToolManager stopped")

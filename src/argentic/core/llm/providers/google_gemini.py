@@ -5,6 +5,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+import numpy as np
+
 try:
     import google.generativeai as genai
     from google.generativeai.types import GenerateContentResponse
@@ -297,6 +299,13 @@ class GoogleGeminiProvider(ModelProvider):
                 f"Please wait before retrying."
             )
 
+        # Build generation_config from google_gemini_parameters if not provided
+        if "generation_config" not in kwargs:
+            gemini_params = self.config.get("google_gemini_parameters", {})
+            if gemini_params:
+                kwargs["generation_config"] = gemini_params
+                self.logger.debug(f"Using google_gemini_parameters: {gemini_params}")
+
         # Create retry decorator
         retry_decorator = self._create_retry_decorator()
 
@@ -311,7 +320,27 @@ class GoogleGeminiProvider(ModelProvider):
                     if isinstance(msg, SystemMessage):
                         system_instruction = msg.content
                     elif isinstance(msg, UserMessage):
-                        contents.append({"role": "user", "parts": [{"text": msg.content}]})
+                        # Handle multimodal content
+                        parts = []
+                        if isinstance(msg.content, dict):
+                            # Multimodal content: images + text + audio
+                            if msg.content.get("images"):
+                                import PIL.Image
+
+                                for img in msg.content["images"]:
+                                    if isinstance(img, PIL.Image.Image):
+                                        parts.append(img)  # PIL Image directly
+                                    elif isinstance(img, np.ndarray):
+                                        # Convert numpy to PIL
+                                        pil_img = PIL.Image.fromarray(img.astype("uint8"))
+                                        parts.append(pil_img)
+                            if msg.content.get("text"):
+                                parts.append({"text": msg.content["text"]})
+                            # Note: audio not yet supported by google-generativeai SDK
+                        else:
+                            # Simple text content
+                            parts.append({"text": msg.content})
+                        contents.append({"role": "user", "parts": parts})
                     elif isinstance(msg, AssistantMessage):
                         parts: List[Dict[str, Any]] = [{"text": msg.content}]
                         if msg.tool_calls:
@@ -547,26 +576,35 @@ class GoogleGeminiProvider(ModelProvider):
         return await self.call_llm(chat_messages, **kwargs)
 
     async def achat(
-        self, messages: List[Dict[str, str]], tools: Optional[List[Any]] = None, **kwargs: Any
+        self, messages: List, tools: Optional[List[Any]] = None, **kwargs: Any
     ) -> LLMChatResponse:
-        """Asynchronously invoke the model with a list of chat messages."""
-        # Convert dict messages to our ChatMessage objects
+        """Asynchronously invoke the model with a list of chat messages (ChatMessage or dict)."""
+        # Handle both ChatMessage objects and dicts
         chat_messages: List[ChatMessage] = []
         for m in messages:
-            role = m.get("role", "user").lower()
-            content = m.get("content", "")
-            if role == "system":
-                chat_messages.append(SystemMessage(role="system", content=content))
-            elif role == "user":
-                chat_messages.append(UserMessage(role="user", content=content))
-            elif role in ["assistant", "model"]:
-                chat_messages.append(AssistantMessage(role="assistant", content=content))
-            elif role == "tool":
-                chat_messages.append(
-                    OurToolMessage(role="tool", content=content, tool_call_id=m.get("tool_call_id"))
-                )
+            # If already a ChatMessage, use it directly
+            if isinstance(m, (SystemMessage, UserMessage, AssistantMessage, OurToolMessage)):
+                chat_messages.append(m)
+            # Otherwise convert from dict
+            elif isinstance(m, dict):
+                role = m.get("role", "user").lower()
+                content = m.get("content", "")
+                if role == "system":
+                    chat_messages.append(SystemMessage(role="system", content=content))
+                elif role == "user":
+                    chat_messages.append(UserMessage(role="user", content=content))
+                elif role in ["assistant", "model"]:
+                    chat_messages.append(AssistantMessage(role="assistant", content=content))
+                elif role == "tool":
+                    chat_messages.append(
+                        OurToolMessage(
+                            role="tool", content=content, tool_call_id=m.get("tool_call_id")
+                        )
+                    )
+                else:
+                    chat_messages.append(UserMessage(role="user", content=f"{role}: {content}"))
             else:
-                chat_messages.append(UserMessage(role="user", content=f"{role}: {content}"))
+                raise TypeError(f"Unsupported message type: {type(m)}")
         return await self.call_llm(chat_messages, tools=tools, **kwargs)
 
     # Legacy converter removed – no longer using LangChain message types
