@@ -1,0 +1,7 @@
+{
+  "model": "/home/angkira/models/gemma-3-4b-4bit/gemma-3n-E4B-it-quantized",
+  "prompt": "Hello",
+  "max_tokens": 10,
+  "temperature": 0,
+  "skip_special_tokens": false
+}
