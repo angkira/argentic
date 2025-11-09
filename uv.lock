@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
@@ -417,6 +417,8 @@ visual = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
 
@@ -467,7 +469,11 @@ requires-dist = [
 provides-extras = ["dev", "docs", "kafka", "redis", "rabbitmq", "visual", "gemma"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.13.1" }]
+dev = [
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", specifier = ">=0.23.8" },
+    { name = "ruff", specifier = ">=0.13.1" },
+]
 
 [[package]]
 name = "array-record"

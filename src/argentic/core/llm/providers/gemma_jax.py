@@ -265,6 +265,59 @@ class GemmaJAXProvider(ModelProvider):
         """Get model name."""
         return f"gemma-3-{self.model_size.lower()}-it"
 
+    def _encode_image(self, image: np.ndarray) -> Image.Image:
+        """
+        Encode numpy image array to PIL Image format for Gemma.
+
+        Args:
+            image: Numpy array representing an image (H, W, C) or (H, W)
+
+        Returns:
+            PIL Image object
+        """
+        if not isinstance(image, np.ndarray):
+            raise TypeError(f"Expected numpy array, got {type(image)}")
+
+        # Handle grayscale images (H, W) -> (H, W, 1)
+        if image.ndim == 2:
+            image = np.expand_dims(image, axis=-1)
+
+        # Ensure uint8 type
+        if image.dtype != np.uint8:
+            # Normalize to 0-255 range if needed
+            if image.max() <= 1.0:
+                image = (image * 255).astype(np.uint8)
+            else:
+                image = image.astype(np.uint8)
+
+        # Convert to PIL Image
+        pil_image = Image.fromarray(image)
+        return pil_image
+
+    def _encode_audio(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Encode audio numpy array for Gemma processing.
+
+        Args:
+            audio: Numpy array representing audio samples
+
+        Returns:
+            Processed numpy array suitable for Gemma
+        """
+        if not isinstance(audio, np.ndarray):
+            raise TypeError(f"Expected numpy array, got {type(audio)}")
+
+        # Ensure float32 type for audio processing
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+
+        # Normalize audio to [-1, 1] range if needed
+        max_val = np.abs(audio).max()
+        if max_val > 1.0:
+            audio = audio / max_val
+
+        return audio
+
     async def stop(self):
         """Stop provider and cleanup."""
         self._initialized = False
