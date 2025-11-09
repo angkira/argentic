@@ -26,6 +26,35 @@ def _import_provider(name: str):
             return P
         except Exception as e:  # pragma: no cover
             raise ImportError("google-generativeai is required for GoogleGeminiProvider") from e
+    if name == "gemma" or name == "transformers":
+        try:
+            from argentic.core.llm.providers.transformers_provider import TransformersProvider as P
+
+            return P
+        except Exception as e:  # pragma: no cover
+            raise ImportError(
+                "transformers library is required for TransformersProvider. "
+                "Install with: pip install transformers torch"
+            ) from e
+    if name == "gemma_jax":
+        try:
+            from argentic.core.llm.providers.gemma_jax import GemmaJAXProvider as P
+
+            return P
+        except Exception as e:  # pragma: no cover
+            raise ImportError(
+                "gemma library is required for GemmaJAXProvider. "
+                "Install with: pip install 'jax[cuda12_local]' gemma"
+            ) from e
+    if name == "vllm":
+        try:
+            from argentic.core.llm.providers.vllm_provider import VLLMProvider as P
+
+            return P
+        except Exception as e:  # pragma: no cover
+            raise ImportError(
+                "openai library is required for VLLMProvider. " "Install with: pip install openai"
+            ) from e
     raise KeyError(name)
 
 
@@ -35,6 +64,10 @@ PROVIDER_NAMES = [
     "llama_cpp_server",
     "llama_cpp_cli",
     "google_gemini",
+    "gemma",  # Alias for transformers
+    "transformers",
+    "gemma_jax",  # Official Gemma JAX library
+    "vllm",  # vLLM OpenAI-compatible server
 ]
 
 # The start_llm_server function might be deprecated or moved if
@@ -69,7 +102,10 @@ class LLMFactory:
         try:
             provider_class = _import_provider(provider_name)
             logger.debug(f"Found provider class: {provider_class.__name__}")
-            return provider_class(config, messager)
+            # Pass the entire config (providers extract llm config internally if needed)
+            # But for backward compatibility, merge llm config into the root level
+            merged_config = {**llm_config, **config}
+            return provider_class(merged_config, messager)
         except KeyError as e:
             logger.error(f"Unsupported LLM provider: {provider_name}")
             raise ValueError(

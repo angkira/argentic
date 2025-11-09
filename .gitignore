@@ -40,3 +40,9 @@ dmypy.json
 Thumbs.db
 
 _site/
+
+# Model checkpoints (large files)
+models/
+*.gguf
+*.safetensors
+*.bintmp/
