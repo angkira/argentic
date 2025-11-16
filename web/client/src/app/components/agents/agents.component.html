@@ -1,0 +1,105 @@
+<div class="container">
+  <div class="page-header">
+    <h1>Agents</h1>
+    <button class="btn btn-primary" (click)="openCreateModal()">Create Agent</button>
+  </div>
+
+  @if (loading) {
+    <div class="spinner"></div>
+  }
+
+  @if (!loading && agents.length === 0) {
+    <div class="empty-state">
+      <p>No agents created yet.</p>
+      <button class="btn btn-primary" (click)="openCreateModal()">Create Your First Agent</button>
+    </div>
+  }
+
+  @if (!loading && agents.length > 0) {
+    <div class="agents-grid">
+      @for (agent of agents; track agent.id) {
+        <div class="agent-card">
+      <div class="card-header-row">
+        <h3>{{ agent.role }}</h3>
+        <span class="badge" [ngClass]="getStatusClass(agent.status)">{{ agent.status }}</span>
+      </div>
+      <p class="agent-description">{{ agent.description }}</p>
+      <div class="agent-meta">
+        <div class="meta-item">
+          <span class="meta-label">Output:</span>
+          <span class="meta-value">{{ agent.expected_output_format }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Max Tool Calls:</span>
+          <span class="meta-value">{{ agent.max_consecutive_tool_calls }}</span>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-sm"
+                [ngClass]="agent.status === 'running' ? 'btn-danger' : 'btn-success'"
+                (click)="toggleAgent(agent)">
+          {{ agent.status === 'running' ? 'Stop' : 'Start' }}
+        </button>
+        <button class="btn btn-sm btn-outline" (click)="deleteAgent(agent.id)">Delete</button>
+      </div>
+        </div>
+      }
+    </div>
+  }
+</div>
+
+<!-- Create Agent Modal -->
+@if (showCreateModal) {
+  <div class="modal">
+  <div class="modal-backdrop" (click)="closeCreateModal()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Create New Agent</h2>
+      <button class="modal-close" (click)="closeCreateModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Role *</label>
+        <input type="text" class="form-control" [(ngModel)]="newAgent.role" placeholder="e.g., research_agent">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Description *</label>
+        <textarea class="form-control" [(ngModel)]="newAgent.description" placeholder="Agent description"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">System Prompt</label>
+        <textarea class="form-control" [(ngModel)]="newAgent.system_prompt" placeholder="System instructions for the agent"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Expected Output Format</label>
+        <select class="form-control" [(ngModel)]="newAgent.expected_output_format">
+          <option value="json">JSON</option>
+          <option value="text">Text</option>
+          <option value="code">Code</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <input type="checkbox" [(ngModel)]="newAgent.enable_dialogue_logging">
+          Enable Dialogue Logging
+        </label>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Max Consecutive Tool Calls</label>
+        <input type="number" class="form-control" [(ngModel)]="newAgent.max_consecutive_tool_calls" min="1">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" (click)="closeCreateModal()">Cancel</button>
+      <button class="btn btn-primary" (click)="createAgent()" [disabled]="!newAgent.role || !newAgent.description">
+        Create Agent
+      </button>
+    </div>
+  </div>
+  </div>
+}

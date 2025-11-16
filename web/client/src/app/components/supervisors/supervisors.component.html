@@ -1,0 +1,45 @@
+<div class="container">
+  <div class="page-header">
+    <h1>Supervisors</h1>
+    <button class="btn btn-primary" (click)="openCreateModal()">Create Supervisor</button>
+  </div>
+
+  @if (loading) {
+    <div class="spinner"></div>
+  }
+
+  @if (!loading && supervisors.length === 0) {
+    <div class="empty-state">
+      <p>No supervisors created yet.</p>
+      <button class="btn btn-primary" (click)="openCreateModal()">Create Your First Supervisor</button>
+    </div>
+  }
+
+  @if (!loading && supervisors.length > 0) {
+    <div class="supervisors-grid">
+      @for (supervisor of supervisors; track supervisor.id) {
+        <div class="supervisor-card">
+          <div class="card-header-row">
+            <h3>{{ supervisor.role }}</h3>
+            <span class="badge" [ngClass]="getStatusClass(supervisor.status)">{{ supervisor.status }}</span>
+          </div>
+          <p class="supervisor-description">{{ supervisor.description }}</p>
+          <div class="supervisor-meta">
+            <div class="meta-item">
+              <span class="meta-label">Worker Agents:</span>
+              <span class="meta-value">{{ supervisor.worker_agents.length }}</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-sm"
+                    [ngClass]="supervisor.status === 'running' ? 'btn-danger' : 'btn-success'"
+                    (click)="toggleSupervisor(supervisor)">
+              {{ supervisor.status === 'running' ? 'Stop' : 'Start' }}
+            </button>
+            <button class="btn btn-sm btn-outline" (click)="deleteSupervisor(supervisor.id)">Delete</button>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

@@ -1,0 +1,82 @@
+<div class="container">
+  <h1 class="page-title">Configuration</h1>
+
+  @if (loading) {
+    <div class="spinner"></div>
+  }
+
+  @if (!loading) {
+    <div class="config-sections">
+      <div class="card">
+        <div class="card-header">LLM Provider</div>
+        <div class="form-group">
+          <label class="form-label">Provider</label>
+          <select class="form-control" [(ngModel)]="llmConfig.provider" (change)="onProviderChange()">
+            @for (provider of llmProviders; track provider.name) {
+              <option [value]="provider.name">{{ provider.display_name }}</option>
+            }
+          </select>
+        </div>
+
+        @if (llmConfig.provider === 'google_gemini') {
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <input type="password" class="form-control" [(ngModel)]="llmConfig.google_gemini_api_key">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Model Name</label>
+            <input type="text" class="form-control" [(ngModel)]="llmConfig.google_gemini_model_name">
+          </div>
+        }
+
+        @if (llmConfig.provider === 'ollama') {
+          <div class="form-group">
+            <label class="form-label">Model Name</label>
+            <input type="text" class="form-control" [(ngModel)]="llmConfig.ollama_model_name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Base URL</label>
+            <input type="text" class="form-control" [(ngModel)]="llmConfig.ollama_base_url">
+          </div>
+        }
+
+        <div class="form-group">
+          <button class="btn btn-primary" (click)="saveLLMConfig()">Save LLM Configuration</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Messaging</div>
+        <div class="form-group">
+          <label class="form-label">Protocol</label>
+          <select class="form-control" [(ngModel)]="messagingConfig.protocol">
+            @for (protocol of messagingProtocols; track protocol.name) {
+              <option [value]="protocol.name">{{ protocol.display_name }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Broker Address</label>
+          <input type="text" class="form-control" [(ngModel)]="messagingConfig.broker_address">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Port</label>
+          <input type="number" class="form-control" [(ngModel)]="messagingConfig.port">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" [(ngModel)]="messagingConfig.use_tls">
+            Use TLS/SSL
+          </label>
+        </div>
+
+        <div class="form-group">
+          <button class="btn btn-primary" (click)="saveMessagingConfig()">Save Messaging Configuration</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

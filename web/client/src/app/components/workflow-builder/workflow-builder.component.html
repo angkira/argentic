@@ -1,0 +1,45 @@
+<div class="container">
+  <div class="page-header">
+    <h1>{{ editMode ? 'Edit Workflow' : 'Create Workflow' }}</h1>
+    <div class="header-actions">
+      <button class="btn btn-secondary" (click)="cancel()">Cancel</button>
+      <button class="btn btn-primary" (click)="save()" [disabled]="!workflow.name || !workflow.description">Save Workflow</button>
+    </div>
+  </div>
+
+  <div class="workflow-builder">
+    <div class="builder-sidebar">
+      <div class="card">
+        <div class="card-header">Workflow Details</div>
+        <div class="form-group">
+          <label class="form-label">Name *</label>
+          <input type="text" class="form-control" [(ngModel)]="workflow.name" placeholder="Workflow name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description *</label>
+          <textarea class="form-control" [(ngModel)]="workflow.description" placeholder="Workflow description"></textarea>
+        </div>
+      </div>
+
+      <div class="card mt-2">
+        <div class="card-header">Node Types</div>
+        <div class="node-palette">
+          <div class="node-type">🤖 Agent</div>
+          <div class="node-type">👥 Supervisor</div>
+          <div class="node-type">🔧 Tool</div>
+          <div class="node-type">📥 Input</div>
+          <div class="node-type">📤 Output</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="builder-canvas">
+      <div class="canvas-placeholder">
+        <p>Visual workflow builder coming soon!</p>
+        <p>This will integrate with ngx-graph for drag-and-drop workflow creation.</p>
+        <p>Current nodes: {{ workflow.nodes.length }}</p>
+        <p>Current edges: {{ workflow.edges.length }}</p>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,17 @@
+@import '../agents/agents.component.scss';
+
+.workflows-grid {
+  @extend .agents-grid;
+}
+
+.workflow-card {
+  @extend .agent-card;
+}
+
+.workflow-description {
+  @extend .agent-description;
+}
+
+.workflow-meta {
+  @extend .agent-meta;
+}

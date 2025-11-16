@@ -1,0 +1,54 @@
+<div class="container">
+  <h1 class="page-title">Dashboard</h1>
+
+  @if (loading) {
+    <div class="spinner"></div>
+  }
+
+  @if (!loading) {
+    <div class="dashboard-grid">
+    <div class="stat-card">
+      <div class="stat-icon">🤖</div>
+      <div class="stat-content">
+        <h3>Agents</h3>
+        <div class="stat-value">{{ agents.length }}</div>
+        <div class="stat-detail">{{ runningAgents }} running</div>
+      </div>
+      <a routerLink="/agents" class="stat-link">View All →</a>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon">👥</div>
+      <div class="stat-content">
+        <h3>Supervisors</h3>
+        <div class="stat-value">{{ supervisors.length }}</div>
+        <div class="stat-detail">{{ runningSupervisors }} running</div>
+      </div>
+      <a routerLink="/supervisors" class="stat-link">View All →</a>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon">🔄</div>
+      <div class="stat-content">
+        <h3>Workflows</h3>
+        <div class="stat-value">{{ workflows.length }}</div>
+        <div class="stat-detail">{{ runningWorkflows }} running</div>
+      </div>
+      <a routerLink="/workflows" class="stat-link">View All →</a>
+    </div>
+  </div>
+
+  }
+
+  @if (!loading) {
+    <div class="quick-actions">
+    <h2>Quick Actions</h2>
+    <div class="action-buttons">
+      <a routerLink="/agents" class="btn btn-primary">Create Agent</a>
+      <a routerLink="/supervisors" class="btn btn-primary">Create Supervisor</a>
+      <a routerLink="/workflows/new" class="btn btn-primary">Create Workflow</a>
+      <a routerLink="/config" class="btn btn-secondary">Configure Settings</a>
+    </div>
+    </div>
+  }
+</div>
