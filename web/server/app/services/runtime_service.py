@@ -3,7 +3,6 @@
 import asyncio
 from typing import Dict, Optional, Any
 from argentic import Agent, Messager, LLMFactory
-from argentic.core.graph import Supervisor
 from app.models import LLMProviderConfig, MessagingConfig
 
 
@@ -13,7 +12,7 @@ class RuntimeService:
     def __init__(self):
         """Initialize the runtime service."""
         self._running_agents: Dict[str, Agent] = {}
-        self._running_supervisors: Dict[str, Supervisor] = {}
+        self._running_supervisors: Dict[str, Any] = {}  # Type will be Supervisor when implemented
         self._messagers: Dict[str, Messager] = {}
         self._llm_providers: Dict[str, Any] = {}
 
