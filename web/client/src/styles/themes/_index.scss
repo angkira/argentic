@@ -1,0 +1,22 @@
+// Theme System
+@import 'nord-palette';
+@import 'light-theme';
+@import 'dark-theme';
+
+// Default to light theme if no preference
+:root {
+  color-scheme: light dark;
+}
+
+// Auto dark mode based on system preference
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    @extend :root[data-theme='dark'];
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    @extend :root[data-theme='light'];
+  }
+}

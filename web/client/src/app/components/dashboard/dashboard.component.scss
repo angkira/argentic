@@ -2,7 +2,11 @@
   font-size: 2rem;
   font-weight: 700;
   margin-bottom: 32px;
-  color: #1e293b;
+  color: var(--text-primary);
+  background: linear-gradient(135deg, var(--color-frost-3), var(--color-frost-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .dashboard-grid {
@@ -13,15 +17,17 @@
 }
 
 .stat-card {
-  background: white;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
 
   &:hover {
     transform: translateY(-4px);
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    box-shadow: var(--shadow-xl);
+    border-color: var(--color-primary);
   }
 }
 
@@ -34,7 +40,7 @@
   h3 {
     font-size: 0.875rem;
     font-weight: 600;
-    color: #64748b;
+    color: var(--text-secondary);
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -44,40 +50,41 @@
 .stat-value {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .stat-detail {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin-bottom: 16px;
 }
 
 .stat-link {
   display: inline-block;
-  color: #2563eb;
+  color: var(--color-primary);
   text-decoration: none;
   font-weight: 500;
   font-size: 0.875rem;
-  transition: color 0.2s;
+  transition: color var(--transition-base);
 
   &:hover {
-    color: #1d4ed8;
+    color: var(--color-primary-hover);
   }
 }
 
 .quick-actions {
-  background: white;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+  box-shadow: var(--shadow-md);
 
   h2 {
     font-size: 1.25rem;
     font-weight: 600;
     margin-bottom: 16px;
-    color: #1e293b;
+    color: var(--text-primary);
   }
 }
 

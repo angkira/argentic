@@ -1,0 +1,95 @@
+@import 'nord-palette';
+
+// Light Theme (Nord Snow Storm)
+:root[data-theme='light'] {
+  // Background colors
+  --bg-primary: #{$nord6};
+  --bg-secondary: #{$nord5};
+  --bg-tertiary: #{$nord4};
+  --bg-elevated: #ffffff;
+  --bg-overlay: rgba(46, 52, 64, 0.95);
+
+  // Text colors
+  --text-primary: #{$nord0};
+  --text-secondary: #{$nord3};
+  --text-tertiary: #{$nord2};
+  --text-inverse: #{$nord6};
+  --text-muted: #{$nord3};
+
+  // Border colors
+  --border-primary: #{$nord4};
+  --border-secondary: rgba(46, 52, 64, 0.1);
+  --border-focus: #{$nord9};
+
+  // Brand colors
+  --color-primary: #{$nord9};
+  --color-primary-hover: #{$nord10};
+  --color-primary-active: #{$nord10};
+  --color-primary-light: rgba(129, 161, 193, 0.1);
+
+  --color-secondary: #{$nord10};
+  --color-secondary-hover: #{$nord7};
+  --color-secondary-active: #{$nord7};
+
+  // Semantic colors
+  --color-success: #{$nord14};
+  --color-success-light: rgba(163, 190, 140, 0.1);
+  --color-success-dark: #90a876;
+
+  --color-warning: #{$nord13};
+  --color-warning-light: rgba(235, 203, 139, 0.1);
+  --color-warning-dark: #d9b263;
+
+  --color-error: #{$nord11};
+  --color-error-light: rgba(191, 97, 106, 0.1);
+  --color-error-dark: #a54c55;
+
+  --color-info: #{$nord8};
+  --color-info-light: rgba(136, 192, 208, 0.1);
+  --color-info-dark: #6fa7bc;
+
+  // Frost accents
+  --color-frost-1: #{$nord7};
+  --color-frost-2: #{$nord8};
+  --color-frost-3: #{$nord9};
+  --color-frost-4: #{$nord10};
+
+  // Aurora accents
+  --color-accent-red: #{$nord11};
+  --color-accent-orange: #{$nord12};
+  --color-accent-yellow: #{$nord13};
+  --color-accent-green: #{$nord14};
+  --color-accent-purple: #{$nord15};
+
+  // Shadows
+  --shadow-sm: 0 1px 2px 0 rgba(46, 52, 64, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(46, 52, 64, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(46, 52, 64, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(46, 52, 64, 0.1);
+
+  // Code/Syntax
+  --code-bg: #{$nord5};
+  --code-text: #{$nord0};
+
+  // Sidebar
+  --sidebar-bg: #{$nord0};
+  --sidebar-text: #{$nord6};
+  --sidebar-hover: #{$nord1};
+  --sidebar-active: #{$nord9};
+
+  // Cards
+  --card-bg: #ffffff;
+  --card-border: var(--border-primary);
+  --card-shadow: var(--shadow-md);
+
+  // Inputs
+  --input-bg: #ffffff;
+  --input-border: var(--border-primary);
+  --input-focus-border: var(--color-primary);
+  --input-placeholder: var(--text-muted);
+
+  // Transitions
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+}

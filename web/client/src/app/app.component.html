@@ -2,6 +2,7 @@
   <nav class="sidebar">
     <div class="sidebar-header">
       <h1>{{ title }}</h1>
+      <app-theme-toggle></app-theme-toggle>
     </div>
     <ul class="nav-menu">
       @for (item of navItems; track item.path) {

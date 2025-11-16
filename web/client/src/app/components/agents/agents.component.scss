@@ -7,19 +7,24 @@
   h1 {
     font-size: 2rem;
     font-weight: 700;
-    color: #1e293b;
+    color: var(--text-primary);
+    background: linear-gradient(135deg, var(--color-frost-3), var(--color-frost-2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 }
 
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  background: white;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
 
   p {
     font-size: 1.125rem;
-    color: #64748b;
+    color: var(--text-secondary);
     margin-bottom: 20px;
   }
 }
@@ -31,15 +36,17 @@
 }
 
 .agent-card {
-  background: white;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
 
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--color-primary);
   }
 }
 
@@ -52,13 +59,13 @@
   h3 {
     font-size: 1.125rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text-primary);
     margin: 0;
   }
 }
 
 .agent-description {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.875rem;
   margin-bottom: 16px;
   line-height: 1.5;
@@ -69,7 +76,7 @@
   gap: 16px;
   margin-bottom: 16px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .meta-item {
@@ -80,7 +87,7 @@
 
 .meta-label {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -88,7 +95,7 @@
 .meta-value {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .card-actions {
@@ -114,18 +121,20 @@
 .modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--bg-overlay);
+  backdrop-filter: blur(4px);
 }
 
 .modal-content {
   position: relative;
-  background: white;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 12px;
   width: 90%;
   max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+  box-shadow: var(--shadow-xl);
 }
 
 .modal-header {
@@ -133,12 +142,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 20px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-primary);
 
   h2 {
     font-size: 1.5rem;
     font-weight: 600;
     margin: 0;
+    color: var(--text-primary);
   }
 }
 
@@ -146,12 +156,13 @@
   background: none;
   border: none;
   font-size: 2rem;
-  color: #64748b;
+  color: var(--text-secondary);
   cursor: pointer;
   line-height: 1;
+  transition: color var(--transition-base);
 
   &:hover {
-    color: #1e293b;
+    color: var(--text-primary);
   }
 }
 
@@ -164,5 +175,5 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--border-primary);
 }
