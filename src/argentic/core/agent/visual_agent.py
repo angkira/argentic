@@ -187,7 +187,7 @@ class VisualAgent(Agent):
             f"audio={audio is not None}, prompt='{prompt[:50]}...'"
         )
 
-        # Call LLM (handles multimodal via GemmaProvider)
+        # Call LLM (handles multimodal content)
         # This will use the provider's thread pool for inference
         response = await self._call_llm(messages, llm_config=self.llm_config)
 
