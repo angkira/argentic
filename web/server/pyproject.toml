@@ -32,6 +32,9 @@ generate-ts-models = "scripts.generate_typescript_models:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
 [tool.black]
 line-length = 100
 target-version = ['py311']

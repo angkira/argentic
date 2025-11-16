@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
-"""Generate TypeScript interfaces from FastAPI/Pydantic models."""
+"""
+Lightweight TypeScript model generator.
+Reads Pydantic models directly without needing full app dependencies.
+"""
 
 import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Set
+import importlib.util
 
-# Add parent directory to path to import app
+# Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.main import fastapi_app
+
+def load_module_from_file(module_name: str, file_path: Path):
+    """Load a Python module from a file path."""
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def python_type_to_typescript(schema: Dict[str, Any], definitions: Dict[str, Any]) -> str:
     """Convert Python/JSON Schema type to TypeScript type."""
     if "$ref" in schema:
-        # Reference to another model
         ref_name = schema["$ref"].split("/")[-1]
         return ref_name
 
@@ -24,11 +34,10 @@ def python_type_to_typescript(schema: Dict[str, Any], definitions: Dict[str, Any
 
     if schema_type == "string":
         if "enum" in schema:
-            # Enum type
             enum_values = schema["enum"]
             return " | ".join(f"'{v}'" for v in enum_values)
         if schema_format == "date-time":
-            return "string"  # Could use Date, but string is safer for JSON
+            return "string"
         return "string"
     elif schema_type == "integer":
         return "number"
@@ -49,7 +58,6 @@ def python_type_to_typescript(schema: Dict[str, Any], definitions: Dict[str, Any
     elif schema_type == "null":
         return "null"
 
-    # Handle anyOf, oneOf, allOf
     if "anyOf" in schema:
         types = [python_type_to_typescript(s, definitions) for s in schema["anyOf"]]
         return " | ".join(types)
@@ -60,9 +68,7 @@ def python_type_to_typescript(schema: Dict[str, Any], definitions: Dict[str, Any
     return "any"
 
 
-def generate_interface(
-    name: str, schema: Dict[str, Any], definitions: Dict[str, Any]
-) -> str:
+def generate_interface(name: str, schema: Dict[str, Any], definitions: Dict[str, Any]) -> str:
     """Generate a TypeScript interface from a JSON schema."""
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
@@ -77,64 +83,78 @@ def generate_interface(
         if description:
             lines.append(f"  /** {description} */")
 
-        # Use readonly for response models (those ending with Response)
         readonly_prefix = "readonly " if name.endswith("Response") or name.endswith("Info") else ""
         lines.append(f"  {readonly_prefix}{prop_name}{optional}: {ts_type};")
 
     lines.append("}")
-
     return "\n".join(lines)
 
 
-def generate_type_alias(name: str, schema: Dict[str, Any], definitions: Dict[str, Any]) -> str:
-    """Generate a TypeScript type alias from a JSON schema."""
-    if "enum" in schema:
-        # Enum type
-        enum_values = schema["enum"]
-        values = " | ".join(f"'{v}'" for v in enum_values)
-        return f"export type {name} = {values};"
+def generate_typescript_models_simple(output_file: Path) -> None:
+    """Generate TypeScript models by creating minimal FastAPI app."""
+    try:
+        from fastapi import FastAPI
+        from pydantic import BaseModel
+    except ImportError:
+        print("Error: FastAPI and Pydantic are required")
+        print("Install with: uv sync")
+        sys.exit(1)
 
-    # For other types, convert to interface
-    return generate_interface(name, schema, definitions)
+    # Import model modules
+    models_dir = Path(__file__).parent.parent / "app" / "models"
 
+    # Create a minimal FastAPI app
+    app = FastAPI()
 
-def should_skip_model(name: str) -> bool:
-    """Check if model should be skipped from generation."""
-    skip_patterns = ["HTTPValidationError", "ValidationError", "Body_", "HTTPException"]
-    return any(pattern in name for pattern in skip_patterns)
+    # Import all model files
+    model_files = ["agent", "supervisor", "workflow", "llm", "messaging", "tool"]
 
+    for model_file in model_files:
+        try:
+            module_path = models_dir / f"{model_file}.py"
+            if module_path.exists():
+                load_module_from_file(f"app.models.{model_file}", module_path)
+        except Exception as e:
+            print(f"Warning: Could not load {model_file}: {e}")
 
-def generate_typescript_models(output_file: Path) -> None:
-    """Generate TypeScript models from FastAPI OpenAPI schema."""
+    # Import routes to register models with FastAPI
+    try:
+        from app.routes import agents, supervisors, workflows, config as config_routes
+        app.include_router(agents.router)
+        app.include_router(supervisors.router)
+        app.include_router(workflows.router)
+        app.include_router(config_routes.router)
+    except Exception as e:
+        print(f"Warning: Could not import routes: {e}")
+
     # Get OpenAPI schema
-    openapi_schema = fastapi_app.openapi()
+    try:
+        openapi_schema = app.openapi()
+    except Exception as e:
+        print(f"Error generating OpenAPI schema: {e}")
+        sys.exit(1)
 
-    # Extract component schemas
+    # Extract schemas
     schemas = openapi_schema.get("components", {}).get("schemas", {})
 
-    # Track dependencies
+    # Generate interfaces
     all_interfaces: List[str] = []
-    processed: Set[str] = set()
+    skip_patterns = ["HTTPValidationError", "ValidationError", "Body_", "HTTPException"]
 
-    # Process each schema
     for schema_name, schema_def in sorted(schemas.items()):
-        if should_skip_model(schema_name):
+        if any(pattern in schema_name for pattern in skip_patterns):
             continue
 
-        if schema_name in processed:
-            continue
-
-        processed.add(schema_name)
-
-        # Generate interface or type
         if "enum" in schema_def:
-            ts_code = generate_type_alias(schema_name, schema_def, schemas)
+            enum_values = schema_def["enum"]
+            values = " | ".join(f"'{v}'" for v in enum_values)
+            ts_code = f"export type {schema_name} = {values};"
         else:
             ts_code = generate_interface(schema_name, schema_def, schemas)
 
         all_interfaces.append(ts_code)
 
-    # Write to file
+    # Write output
     output = [
         "/* eslint-disable */",
         "/**",
@@ -144,9 +164,6 @@ def generate_typescript_models(output_file: Path) -> None:
         " * ",
         " * To regenerate:",
         " *   cd web/client && npm run generate-models",
-        " * ",
-        " * Or directly:",
-        " *   cd web/server && python scripts/generate_typescript_models.py",
         " */",
         "",
         *all_interfaces,
@@ -162,11 +179,17 @@ def generate_typescript_models(output_file: Path) -> None:
 
 def main():
     """Main entry point."""
-    # Output to client models directory
-    output_file = Path(__file__).parent.parent.parent / "client" / "src" / "app" / "models" / "generated.ts"
+    output_file = (
+        Path(__file__).parent.parent.parent
+        / "client"
+        / "src"
+        / "app"
+        / "models"
+        / "generated.ts"
+    )
 
     try:
-        generate_typescript_models(output_file)
+        generate_typescript_models_simple(output_file)
         print("\n✨ TypeScript model generation complete!")
     except Exception as e:
         print(f"❌ Error generating TypeScript models: {e}")

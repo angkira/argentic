@@ -1,0 +1,109 @@
+/* eslint-disable */
+/**
+ * Auto-generated TypeScript interfaces from Python Pydantic models
+ *
+ * DO NOT EDIT MANUALLY!
+ *
+ * To regenerate:
+ *   cd web/client && npm run generate-models
+ */
+
+export interface AgentConfig {
+  /** Agent role/identifier */
+  role: string;
+  /** Agent description */
+  description: string;
+  system_prompt?: string | null;
+  expected_output_format: 'json' | 'text' | 'code';
+  enable_dialogue_logging: boolean;
+  max_consecutive_tool_calls: number;
+  max_dialogue_history_items: number;
+  max_context_iterations: number;
+  enable_adaptive_context_management: boolean;
+}
+
+export interface AgentCreate {
+  /** Agent role/identifier */
+  role: string;
+  /** Agent description */
+  description: string;
+  system_prompt?: string | null;
+  expected_output_format: 'json' | 'text' | 'code';
+  enable_dialogue_logging: boolean;
+  max_consecutive_tool_calls: number;
+  max_dialogue_history_items: number;
+  max_context_iterations: number;
+  enable_adaptive_context_management: boolean;
+}
+
+export interface AgentResponse {
+  readonly id: string;
+  readonly role: string;
+  readonly description: string;
+  readonly system_prompt: string | null;
+  readonly expected_output_format: 'json' | 'text' | 'code';
+  readonly enable_dialogue_logging: boolean;
+  readonly max_consecutive_tool_calls: number;
+  readonly max_dialogue_history_items: number;
+  readonly max_context_iterations: number;
+  readonly enable_adaptive_context_management: boolean;
+  readonly status: 'running' | 'stopped' | 'error';
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface SupervisorConfig {
+  role: string;
+  description: string;
+  system_prompt?: string | null;
+  worker_agents: string[];
+  enable_dialogue_logging: boolean;
+  max_dialogue_history_items: number;
+}
+
+export interface SupervisorResponse {
+  readonly id: string;
+  readonly role: string;
+  readonly description: string;
+  readonly system_prompt: string | null;
+  readonly worker_agents: string[];
+  readonly enable_dialogue_logging: boolean;
+  readonly max_dialogue_history_items: number;
+  readonly status: 'running' | 'stopped' | 'error';
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface WorkflowConfig {
+  name: string;
+  description: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+export interface WorkflowNode {
+  id: string;
+  type: 'agent' | 'supervisor' | 'decision';
+  agent_id?: string | null;
+  config: Record<string, any>;
+}
+
+export interface WorkflowEdge {
+  source: string;
+  target: string;
+  condition?: string | null;
+}
+
+export interface LLMProviderInfo {
+  readonly name: string;
+  readonly display_name: string;
+  readonly description: string;
+  readonly required_fields: string[];
+}
+
+export interface MessagingProtocolInfo {
+  readonly name: string;
+  readonly display_name: string;
+  readonly description: string;
+  readonly default_port: number;
+}
