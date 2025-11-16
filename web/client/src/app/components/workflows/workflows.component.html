@@ -1,50 +1,58 @@
-<div class="container">
-  <div class="page-header">
-    <h1>Workflows</h1>
-    <a routerLink="/workflows/new" class="btn btn-primary">Create Workflow</a>
+@if (state$ | async; as state) {
+  <div class="container">
+    <div class="page-header">
+      <h1>Workflows</h1>
+      <a routerLink="/workflows/new" class="btn btn-primary">Create Workflow</a>
+    </div>
+
+    @if (state.loading) {
+      <div class="spinner"></div>
+    }
+
+    @if (state.error) {
+      <div class="alert alert-error">
+        <p>Error loading workflows: {{ state.error }}</p>
+      </div>
+    }
+
+    @if (!state.loading && state.workflows.length === 0) {
+      <div class="empty-state">
+        <p>No workflows created yet.</p>
+        <a routerLink="/workflows/new" class="btn btn-primary">Create Your First Workflow</a>
+      </div>
+    }
+
+    @if (!state.loading && state.workflows.length > 0) {
+      <div class="workflows-grid">
+        @for (workflow of state.workflows; track workflow.id) {
+          <div class="workflow-card">
+            <div class="card-header-row">
+              <h3>{{ workflow.name }}</h3>
+              <span class="badge" [ngClass]="getStatusClass(workflow.status)">{{ workflow.status }}</span>
+            </div>
+            <p class="workflow-description">{{ workflow.description }}</p>
+            <div class="workflow-meta">
+              <div class="meta-item">
+                <span class="meta-label">Nodes:</span>
+                <span class="meta-value">{{ workflow.nodes.length }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Connections:</span>
+                <span class="meta-value">{{ workflow.edges.length }}</span>
+              </div>
+            </div>
+            <div class="card-actions">
+              <a [routerLink]="['/workflows', workflow.id, 'edit']" class="btn btn-sm btn-primary">Edit</a>
+              <button class="btn btn-sm"
+                      [ngClass]="workflow.status === 'running' ? 'btn-danger' : 'btn-success'"
+                      (click)="toggleWorkflow(workflow)">
+                {{ workflow.status === 'running' ? 'Stop' : 'Start' }}
+              </button>
+              <button class="btn btn-sm btn-outline" (click)="deleteWorkflow(workflow.id)">Delete</button>
+            </div>
+          </div>
+        }
+      </div>
+    }
   </div>
-
-  @if (loading) {
-    <div class="spinner"></div>
-  }
-
-  @if (!loading && workflows.length === 0) {
-    <div class="empty-state">
-      <p>No workflows created yet.</p>
-      <a routerLink="/workflows/new" class="btn btn-primary">Create Your First Workflow</a>
-    </div>
-  }
-
-  @if (!loading && workflows.length > 0) {
-    <div class="workflows-grid">
-      @for (workflow of workflows; track workflow.id) {
-        <div class="workflow-card">
-          <div class="card-header-row">
-            <h3>{{ workflow.name }}</h3>
-            <span class="badge" [ngClass]="getStatusClass(workflow.status)">{{ workflow.status }}</span>
-          </div>
-          <p class="workflow-description">{{ workflow.description }}</p>
-          <div class="workflow-meta">
-            <div class="meta-item">
-              <span class="meta-label">Nodes:</span>
-              <span class="meta-value">{{ workflow.nodes.length }}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Connections:</span>
-              <span class="meta-value">{{ workflow.edges.length }}</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <a [routerLink]="['/workflows', workflow.id, 'edit']" class="btn btn-sm btn-primary">Edit</a>
-            <button class="btn btn-sm"
-                    [ngClass]="workflow.status === 'running' ? 'btn-danger' : 'btn-success'"
-                    (click)="toggleWorkflow(workflow)">
-              {{ workflow.status === 'running' ? 'Stop' : 'Start' }}
-            </button>
-            <button class="btn btn-sm btn-outline" (click)="deleteWorkflow(workflow.id)">Delete</button>
-          </div>
-        </div>
-      }
-    </div>
-  }
-</div>
+}
