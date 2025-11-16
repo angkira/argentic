@@ -5,6 +5,7 @@ import { SupervisorsComponent } from './components/supervisors/supervisors.compo
 import { WorkflowsComponent } from './components/workflows/workflows.component';
 import { WorkflowBuilderComponent } from './components/workflow-builder/workflow-builder.component';
 import { ConfigComponent } from './components/config/config.component';
+import { LogsComponent } from './components/logs/logs.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: '/dashboard', pathMatch: 'full' },
@@ -14,6 +15,7 @@ export const routes: Routes = [
   { path: 'workflows', component: WorkflowsComponent },
   { path: 'workflows/:id/edit', component: WorkflowBuilderComponent },
   { path: 'workflows/new', component: WorkflowBuilderComponent },
+  { path: 'logs', component: LogsComponent },
   { path: 'config', component: ConfigComponent },
   { path: '**', redirectTo: '/dashboard' }
 ];

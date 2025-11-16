@@ -18,6 +18,7 @@ export class AppComponent {
     { path: '/agents', label: 'Agents', icon: '🤖' },
     { path: '/supervisors', label: 'Supervisors', icon: '👥' },
     { path: '/workflows', label: 'Workflows', icon: '🔄' },
+    { path: '/logs', label: 'Message Bus', icon: '📡' },
     { path: '/config', label: 'Configuration', icon: '⚙️' }
   ];
 }
