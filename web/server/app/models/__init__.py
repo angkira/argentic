@@ -3,7 +3,7 @@
 from .agent import AgentConfig, AgentCreate, AgentUpdate, AgentResponse
 from .supervisor import SupervisorConfig, SupervisorCreate, SupervisorUpdate, SupervisorResponse
 from .tool import ToolConfig, ToolCreate, ToolResponse
-from .workflow import WorkflowConfig, WorkflowCreate, WorkflowResponse, WorkflowNode, WorkflowEdge
+from .workflow import WorkflowConfig, WorkflowCreate, WorkflowUpdate, WorkflowResponse, WorkflowNode, WorkflowEdge
 from .llm import LLMProviderConfig, LLMProviderType
 from .messaging import MessagingConfig, MessagingProtocol
 
@@ -21,6 +21,7 @@ __all__ = [
     "ToolResponse",
     "WorkflowConfig",
     "WorkflowCreate",
+    "WorkflowUpdate",
     "WorkflowResponse",
     "WorkflowNode",
     "WorkflowEdge",
