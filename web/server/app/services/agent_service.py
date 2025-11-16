@@ -102,9 +102,7 @@ class AgentService:
             return True
         return False
 
-    async def update_agent_status(
-        self, agent_id: str, status: str
-    ) -> Optional[AgentResponse]:
+    async def update_agent_status(self, agent_id: str, status: str) -> Optional[AgentResponse]:
         """Update agent status.
 
         Args:

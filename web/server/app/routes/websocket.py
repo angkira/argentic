@@ -1,6 +1,7 @@
 """
 WebSocket routes for real-time message bus communication.
 """
+
 import socketio
 from fastapi import FastAPI
 from typing import Dict, Set
@@ -10,10 +11,7 @@ import uuid
 
 # Create Socket.IO server
 sio = socketio.AsyncServer(
-    async_mode='asgi',
-    cors_allowed_origins='*',
-    logger=True,
-    engineio_logger=True
+    async_mode="asgi", cors_allowed_origins="*", logger=True, engineio_logger=True
 )
 
 # Track subscriptions: topic -> set of session IDs
@@ -28,7 +26,7 @@ async def connect(sid, environ):
     """Handle client connection"""
     print(f"Client connected: {sid}")
     connected_clients.add(sid)
-    await sio.emit('connection_status', {'status': 'connected'}, room=sid)
+    await sio.emit("connection_status", {"status": "connected"}, room=sid)
 
 
 @sio.event
@@ -45,7 +43,7 @@ async def disconnect(sid):
 @sio.event
 async def subscribe(sid, data):
     """Subscribe to a topic"""
-    topic = data.get('topic')
+    topic = data.get("topic")
     if not topic:
         return
 
@@ -54,27 +52,27 @@ async def subscribe(sid, data):
 
     subscriptions[topic].add(sid)
     print(f"Client {sid} subscribed to topic: {topic}")
-    await sio.emit('subscribed', {'topic': topic}, room=sid)
+    await sio.emit("subscribed", {"topic": topic}, room=sid)
 
 
 @sio.event
 async def unsubscribe(sid, data):
     """Unsubscribe from a topic"""
-    topic = data.get('topic')
+    topic = data.get("topic")
     if not topic:
         return
 
     if topic in subscriptions:
         subscriptions[topic].discard(sid)
         print(f"Client {sid} unsubscribed from topic: {topic}")
-        await sio.emit('unsubscribed', {'topic': topic}, room=sid)
+        await sio.emit("unsubscribed", {"topic": topic}, room=sid)
 
 
 @sio.event
 async def publish(sid, data):
     """Publish a message to a topic"""
-    topic = data.get('topic')
-    message = data.get('message')
+    topic = data.get("topic")
+    message = data.get("message")
 
     if not topic or not message:
         return
@@ -82,7 +80,7 @@ async def publish(sid, data):
     # Broadcast to all subscribers of this topic
     if topic in subscriptions:
         for subscriber_sid in subscriptions[topic]:
-            await sio.emit('message_bus', message, room=subscriber_sid)
+            await sio.emit("message_bus", message, room=subscriber_sid)
 
 
 async def broadcast_message(topic: str, message: dict):
@@ -92,14 +90,14 @@ async def broadcast_message(topic: str, message: dict):
     """
     # Add message metadata
     message_with_meta = {
-        'id': str(uuid.uuid4()),
-        'timestamp': datetime.utcnow().isoformat() + 'Z',
-        'topic': topic,
-        **message
+        "id": str(uuid.uuid4()),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "topic": topic,
+        **message,
     }
 
     # Broadcast to all connected clients (for now, can filter by topic later)
-    await sio.emit('message_bus', message_with_meta)
+    await sio.emit("message_bus", message_with_meta)
 
     print(f"Broadcasted message to topic {topic}: {message_with_meta['id']}")
 
@@ -110,9 +108,7 @@ def create_socket_app(app: FastAPI) -> socketio.ASGIApp:
     Mount this to the main FastAPI app.
     """
     socket_app = socketio.ASGIApp(
-        socketio_server=sio,
-        other_asgi_app=app,
-        socketio_path='/ws/socket.io'
+        socketio_server=sio, other_asgi_app=app, socketio_path="/ws/socket.io"
     )
     return socket_app
 

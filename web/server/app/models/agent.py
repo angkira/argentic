@@ -16,9 +16,7 @@ class AgentConfig(BaseModel):
     )
     enable_dialogue_logging: bool = Field(False, description="Enable dialogue logging")
     max_consecutive_tool_calls: int = Field(3, description="Max consecutive tool calls", ge=1)
-    max_dialogue_history_items: int = Field(
-        100, description="Max dialogue history items", ge=1
-    )
+    max_dialogue_history_items: int = Field(100, description="Max dialogue history items", ge=1)
     max_context_iterations: int = Field(10, description="Max context iterations", ge=1)
     enable_adaptive_context_management: bool = Field(
         True, description="Enable adaptive context management"

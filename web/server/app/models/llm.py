@@ -22,9 +22,7 @@ class LLMProviderConfig(BaseModel):
 
     # Ollama config
     ollama_model_name: Optional[str] = Field(None, description="Ollama model name")
-    ollama_base_url: Optional[str] = Field(
-        "http://localhost:11434", description="Ollama base URL"
-    )
+    ollama_base_url: Optional[str] = Field("http://localhost:11434", description="Ollama base URL")
 
     # Llama.cpp server config
     llama_cpp_server_host: Optional[str] = Field("localhost", description="Llama.cpp server host")

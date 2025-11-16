@@ -11,9 +11,7 @@ class ToolConfig(BaseModel):
     name: str = Field(..., description="Tool name", min_length=1)
     description: str = Field(..., description="Tool description", min_length=1)
     tool_type: str = Field(..., description="Tool type (rag, environment, custom)")
-    config: Dict[str, Any] = Field(
-        default_factory=dict, description="Tool-specific configuration"
-    )
+    config: Dict[str, Any] = Field(default_factory=dict, description="Tool-specific configuration")
 
 
 class ToolCreate(ToolConfig):

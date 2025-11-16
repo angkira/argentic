@@ -22,9 +22,7 @@ class SupervisorConfig(BaseModel):
         default_factory=list, description="List of worker agents"
     )
     enable_dialogue_logging: bool = Field(True, description="Enable dialogue logging")
-    max_dialogue_history_items: int = Field(
-        100, description="Max dialogue history items", ge=1
-    )
+    max_dialogue_history_items: int = Field(100, description="Max dialogue history items", ge=1)
 
 
 class SupervisorCreate(SupervisorConfig):

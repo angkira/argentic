@@ -163,9 +163,7 @@ class TestWorkflowService:
         created_workflow = await workflow_service.create_workflow(workflow_create)
 
         update_data = WorkflowUpdate(name="Updated Workflow")
-        updated_workflow = await workflow_service.update_workflow(
-            created_workflow.id, update_data
-        )
+        updated_workflow = await workflow_service.update_workflow(created_workflow.id, update_data)
 
         assert updated_workflow is not None
         assert updated_workflow.name == "Updated Workflow"
