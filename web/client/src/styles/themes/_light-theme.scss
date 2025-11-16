@@ -1,13 +1,18 @@
 @import 'nord-palette';
 
 // Light Theme (Nord Snow Storm)
-:root[data-theme='light'] {
+// Default theme when no data-theme attribute is set
+:root[data-theme='light'],
+:root:not([data-theme]) {
   // Background colors
   --bg-primary: #{$nord6};
   --bg-secondary: #{$nord5};
   --bg-tertiary: #{$nord4};
   --bg-elevated: #ffffff;
-  --bg-overlay: rgba(46, 52, 64, 0.95);
+  --bg-overlay: rgba(46, 52, 64, var(--opacity-95));
+  --bg-glass: rgba(255, 255, 255, var(--glass-opacity));
+  --bg-hover: rgba(129, 161, 193, var(--opacity-10));
+  --bg-active: rgba(129, 161, 193, var(--opacity-20));
 
   // Text colors
   --text-primary: #{$nord0};
@@ -15,17 +20,20 @@
   --text-tertiary: #{$nord2};
   --text-inverse: #{$nord6};
   --text-muted: #{$nord3};
+  --text-disabled: rgba(46, 52, 64, var(--opacity-disabled));
 
   // Border colors
   --border-primary: #{$nord4};
-  --border-secondary: rgba(46, 52, 64, 0.1);
+  --border-secondary: rgba(46, 52, 64, var(--opacity-10));
   --border-focus: #{$nord9};
+  --border-hover: rgba(129, 161, 193, var(--opacity-40));
+  --border-glass: rgba(255, 255, 255, var(--glass-border-opacity));
 
   // Brand colors
   --color-primary: #{$nord9};
   --color-primary-hover: #{$nord10};
   --color-primary-active: #{$nord10};
-  --color-primary-light: rgba(129, 161, 193, 0.1);
+  --color-primary-light: rgba(129, 161, 193, var(--opacity-10));
 
   --color-secondary: #{$nord10};
   --color-secondary-hover: #{$nord7};
@@ -33,19 +41,19 @@
 
   // Semantic colors
   --color-success: #{$nord14};
-  --color-success-light: rgba(163, 190, 140, 0.1);
+  --color-success-light: rgba(163, 190, 140, var(--opacity-10));
   --color-success-dark: #90a876;
 
   --color-warning: #{$nord13};
-  --color-warning-light: rgba(235, 203, 139, 0.1);
+  --color-warning-light: rgba(235, 203, 139, var(--opacity-10));
   --color-warning-dark: #d9b263;
 
   --color-error: #{$nord11};
-  --color-error-light: rgba(191, 97, 106, 0.1);
+  --color-error-light: rgba(191, 97, 106, var(--opacity-10));
   --color-error-dark: #a54c55;
 
   --color-info: #{$nord8};
-  --color-info-light: rgba(136, 192, 208, 0.1);
+  --color-info-light: rgba(136, 192, 208, var(--opacity-10));
   --color-info-dark: #6fa7bc;
 
   // Frost accents
@@ -61,35 +69,51 @@
   --color-accent-green: #{$nord14};
   --color-accent-purple: #{$nord15};
 
-  // Shadows
-  --shadow-sm: 0 1px 2px 0 rgba(46, 52, 64, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(46, 52, 64, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(46, 52, 64, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(46, 52, 64, 0.1);
+  // Shadows with proper blur and layering
+  --shadow-sm: 0 1px 2px 0 rgba(46, 52, 64, var(--opacity-5));
+  --shadow-md: 0 4px 6px -1px rgba(46, 52, 64, var(--opacity-10)),
+               0 2px 4px -2px rgba(46, 52, 64, var(--opacity-5));
+  --shadow-lg: 0 10px 15px -3px rgba(46, 52, 64, var(--opacity-10)),
+               0 4px 6px -4px rgba(46, 52, 64, var(--opacity-5));
+  --shadow-xl: 0 20px 25px -5px rgba(46, 52, 64, var(--opacity-10)),
+               0 10px 10px -5px rgba(46, 52, 64, var(--opacity-5));
+  --shadow-2xl: 0 25px 50px -12px rgba(46, 52, 64, var(--opacity-20));
+  --shadow-inner: inset 0 2px 4px 0 rgba(46, 52, 64, var(--opacity-5));
 
   // Code/Syntax
   --code-bg: #{$nord5};
   --code-text: #{$nord0};
+  --code-border: var(--border-secondary);
 
   // Sidebar
   --sidebar-bg: #{$nord0};
   --sidebar-text: #{$nord6};
   --sidebar-hover: #{$nord1};
   --sidebar-active: #{$nord9};
+  --sidebar-border: rgba(236, 239, 244, var(--opacity-10));
 
   // Cards
   --card-bg: #ffffff;
   --card-border: var(--border-primary);
   --card-shadow: var(--shadow-md);
+  --card-hover-shadow: var(--shadow-lg);
 
   // Inputs
   --input-bg: #ffffff;
   --input-border: var(--border-primary);
   --input-focus-border: var(--color-primary);
+  --input-focus-shadow: 0 0 0 var(--focus-ring-width) rgba(129, 161, 193, var(--focus-ring-opacity));
   --input-placeholder: var(--text-muted);
+  --input-disabled-bg: rgba(216, 222, 233, var(--opacity-50));
 
-  // Transitions
-  --transition-fast: 150ms ease;
-  --transition-base: 200ms ease;
-  --transition-slow: 300ms ease;
+  // Backdrop blur effects
+  --backdrop-blur-sm: blur(var(--blur-sm));
+  --backdrop-blur-md: blur(var(--blur-md));
+  --backdrop-blur-lg: blur(var(--blur-lg));
+  --backdrop-blur-xl: blur(var(--blur-xl));
+
+  // Glass morphism
+  --glass-background: rgba(255, 255, 255, var(--opacity-80));
+  --glass-backdrop: blur(var(--glass-blur)) saturate(180%);
+  --glass-border: var(--border-width-1) solid rgba(255, 255, 255, var(--opacity-30));
 }
