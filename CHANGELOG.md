@@ -1,4 +1,64 @@
-## 0.8.0 (2025-07-12)
+## 0.12.1 (2025-12-24)
+
+## 0.12.0 (2025-12-24)
+
+### Feat
+
+- AI docs, examples, etc
+
+## 0.11.2 (2025-10-21)
+
+### Feat
+
+- Release CI/CD
+- Stateless agents
+- Multi-Agent setup support
+- Supervisor unit testing
+
+### Fix
+
+- Release scripts
+- Refactoring: performance and stability improvements
+- Linting removed
+- Description logger fix
+- Multi-agent workflow improvements
+- Supervisor export
+- Testing pipeline
+- Improved topics configuration
+- CLI Client export
+- CLI Client refactoring
+- Tests adjustment
+- MQTT connection stability improved
+- Tool workflow fixed
+- Test fixes
+- python action
+- Docs pipeline fix
+- Github Actions adjusted
+- Tests fixed to new structure
+- Structure refactoring
+- Export structure
+- RAG Tool Service no module-lvl config
+- RAG service path
+- Export file structure
+- deleted temp file
+- prevent infinite version bump loop and reset to 0.8.4
+- always_run for post-commit bump
+- dummy test
+- Version to post-commit
+- Version file config
+- dev deps
+- Lib upgrade
+- Prompt template
+
+## 0.8.3 (2025-07-12)
+
+## 0.8.2 (2025-07-12)
+
+### Fix
+
+- autobumping
+
+## 0.8.1 (2025-07-12)
 
 ### Feat
 
