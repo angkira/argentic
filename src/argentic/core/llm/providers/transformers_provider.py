@@ -203,6 +203,16 @@ class TransformersProvider(ModelProvider):
 
         # Handle multimodal content
         if isinstance(last_msg.content, dict):
+            # Check for pre-computed embeddings
+            if "image_embeddings" in last_msg.content:
+                self.logger.warning(
+                    "Pre-computed image embeddings detected. Most HuggingFace transformers models "
+                    "do not support pre-computed embeddings and require raw images. "
+                    "This may fail depending on your model architecture."
+                )
+                # Note: We don't raise an exception here because some custom models might support it
+                # But we warn the user that it's likely to fail
+
             result = {"text": last_msg.content.get("text", "")}
 
             # Add system prompt if present

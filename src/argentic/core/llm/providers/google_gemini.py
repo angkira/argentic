@@ -137,13 +137,6 @@ class GoogleGeminiProvider(ModelProvider):
         - InternalServerError: Retry with backoff
         - Unknown: Retry with backoff
         """
-        retryable_errors = (
-            ResourceExhausted,  # 429 - Rate limiting/quota
-            DeadlineExceeded,  # 504 - Timeout
-            ServiceUnavailable,  # 503 - Service unavailable
-            InternalServerError,  # 500 - Internal server error
-            Unknown,  # Unknown errors that might be transient
-        )
 
         # Also check for wrapped exceptions in LangChain
         if hasattr(error, "__cause__") and error.__cause__:
@@ -232,7 +225,7 @@ class GoogleGeminiProvider(ModelProvider):
         Uses exponential backoff with jitter to prevent thundering herd problems.
         """
         # Determine which errors to retry
-        retry_condition = retry_if_exception_type(
+        retry_if_exception_type(
             (ResourceExhausted, DeadlineExceeded, ServiceUnavailable, InternalServerError, Unknown)
         )
 
@@ -315,14 +308,21 @@ class GoogleGeminiProvider(ModelProvider):
             try:
                 # Convert to Gemini content format
                 contents: List[Dict[str, Any]] = []
-                system_instruction = None
                 for msg in messages:
                     if isinstance(msg, SystemMessage):
-                        system_instruction = msg.content
+                        pass
                     elif isinstance(msg, UserMessage):
                         # Handle multimodal content
                         parts = []
                         if isinstance(msg.content, dict):
+                            # Check for pre-computed embeddings (not supported)
+                            if "image_embeddings" in msg.content:
+                                raise NotImplementedError(
+                                    "Google Gemini API does not support pre-computed image embeddings. "
+                                    "Gemini uses its own internal vision encoder and requires raw images. "
+                                    "Remove the embedding_function parameter from VisualAgent to use raw images."
+                                )
+
                             # Multimodal content: images + text + audio
                             if msg.content.get("images"):
                                 import PIL.Image

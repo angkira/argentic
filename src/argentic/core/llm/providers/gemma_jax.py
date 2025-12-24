@@ -137,6 +137,9 @@ class GemmaJAXProvider(ModelProvider):
         Returns (prompt, images):
             - prompt: Text with <start_of_image> placeholders
             - images: List of PIL Images or None
+
+        Raises:
+            NotImplementedError: If pre-computed image embeddings are detected
         """
         system_prompt = None
         user_messages = []
@@ -155,6 +158,14 @@ class GemmaJAXProvider(ModelProvider):
 
         # Handle multimodal content
         if isinstance(last_msg.content, dict):
+            # Check for pre-computed embeddings (not supported by Gemma JAX)
+            if "image_embeddings" in last_msg.content:
+                raise NotImplementedError(
+                    "Gemma JAX provider does not support pre-computed image embeddings. "
+                    "Gemma 3n uses its own internal vision encoder and requires raw images. "
+                    "Remove the embedding_function parameter from VisualAgent to use raw images."
+                )
+
             text = last_msg.content.get("text", "")
             images = []
 

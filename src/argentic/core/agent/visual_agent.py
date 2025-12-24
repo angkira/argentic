@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, List, Optional
 
 try:
     import numpy as np
@@ -11,7 +11,7 @@ except ImportError:
     np = None
 
 from argentic.core.agent.agent import Agent
-from argentic.core.drivers.webrtc_driver import WebRTCDriver
+from argentic.core.agent.frame_source import FrameSource
 from argentic.core.llm.providers.base import ModelProvider
 from argentic.core.messager.messager import Messager
 from argentic.core.protocol.enums import MessageSource
@@ -22,12 +22,36 @@ class VisualAgent(Agent):
     """
     Visual AI agent with video and audio processing capabilities.
 
-    Extends the base Agent to support real-time video/audio input via WebRTC driver.
+    Extends the base Agent to support real-time video/audio input from any frame source.
     Automatically processes buffered frames at intervals and publishes responses via MQTT.
 
+    Frame Sources:
+    The agent works with any FrameSource implementation:
+    - WebRTCFrameSource: Real-time WebRTC video
+    - VideoFileFrameSource: Pre-recorded video files
+    - CameraFrameSource: Local camera device
+    - StaticFrameSource: Fixed set of images
+    - FunctionalFrameSource: Custom callback-based source
+
+    Visual Processing Modes:
+    1. Direct frames mode (default): Passes raw video frames directly to the LLM provider
+    2. Embeddings mode: Uses a custom embedding function to convert frames to embeddings
+       before passing to the LLM provider
+
+    The embedding function should be async and have the signature:
+        async def embed_frames(frames: List[np.ndarray]) -> np.ndarray | Dict[str, Any]
+
+    Embedding Support by Provider:
+    - VLLMNativeProvider: Full support via multi_modal_data parameter
+    - VLLMProvider: Not supported (OpenAI API limitation)
+    - GemmaProvider: Not supported (uses internal vision encoder)
+    - GoogleGeminiProvider: Not supported (uses internal vision encoder)
+    - TransformersProvider: Model-dependent (some support pre-computed embeddings)
+
     Threading model:
-    - WebRTC driver handles frame capture in background threads
+    - Frame source handles capture in its own way (threads, async, etc.)
     - Auto-processing loop runs as asyncio task
+    - Embedding function (if provided) processes frames asynchronously
     - Model inference happens in provider's thread pool
     - All communication via async/await patterns
     """
@@ -36,7 +60,9 @@ class VisualAgent(Agent):
         self,
         llm: ModelProvider,
         messager: Messager,
-        webrtc_driver: WebRTCDriver,  # Driver instance passed in
+        frame_source: FrameSource,  # Generic frame source
+        # Visual embedding function (optional)
+        embedding_function: Optional[Callable[[List["np.ndarray"]], Any]] = None,
         # Agent-specific params
         auto_process_interval: float = 5.0,  # Process buffer every N seconds
         visual_prompt_template: str = "Describe what you see in the video: {question}",
@@ -48,6 +74,24 @@ class VisualAgent(Agent):
         min_frames_for_processing: int = 10,  # Minimum frames before processing
         **kwargs,  # Pass remaining to base Agent
     ):
+        """
+        Initialize Visual Agent.
+
+        Args:
+            llm: Language model provider
+            messager: MQTT messager instance
+            frame_source: Frame source for video/audio (WebRTC, file, camera, etc.)
+            embedding_function: Optional async function to convert frames to embeddings.
+                                Should have signature: async def(frames: List[np.ndarray]) -> np.ndarray | Dict
+                                If provided, embeddings will be passed to the LLM instead of raw frames.
+            auto_process_interval: Interval in seconds between auto-processing runs
+            visual_prompt_template: Template for visual prompts
+            visual_response_topic: MQTT topic for publishing responses
+            enable_auto_processing: Whether to enable automatic periodic processing
+            process_on_buffer_full: Whether to process when buffer is full
+            min_frames_for_processing: Minimum number of frames required for processing
+            **kwargs: Additional arguments passed to base Agent
+        """
         super().__init__(llm, messager, **kwargs)
 
         if not _NUMPY_AVAILABLE:
@@ -55,7 +99,8 @@ class VisualAgent(Agent):
                 "numpy is required for VisualAgent. Install it with: pip install numpy"
             )
 
-        self.driver = webrtc_driver
+        self.frame_source = frame_source
+        self.embedding_function = embedding_function
         self.auto_process_interval = auto_process_interval
         self.visual_prompt_template = visual_prompt_template
         self.visual_response_topic = visual_response_topic
@@ -68,9 +113,13 @@ class VisualAgent(Agent):
         self._last_process_time: float = 0.0
         self._processing_active = False
 
+        mode_info = ", mode=embeddings" if self.embedding_function else ", mode=frames"
+        source_info = self.frame_source.get_info()
+
         self.logger.info(
-            f"VisualAgent initialized: auto_interval={auto_process_interval}s, "
-            f"min_frames={min_frames_for_processing}"
+            f"VisualAgent initialized: source={source_info['type']}, "
+            f"auto_interval={auto_process_interval}s, "
+            f"min_frames={min_frames_for_processing}{mode_info}"
         )
 
     async def async_init(self):
@@ -80,9 +129,8 @@ class VisualAgent(Agent):
 
         self.logger.info("Initializing VisualAgent...")
 
-        # Connect WebRTC driver
-        await self.driver.connect()
-        await self.driver.start_capture()
+        # Start frame source
+        await self.frame_source.start()
 
         # Start auto-processing task if enabled
         if self.enable_auto_processing:
@@ -114,8 +162,8 @@ class VisualAgent(Agent):
                         continue
 
                     # Get buffered frames and audio
-                    frames = await self.driver.get_frame_buffer()
-                    audio = await self.driver.get_audio_buffer()
+                    frames = await self.frame_source.get_frames()
+                    audio = await self.frame_source.get_audio()
 
                     # Check if we have enough frames
                     if not frames or len(frames) < self.min_frames_for_processing:
@@ -132,7 +180,9 @@ class VisualAgent(Agent):
 
                     # Process with default prompt
                     result = await self._process_visual_input(
-                        frames=frames, audio=audio, prompt="What is happening in the video?"
+                        frames=frames,
+                        audio=audio,
+                        prompt="What is happening in the video?",
                     )
 
                     # Publish result via Messager
@@ -167,9 +217,51 @@ class VisualAgent(Agent):
         Returns:
             Generated text response from model
         """
-        # Create multimodal message
-        multimodal_content = {"text": prompt, "images": frames}
+        # Process frames through embedding function if provided
+        if self.embedding_function is not None:
+            self.logger.debug(
+                f"Encoding {len(frames)} frames using custom embedding function"
+            )
 
+            try:
+                # Call the user-provided embedding function
+                # Function should be async and return embeddings
+                visual_data = await self.embedding_function(frames)
+
+                # Handle different return types
+                if isinstance(visual_data, dict):
+                    # Function returned dict with embeddings and metadata
+                    embeddings = visual_data.get("embeddings", visual_data)
+                    metadata = {
+                        k: v for k, v in visual_data.items() if k != "embeddings"
+                    }
+                    self.logger.debug(f"Embedding metadata: {metadata}")
+                else:
+                    # Function returned raw embeddings
+                    embeddings = visual_data
+
+                # Create multimodal message with embeddings
+                multimodal_content = {
+                    "text": prompt,
+                    "image_embeddings": embeddings,  # Use 'image_embeddings' key for provider compatibility
+                }
+
+                self.logger.debug(
+                    f"Using visual embeddings: shape={embeddings.shape if hasattr(embeddings, 'shape') else 'N/A'}"
+                )
+
+            except Exception as e:
+                self.logger.error(f"Error in embedding function: {e}", exc_info=True)
+                # Fall back to raw frames
+                self.logger.warning("Falling back to raw frames due to embedding error")
+                multimodal_content = {"text": prompt, "images": frames}
+        else:
+            # Use raw frames (default behavior)
+            multimodal_content = {"text": prompt, "images": frames}
+
+            self.logger.debug(f"Using raw frames: {len(frames)} frames")
+
+        # Add audio if available
         if audio is not None:
             multimodal_content["audio"] = audio
 
@@ -184,10 +276,11 @@ class VisualAgent(Agent):
 
         self.logger.debug(
             f"Sending to model: {len(frames)} frames, "
-            f"audio={audio is not None}, prompt='{prompt[:50]}...'"
+            f"audio={audio is not None}, prompt='{prompt[:50]}...', "
+            f"mode={'embeddings' if self.embedding_function else 'frames'}"
         )
 
-        # Call LLM (handles multimodal via GemmaProvider)
+        # Call LLM (handles multimodal via provider)
         # This will use the provider's thread pool for inference
         response = await self._call_llm(messages, llm_config=self.llm_config)
 
@@ -208,8 +301,8 @@ class VisualAgent(Agent):
         self.logger.info(f"Query with video: '{question}'")
 
         # Get current buffers
-        frames = await self.driver.get_frame_buffer()
-        audio = await self.driver.get_audio_buffer()
+        frames = await self.frame_source.get_frames()
+        audio = await self.frame_source.get_audio()
 
         if not frames:
             warning_msg = "No video frames available in buffer."
@@ -232,7 +325,10 @@ class VisualAgent(Agent):
         return result
 
     async def query(
-        self, question: str, user_id: Optional[str] = None, max_iterations: Optional[int] = None
+        self,
+        question: str,
+        user_id: Optional[str] = None,
+        max_iterations: Optional[int] = None,
     ) -> str:
         """
         Override base query to use visual context if available.
@@ -246,8 +342,8 @@ class VisualAgent(Agent):
             Generated response
         """
         # Get current video buffer
-        frames = await self.driver.get_frame_buffer()
-        audio = await self.driver.get_audio_buffer()
+        frames = await self.frame_source.get_frames()
+        audio = await self.frame_source.get_audio()
 
         # If we have visual data, use visual processing
         if frames and len(frames) >= self.min_frames_for_processing:
@@ -303,9 +399,8 @@ class VisualAgent(Agent):
                 pass
             self._processing_task = None
 
-        # Stop WebRTC driver
-        await self.driver.stop_capture()
-        await self.driver.disconnect()
+        # Stop frame source
+        await self.frame_source.stop()
 
         # Stop base agent
         await super().stop()

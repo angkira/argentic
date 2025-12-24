@@ -1,4 +1,4 @@
-c  #!/usr/bin/env python3
+#!/usr/bin/env python3
 """Visual Agent example using vLLM provider with Gemma 3n."""
 
 import argparse
@@ -279,7 +279,7 @@ def print_stats_summary(stats_list: list[BenchmarkStats]):
         print("-" * 80)
 
         # Timing statistics
-        print(f"Query Time:")
+        print("Query Time:")
         print(f"  Mean: {stats.mean_query_time:.3f}s ± {stats.std_query_time:.3f}s")
         print(f"  Range: [{stats.min_query_time:.3f}s - {stats.max_query_time:.3f}s]")
         stability = (
@@ -298,7 +298,7 @@ def print_stats_summary(stats_list: list[BenchmarkStats]):
 
         # Throughput statistics
         if stats.mean_tokens_per_second is not None:
-            print(f"\nThroughput:")
+            print("\nThroughput:")
             print(
                 f"  Mean: {stats.mean_tokens_per_second:.2f} ± {stats.std_tokens_per_second:.2f} tokens/sec"
             )
@@ -388,16 +388,16 @@ def print_metrics_summary(metrics_list: list[PerformanceMetrics]):
         print(f"\nResponse ({m.response_length} chars):")
         print(f"  {m.response}")
 
-        print(f"\nToken Usage:")
+        print("\nToken Usage:")
         if m.actual_prompt_tokens is not None:
-            print(f"  ACTUAL (from vLLM API):")
+            print("  ACTUAL (from vLLM API):")
             print(f"    - Prompt tokens: {m.actual_prompt_tokens}")
             print(f"    - Completion tokens: {m.actual_completion_tokens}")
             print(f"    - Total tokens: {m.actual_total_tokens}")
 
             # Calculate image vs text breakdown
             image_tokens = m.actual_prompt_tokens - m.estimated_prompt_tokens
-            print(f"\n  Breakdown (calculated):")
+            print("\n  Breakdown (calculated):")
             print(f"    - Text tokens: ~{m.estimated_prompt_tokens}")
             print(f"    - Image tokens: ~{image_tokens} ({m.frame_count} frames)")
             print(
@@ -410,20 +410,20 @@ def print_metrics_summary(metrics_list: list[PerformanceMetrics]):
                     if m.estimated_output_tokens > 0
                     else 0
                 )
-                print(f"\n  Estimation accuracy:")
+                print("\n  Estimation accuracy:")
                 print(
                     f"    - Estimated output: {m.estimated_output_tokens} tokens "
                     f"(actual: {m.actual_completion_tokens}, {accuracy:.0f}% accurate)"
                 )
         else:
-            print(f"  ESTIMATED (API usage not available):")
+            print("  ESTIMATED (API usage not available):")
             print(f"    - Text prompt: ~{m.estimated_prompt_tokens} tokens")
             print(
                 f"    - Images ({m.frame_count}x): ~{m.estimated_image_tokens} tokens"
             )
             print(f"    - Output: ~{m.estimated_output_tokens} tokens")
 
-        print(f"\nTiming:")
+        print("\nTiming:")
         print(f"  Connection: {m.connect_time:.3f}s")
         print(f"  Query Processing: {m.query_time:.3f}s")
         print(f"  Total: {m.total_time:.3f}s")
@@ -432,7 +432,7 @@ def print_metrics_summary(metrics_list: list[PerformanceMetrics]):
             print(f"  Throughput: {m.tokens_per_second:.2f} output tokens/sec")
 
         if m.memory_used_mb:
-            print(f"\nMemory:")
+            print("\nMemory:")
             print(f"  System RAM: {m.memory_used_mb:.1f} MB")
 
         if m.gpu_memory_used_mb:
@@ -636,7 +636,7 @@ async def run_benchmark(
 
     total_input_tokens = prompt_tokens + total_image_tokens
 
-    print(f"Input Token Estimate:")
+    print("Input Token Estimate:")
     print(f"  System prompt: ~{system_prompt_tokens} tokens")
     print(f"  User query: ~{user_query_tokens} tokens")
     print(
@@ -848,7 +848,7 @@ async def main():
     print("RUNNING BENCHMARKS")
     print("=" * 80)
     print(f"Configuration: {args.iterations} iterations per frame count")
-    print(f"Frame counts to test: 1, 3, 5")
+    print("Frame counts to test: 1, 3, 5")
     print(f"Total tests: {args.iterations * 3}")
     print("=" * 80)
 
@@ -912,11 +912,11 @@ async def main():
             print(f"Query: {last_metric.query}")
             print(f"Response: {last_metric.response}")
             if last_metric.actual_prompt_tokens:
-                print(f"\nTokens:")
+                print("\nTokens:")
                 print(f"  Prompt: {last_metric.actual_prompt_tokens}")
                 print(f"  Completion: {last_metric.actual_completion_tokens}")
                 print(f"  Total: {last_metric.actual_total_tokens}")
-            print(f"\nTiming:")
+            print("\nTiming:")
             print(f"  Query: {last_metric.query_time:.3f}s")
             print(f"  Throughput: {last_metric.tokens_per_second:.2f} tok/s")
 

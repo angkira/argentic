@@ -4,34 +4,58 @@
 
 The Visual Agent extends Argentic's capabilities to process real-time video and audio through multimodal AI models. It uses:
 
-- **Gemma 3n E4B/E2B**: Google's multimodal model with native support for text, images, video, and audio
-- **WebRTC Driver**: Low-latency video/audio capture without MQTT overhead
+- **Frame Source Abstraction**: Flexible interface for video/image input from any source (WebRTC, video files, cameras, static images, custom callbacks)
+- **Multiple LLM Providers**: Support for Gemma 3n, vLLM, OpenAI-compatible APIs, and more
+- **Custom Embedding Functions**: Optional embedding function support for pre-computing visual features (supported by VLLMNativeProvider)
 - **Async/Threading Architecture**: Non-blocking operation with proper thread pool management
-- **MQTT Integration**: Responses distributed via MQTT while video stays in direct connection
+- **MQTT Integration**: Responses distributed via MQTT while video processing happens independently
+
+## Frame Sources
+
+The Visual Agent uses a **frame source abstraction** that allows you to provide video/image input from any source:
+
+### Available Frame Sources
+
+1. **WebRTCFrameSource**: Real-time WebRTC video streaming (browser to server)
+2. **VideoFileFrameSource**: Pre-recorded video files (mp4, avi, mkv, etc.)
+3. **StaticFrameSource**: Fixed set of images (useful for testing)
+4. **FunctionalFrameSource**: Custom callback-based source (for cameras, screen capture, etc.)
+
+All frame sources implement the same interface, so you can easily swap them without changing your agent code.
+
+### Visual Processing Modes
+
+The Visual Agent supports two modes of visual processing:
+
+1. **Direct Frames Mode** (default): Raw video frames are passed directly to the LLM provider (e.g., Gemma 3n), which handles visual encoding internally.
+
+2. **Embeddings Mode**: Frames are first processed by a custom embedding function to produce embeddings, which are then passed to the LLM. This is useful when:
+   - You have a separate vision encoder (CLIP, ViT, custom CNN, etc.)
+   - You want to pre-compute visual features for efficiency
+   - You need to separate visual encoding from language processing
+
+**Important**: Embedding support varies by provider:
+- ✅ **Supported**: `VLLMNativeProvider` (with `enable_mm_embeds=True`)
+- ❌ **Not Supported**: `VLLMProvider` (OpenAI API), `GemmaProvider`, `GoogleGeminiProvider`, `OpenAICompatibleProvider`
+- ⚠️ **Model-Dependent**: `TransformersProvider` (depends on model architecture)
+
+📖 See [LLM Providers Guide](./LLM_PROVIDERS_GUIDE.md) for detailed provider documentation and examples.
 
 ## Architecture
 
+### Direct Frames Mode (Default)
+
 ```
-┌─────────────────┐
-│  WebRTC Stream  │ (Camera/Browser)
-│  (Video/Audio)  │
-└────────┬────────┘
-         │ Low latency, direct connection
-         │ (aiortc library)
-         ▼
 ┌─────────────────────────┐
-│   WebRTCDriver          │
-│  ┌─────────────────┐    │
-│  │ Frame Processor │    │ Thread Pool
-│  │  Thread Pool    │    │ (CPU-intensive)
-│  └─────────────────┘    │
-│  ┌─────────────────┐    │
-│  │ Frame Buffer    │    │ deque(maxlen=30)
-│  │ Audio Buffer    │    │
-│  └─────────────────┘    │
-└─────────┬───────────────┘
-          │ Async Queue
-          ▼
+│    Frame Source         │ (WebRTC/File/Camera/Static)
+│   - WebRTCFrameSource   │
+│   - VideoFileFrameSource│
+│   - StaticFrameSource   │
+│   - FunctionalSource    │
+└────────┬────────────────┘
+         │ Implements FrameSource interface
+         │ get_frames(), get_audio()
+         ▼
 ┌──────────────────────────┐
 │   VisualAgent            │
 │  ┌─────────────────┐     │
@@ -43,12 +67,63 @@ The Visual Agent extends Argentic's capabilities to process real-time video and 
           │ (frames + audio + text)
           ▼
 ┌───────────────────────────┐
-│   GemmaProvider           │
+│   LLM Provider            │
+│  - GemmaProvider          │
+│  - VLLMNativeProvider     │
+│  - OpenAICompatible       │
 │  ┌──────────────────┐     │
 │  │ Inference Pool   │     │ Thread Pool
 │  │ (JAX/GPU heavy)  │     │ (GPU-intensive)
 │  └──────────────────┘     │
-│         Gemma 3n E4B      │
+└─────────┬─────────────────┘
+          │ Text Response
+          ▼
+┌─────────────────────┐
+│   Messager (MQTT)   │
+└──────────┬──────────┘
+           │
+           ▼
+    Clients/Other Agents
+```
+
+### Embeddings Mode (with Embedding Function)
+
+```
+┌─────────────────────────┐
+│    Frame Source         │ (Any source)
+└────────┬────────────────┘
+         │ Raw Frames
+         ▼
+┌──────────────────────────┐
+│   VisualAgent            │
+│  ┌─────────────────┐     │
+│  │ Auto-Process    │     │ asyncio.Task
+│  │     Loop        │     │
+│  └─────────────────┘     │
+└─────────┬────────────────┘
+          │ Frames
+          ▼
+┌───────────────────────────┐
+│   embedding_function()    │ User-provided async function
+│  ┌──────────────────┐     │
+│  │ Custom Encoder   │     │ Async processing
+│  │ (CLIP/ViT/CNN)   │     │ (can be GPU-based)
+│  └──────────────────┘     │
+└─────────┬─────────────────┘
+          │ Visual Embeddings (np.ndarray)
+          ▼
+┌──────────────────────────┐
+│   VisualAgent            │
+│  Formats multimodal msg  │
+│  {text, image_embeddings}│
+└─────────┬────────────────┘
+          │
+          ▼
+┌───────────────────────────┐
+│   LLM Provider            │
+│  - VLLMNativeProvider     │
+│    (only one with support)│
+│  - Others raise exception │
 └─────────┬─────────────────┘
           │ Text Response
           ▼
@@ -132,13 +207,16 @@ visual_agent:
   min_frames_for_processing: 10
 ```
 
+**Note**: Embedding function configuration is done in Python code, not in YAML config (see examples below).
+
 ## Usage Examples
 
-### Example 1: Basic Visual Agent
+### Example 1: Basic Visual Agent with WebRTC
 
 ```python
 import asyncio
 from argentic.core.agent.visual_agent import VisualAgent
+from argentic.core.agent.frame_sources import WebRTCFrameSource
 from argentic.core.drivers import WebRTCDriver
 from argentic.core.llm.providers.gemma import GemmaProvider
 from argentic.core.messager import Messager
@@ -147,35 +225,39 @@ async def main():
     # Setup components
     messager = Messager(broker_address="localhost", port=1883)
     await messager.connect()
-    
+
+    # Create WebRTC driver
     driver = WebRTCDriver(
         video_buffer_size=30,
         frame_rate=10,
         resize_frames=(640, 480),
         enable_audio=True
     )
-    
+
+    # Wrap driver in frame source
+    frame_source = WebRTCFrameSource(driver)
+
     llm = GemmaProvider(config={
         "gemma_model_name": "gemma-3n-e4b-it",
         "gemma_checkpoint_path": "/path/to/checkpoint"
     })
-    
+
     # Create visual agent
     agent = VisualAgent(
         llm=llm,
         messager=messager,
-        webrtc_driver=driver,
+        frame_source=frame_source,  # Use frame_source parameter
         auto_process_interval=5.0,
         system_prompt="You are a visual AI assistant."
     )
-    
+
     # Initialize and start
     await agent.async_init()
-    
+
     # Query with video
     response = await agent.query_with_video("What do you see?")
     print(response)
-    
+
     # Cleanup
     await agent.stop()
     await messager.disconnect()
@@ -218,28 +300,291 @@ await driver.connect()
 await driver.start_capture()
 ```
 
-### Example 4: Manual Buffer Control
+### Example 4: Using Video File Source
 
 ```python
-# Disable auto-processing
+from argentic.core.agent.frame_sources import VideoFileFrameSource
+
+# Create video file source
+frame_source = VideoFileFrameSource(
+    video_path="/path/to/video.mp4",
+    buffer_size=30,
+    fps=10,  # Subsample to 10 FPS
+    loop=False
+)
+
+# Create agent with video file source
 agent = VisualAgent(
     llm=llm,
     messager=messager,
-    webrtc_driver=driver,
-    enable_auto_processing=False  # Manual control
+    frame_source=frame_source,
+    enable_auto_processing=False  # Manual control for video files
 )
+
 await agent.async_init()
 
-# Manually process when needed
-while True:
-    await asyncio.sleep(10)
-    
-    frames = await driver.get_frame_buffer()
-    if len(frames) >= 20:
-        response = await agent.query_with_video("Describe the scene")
-        print(response)
-        driver.clear_buffers()  # Clear after processing
+# Process video
+response = await agent.query_with_video("What's happening in this video?")
+print(response)
+
+await agent.stop()
 ```
+
+### Example 5: Using Static Frames (Testing)
+
+```python
+import numpy as np
+from argentic.core.agent.frame_source import StaticFrameSource
+
+# Create some test frames
+frames = [
+    np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    for _ in range(10)
+]
+
+# Create static frame source
+frame_source = StaticFrameSource(frames)
+
+# Use with agent
+agent = VisualAgent(
+    llm=llm,
+    messager=messager,
+    frame_source=frame_source,
+    enable_auto_processing=False
+)
+
+await agent.async_init()
+response = await agent.query_with_video("What do you see?")
+print(response)
+await agent.stop()
+```
+
+### Example 6: Custom Functional Frame Source
+
+```python
+from argentic.core.agent.frame_source import FunctionalFrameSource
+import cv2
+
+# Define custom frame capture function
+async def capture_screen_frames():
+    """Capture frames from screen (example)."""
+    frames = []
+    # Your custom logic here (e.g., screen capture, camera, etc.)
+    # For example, using opencv to capture from camera:
+    cap = cv2.VideoCapture(0)
+    for _ in range(10):
+        ret, frame = cap.read()
+        if ret:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frames.append(frame_rgb)
+    cap.release()
+    return frames
+
+# Create functional frame source
+frame_source = FunctionalFrameSource(get_frames_fn=capture_screen_frames)
+
+# Use with agent
+agent = VisualAgent(
+    llm=llm,
+    messager=messager,
+    frame_source=frame_source,
+    enable_auto_processing=True,  # Auto-capture and process
+    auto_process_interval=5.0
+)
+
+await agent.async_init()
+# Agent will automatically call capture_screen_frames() every 5 seconds
+```
+
+### Example 7: Using Embedding Function (CLIP Example)
+
+**Note**: This example demonstrates the embedding function approach. Most providers (Gemma, Gemini, vLLM OpenAI API) do NOT support pre-computed embeddings and will raise `NotImplementedError`. Use VLLMNativeProvider for embedding support.
+
+```python
+import asyncio
+import numpy as np
+from typing import List
+from argentic.core.agent.visual_agent import VisualAgent
+from argentic.core.agent.frame_source import StaticFrameSource
+from argentic.core.messager import Messager
+
+# Define your custom embedding function
+async def clip_embedding_function(frames: List[np.ndarray]) -> np.ndarray:
+    """
+    Custom embedding function using CLIP (example).
+
+    Args:
+        frames: List of numpy arrays (H, W, C)
+
+    Returns:
+        numpy array of shape (num_frames, embedding_dim)
+    """
+    # Example with torch and CLIP (install: pip install torch transformers)
+    import torch
+    from transformers import CLIPProcessor, CLIPModel
+    from PIL import Image
+
+    # Load CLIP model (in production, load this once outside the function)
+    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+    # Convert numpy frames to PIL Images
+    pil_images = [Image.fromarray(frame) for frame in frames]
+
+    # Process with CLIP
+    inputs = processor(images=pil_images, return_tensors="pt")
+
+    # Get embeddings (run in thread pool if CPU-bound)
+    with torch.no_grad():
+        embeddings = model.get_image_features(**inputs)
+
+    # Return as numpy array
+    return embeddings.cpu().numpy()
+
+async def main():
+    # Setup components
+    messager = Messager(broker_address="localhost", port=1883)
+    await messager.connect()
+
+    # Create test frames
+    frames = [np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8) for _ in range(10)]
+    frame_source = StaticFrameSource(frames)
+
+    # NOTE: You need VLLMNativeProvider for embedding support
+    # Other providers (Gemma, Gemini, vLLM OpenAI API) will raise NotImplementedError
+    from argentic.core.llm.providers.vllm_native import VLLMNativeProvider
+
+    llm = VLLMNativeProvider(config={
+        "model_name": "llava-hf/llava-1.5-7b-hf",
+        "enable_mm_embeds": True,  # Required for embeddings
+    })
+
+    # Create visual agent with embedding function
+    agent = VisualAgent(
+        llm=llm,
+        messager=messager,
+        frame_source=frame_source,
+        embedding_function=clip_embedding_function,  # Pass the async function
+        enable_auto_processing=False,
+        system_prompt="You are a visual AI assistant."
+    )
+
+    # Initialize and start
+    await agent.async_init()
+
+    # Query with video - frames will be encoded to embeddings automatically
+    try:
+        response = await agent.query_with_video("What do you see?")
+        print(response)
+    except NotImplementedError as e:
+        print(f"Provider does not support embeddings: {e}")
+
+    # Cleanup
+    await agent.stop()
+    await messager.disconnect()
+
+asyncio.run(main())
+```
+
+### Example 8: Embedding Function with Error Handling
+
+```python
+import asyncio
+import numpy as np
+
+async def robust_embedding_function(frames: List[np.ndarray]):
+    """
+    Embedding function with error handling and return metadata.
+
+    Returns dict with embeddings and metadata.
+    """
+    try:
+        # Your encoding logic here
+        # embeddings = your_model.encode(frames)
+
+        # Placeholder: random embeddings
+        embeddings = np.random.randn(len(frames), 512).astype(np.float32)
+
+        # Return dict with metadata
+        return {
+            "embeddings": embeddings,
+            "num_frames": len(frames),
+            "embedding_dim": 512,
+            "model": "custom-encoder-v1"
+        }
+    except Exception as e:
+        print(f"Embedding error: {e}")
+        # Return None or raise - VisualAgent will fall back to raw frames
+        raise
+
+# Use with VisualAgent
+agent = VisualAgent(
+    llm=llm,
+    messager=messager,
+    frame_source=frame_source,
+    embedding_function=robust_embedding_function,
+)
+```
+
+## Embedding Function API
+
+### Function Signature
+
+Your embedding function must be async and have this signature:
+
+```python
+async def embedding_function(frames: List[np.ndarray]) -> Union[np.ndarray, Dict[str, Any]]:
+    """
+    Args:
+        frames: List of numpy arrays with shape (H, W, C)
+
+    Returns:
+        - np.ndarray: Embeddings with shape (num_frames, embedding_dim)
+        - Dict: Dictionary with 'embeddings' key and optional metadata
+
+    Raises:
+        Exception: On error, VisualAgent will fall back to raw frames
+    """
+    pass
+```
+
+### Best Practices
+
+1. **Load models once** (not in the function):
+   ```python
+   # Global scope
+   model = load_model()
+
+   async def embed_frames(frames):
+       # Use pre-loaded model
+       return model.encode(frames)
+   ```
+
+2. **Use asyncio.to_thread** for blocking operations:
+   ```python
+   async def embed_frames(frames):
+       # Run blocking code in thread pool
+       embeddings = await asyncio.to_thread(model.encode, frames)
+       return embeddings
+   ```
+
+3. **Return metadata** for debugging:
+   ```python
+   return {
+       "embeddings": emb_array,
+       "model_version": "v1.0",
+       "processing_time": elapsed_time
+   }
+   ```
+
+4. **Handle errors gracefully**:
+   ```python
+   try:
+       return model.encode(frames)
+   except Exception as e:
+       logger.error(f"Encoding failed: {e}")
+       raise  # VisualAgent will fall back to frames
+   ```
 
 ## Threading and Performance
 
@@ -392,31 +737,133 @@ sudo apt install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-conf
 
 ## API Reference
 
-### WebRTCDriver
+### FrameSource (Base Class)
 
 ```python
-class WebRTCDriver:
-    async def connect(offer_sdp: Optional[str] = None) -> Optional[str]
-    async def disconnect()
-    async def start_capture()
-    async def stop_capture()
-    async def get_frame_buffer() -> List[np.ndarray]
-    async def get_audio_buffer() -> Optional[np.ndarray]
-    async def get_latest_frame() -> Optional[np.ndarray]
-    def set_frame_callback(callback: Callable)
+class FrameSource(ABC):
+    """Base class for all frame sources."""
+
+    async def get_frames() -> List[np.ndarray]
+    async def get_audio() -> Optional[np.ndarray]
+    async def start()
+    async def stop()
     def clear_buffers()
+    def get_info() -> dict
+```
+
+### WebRTCFrameSource
+
+```python
+class WebRTCFrameSource(FrameSource):
+    """WebRTC video streaming frame source."""
+
+    def __init__(driver: WebRTCDriver, config: Optional[FrameSourceConfig] = None)
+    async def get_frames() -> List[np.ndarray]
+    async def get_audio() -> Optional[np.ndarray]
+    async def get_latest_frame() -> Optional[np.ndarray]
+    def clear_buffers()
+    async def start()  # Connects and starts capture
+    async def stop()   # Stops capture and disconnects
+    def get_info() -> dict
+```
+
+### VideoFileFrameSource
+
+```python
+class VideoFileFrameSource(FrameSource):
+    """Video file frame source using OpenCV."""
+
+    def __init__(
+        video_path: str,
+        buffer_size: int = 30,
+        fps: Optional[int] = None,  # None = use native FPS
+        loop: bool = False,
+        config: Optional[FrameSourceConfig] = None
+    )
+    async def get_frames() -> List[np.ndarray]
+    async def get_audio() -> Optional[np.ndarray]  # Not supported (returns None)
+    def clear_buffers()
+    async def start()  # Opens video file
+    async def stop()   # Closes video file
+    def get_info() -> dict
+```
+
+### StaticFrameSource
+
+```python
+class StaticFrameSource(FrameSource):
+    """Static frame source for testing."""
+
+    def __init__(frames: List[np.ndarray], config: Optional[FrameSourceConfig] = None)
+    async def get_frames() -> List[np.ndarray]
+    async def get_audio() -> Optional[np.ndarray]  # Returns None
+    async def start()  # No-op
+    async def stop()   # No-op
+```
+
+### FunctionalFrameSource
+
+```python
+class FunctionalFrameSource(FrameSource):
+    """Frame source using callback functions."""
+
+    def __init__(
+        get_frames_fn: Callable[[], Awaitable[List[np.ndarray]]],
+        get_audio_fn: Optional[Callable[[], Awaitable[Optional[np.ndarray]]]] = None,
+        config: Optional[FrameSourceConfig] = None
+    )
+    async def get_frames() -> List[np.ndarray]  # Calls get_frames_fn
+    async def get_audio() -> Optional[np.ndarray]  # Calls get_audio_fn if provided
+    async def start()  # No-op
+    async def stop()   # No-op
 ```
 
 ### VisualAgent
 
 ```python
 class VisualAgent(Agent):
+    def __init__(
+        llm: ModelProvider,
+        messager: Messager,
+        frame_source: FrameSource,  # Any FrameSource implementation
+        embedding_function: Optional[Callable] = None,  # Optional async embedding function
+        auto_process_interval: float = 5.0,
+        visual_prompt_template: str = "Describe what you see in the video: {question}",
+        visual_response_topic: str = "agent/visual/response",
+        enable_auto_processing: bool = True,
+        process_on_buffer_full: bool = True,
+        min_frames_for_processing: int = 10,
+        **kwargs
+    )
+
     async def async_init()
     async def query_with_video(question: str) -> str
     async def query(question: str, ...) -> str
     def pause_auto_processing()
     def resume_auto_processing()
     async def stop()
+```
+
+### Embedding Function Type
+
+```python
+# Type signature for embedding_function parameter
+async def embedding_function(frames: List[np.ndarray]) -> Union[np.ndarray, Dict[str, Any]]:
+    """
+    Convert frames to embeddings.
+
+    Args:
+        frames: List of numpy arrays (H, W, C)
+
+    Returns:
+        np.ndarray: Shape (num_frames, embedding_dim)
+        OR
+        Dict: With 'embeddings' key and optional metadata
+
+    Raises:
+        Exception: On error (VisualAgent will fall back to raw frames)
+    """
+    ...
 ```
 
 ### GemmaProvider
@@ -465,11 +912,94 @@ class GemmaProvider(ModelProvider):
    response = await llm.ainvoke("Hello, can you see?")
    ```
 
+## Frame Source Guide
+
+### Creating Custom Frame Sources
+
+You can create your own frame source by implementing the `FrameSource` interface:
+
+```python
+from argentic.core.agent.frame_source import FrameSource, FrameSourceConfig
+from typing import List, Optional
+import numpy as np
+
+class CustomFrameSource(FrameSource):
+    """Example custom frame source."""
+
+    def __init__(self, config: Optional[FrameSourceConfig] = None):
+        super().__init__(config)
+        # Your initialization here
+
+    async def get_frames(self) -> List[np.ndarray]:
+        """Return list of video frames."""
+        # Your logic to get frames
+        frames = []
+        # ... capture/generate frames ...
+        return frames
+
+    async def get_audio(self) -> Optional[np.ndarray]:
+        """Return audio buffer (optional)."""
+        # Return None if audio not supported
+        return None
+
+    async def start(self):
+        """Start frame capture/generation."""
+        # Initialize resources
+        pass
+
+    async def stop(self):
+        """Stop and cleanup."""
+        # Release resources
+        pass
+
+    def get_info(self) -> dict:
+        """Return information about this source."""
+        info = super().get_info()
+        info.update({
+            "custom_param": "value",
+        })
+        return info
+```
+
+### Migration from WebRTC-only API
+
+If you have existing code using the old `webrtc_driver` parameter:
+
+**Old (deprecated):**
+```python
+from argentic.core.drivers import WebRTCDriver
+
+driver = WebRTCDriver(...)
+agent = VisualAgent(
+    llm=llm,
+    messager=messager,
+    webrtc_driver=driver,  # Old parameter
+)
+```
+
+**New (recommended):**
+```python
+from argentic.core.drivers import WebRTCDriver
+from argentic.core.agent.frame_sources import WebRTCFrameSource
+
+driver = WebRTCDriver(...)
+frame_source = WebRTCFrameSource(driver)
+agent = VisualAgent(
+    llm=llm,
+    messager=messager,
+    frame_source=frame_source,  # New parameter
+)
+```
+
+The functionality is identical - WebRTCFrameSource is a simple adapter that wraps the driver.
+
 ## Examples
 
-See the complete working example at:
-- `examples/visual_agent_gemma_webrtc.py`
-- `examples/config_visual_gemma_webrtc.yaml`
+See complete working examples at:
+- `examples/visual_agent_frame_sources.py` - Multiple frame source examples
+- `examples/visual_agent_gemma_webrtc.py` - Full WebRTC example
+- `examples/visual_agent_vllm.py` - vLLM with embedding support
+- `examples/config_visual_gemma_webrtc.yaml` - Configuration example
 
 ## References
 

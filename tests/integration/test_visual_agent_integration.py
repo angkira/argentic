@@ -69,7 +69,7 @@ class TestVisualAgentDriverIntegration:
         config = {"gemma_model_name": "gemma-3n-e4b-it"}
         llm = GemmaProvider(config)
 
-        agent = VisualAgent(
+        VisualAgent(
             llm=llm,
             messager=integration_messager,
             webrtc_driver=driver,
@@ -125,7 +125,7 @@ class TestGemmaProviderIntegration:
         }
         llm = GemmaProvider(config)
 
-        agent = VisualAgent(
+        VisualAgent(
             llm=llm,
             messager=integration_messager,
             webrtc_driver=driver,
@@ -146,7 +146,7 @@ class TestGemmaProviderIntegration:
         config = {"gemma_model_name": "gemma-3n-e4b-it"}
         llm = GemmaProvider(config)
 
-        agent = VisualAgent(
+        VisualAgent(
             llm=llm,
             messager=integration_messager,
             webrtc_driver=driver,
@@ -300,7 +300,7 @@ class TestBufferManagementIntegration:
         config = {"gemma_model_name": "gemma-3n-e4b-it"}
         llm = GemmaProvider(config)
 
-        agent = VisualAgent(
+        VisualAgent(
             llm=llm,
             messager=integration_messager,
             webrtc_driver=driver,
@@ -324,7 +324,7 @@ class TestBufferManagementIntegration:
         config = {"gemma_model_name": "gemma-3n-e4b-it"}
         llm = GemmaProvider(config)
 
-        agent = VisualAgent(
+        VisualAgent(
             llm=llm,
             messager=integration_messager,
             webrtc_driver=driver,

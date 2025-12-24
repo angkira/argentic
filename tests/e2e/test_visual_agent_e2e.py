@@ -424,7 +424,7 @@ class TestVisualAgentE2EPerformance:
         config = {"gemma_model_name": "gemma-3n-e4b-it"}
         llm = GemmaProvider(config)
 
-        agent = VisualAgent(
+        VisualAgent(
             llm=llm,
             messager=e2e_messager,
             webrtc_driver=driver,
