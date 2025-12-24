@@ -105,7 +105,7 @@ class TestMQTTDriver:
     @patch("argentic.core.messager.drivers.MQTTDriver.Client")
     def test_client_creation_parameters(self, mock_client_class, driver_config):
         """Test that client is created with correct parameters"""
-        driver = MQTTDriver(driver_config)
+        MQTTDriver(driver_config)
 
         # Simulate the client creation logic without async context
 

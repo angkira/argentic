@@ -1,7 +1,7 @@
 """Unit tests for WebRTC Driver."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -90,7 +90,6 @@ class TestWebRTCDriverConnection:
         driver = WebRTCDriver()
         await driver.connect()
 
-        pc_before = driver._pc
         await driver.disconnect()
 
         assert driver._connected is False

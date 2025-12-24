@@ -45,7 +45,7 @@ try:
     config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
     if hasattr(config, 'generation_config'):
         gen_config = config.generation_config
-        print(f"   Generation config found:")
+        print("   Generation config found:")
         print(f"   {json.dumps(gen_config.to_dict(), indent=4)}")
     else:
         print("   No generation config in model config")
@@ -58,7 +58,7 @@ gen_config_path = Path(model_path) / "generation_config.json"
 if gen_config_path.exists():
     with open(gen_config_path) as f:
         gen_config_data = json.load(f)
-    print(f"   Found generation_config.json:")
+    print("   Found generation_config.json:")
     print(f"   {json.dumps(gen_config_data, indent=4)}")
 else:
     print("   No generation_config.json found")
@@ -66,7 +66,7 @@ else:
 # Check chat template
 print("\n5. Checking chat template...")
 if hasattr(tokenizer, 'chat_template') and tokenizer.chat_template:
-    print(f"   Chat template exists:")
+    print("   Chat template exists:")
     print(f"   {tokenizer.chat_template[:500]}")  # First 500 chars
 else:
     print("   No chat template")

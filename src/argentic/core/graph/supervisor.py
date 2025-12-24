@@ -147,7 +147,7 @@ class Supervisor:
 
     def _print_dialogue_entry(self, entry: Dict[str, Any]) -> None:
         """Print a supervisor dialogue entry."""
-        role = entry["role"]
+        entry["role"]
         preview = entry["content_preview"]
         message_type = entry["message_type"]
 

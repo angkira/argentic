@@ -90,7 +90,7 @@ async def main():
         print("Then add to .env file: GEMINI_API_KEY='your-key-here'")
         return
 
-    print(f"✅ Using Gemini API key from environment\n")
+    print("✅ Using Gemini API key from environment\n")
 
     # Configuration - Google Gemini 2.5 Flash (latest multimodal model)
     CONFIG = {

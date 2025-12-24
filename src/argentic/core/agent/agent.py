@@ -512,7 +512,7 @@ class Agent:
             agent_tools_list = []
             for t_id, t_info in self._tool_manager.tools_by_id.items():
                 t_name: str = t_info["name"]
-                description: str = t_info["description"]
+                t_info["description"]
                 parameters_str: str = t_info["parameters"]
 
                 try:

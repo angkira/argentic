@@ -127,7 +127,7 @@ class TestKafkaDriver:
 
     def test_config_parameter_mapping(self, driver_config):
         """Test that config parameters are mapped correctly"""
-        driver = KafkaDriver(driver_config)
+        KafkaDriver(driver_config)
 
         # Verify config is accessible and contains expected values
         expected_bootstrap = f"{driver_config.url}:{driver_config.port}"
@@ -152,7 +152,7 @@ class TestKafkaDriver:
     @patch("argentic.core.messager.drivers.KafkaDriver.AIOKafkaConsumer")
     def test_consumer_initialization_parameters(self, mock_consumer_class, driver_config):
         """Test consumer initialization parameters without actual connection"""
-        driver = KafkaDriver(driver_config)
+        KafkaDriver(driver_config)
 
         # Test group_id default logic
         test_group_id = "test-group"

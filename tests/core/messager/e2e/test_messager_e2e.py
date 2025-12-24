@@ -541,7 +541,6 @@ class TestMessagerE2E:
             )
 
         # ---- START: Direct AIOKafkaProducer connection test ----
-        direct_producer_connected_successfully = False
         try:
             print("Attempting direct AIOKafkaProducer connection within test...")
             # loop = asyncio.get_running_loop() # loop argument is deprecated
@@ -555,7 +554,6 @@ class TestMessagerE2E:
             print("Direct AIOKafkaProducer connected successfully within test!")
             await direct_producer.stop()
             print("Direct AIOKafkaProducer stopped.")
-            direct_producer_connected_successfully = True
         except Exception as e:
             print(f"Direct AIOKafkaProducer connection failed within test: {e}")
         # ---- END: Direct AIOKafkaProducer connection test ----

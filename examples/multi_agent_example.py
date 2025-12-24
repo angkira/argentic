@@ -59,10 +59,6 @@ async def main():
     note_tool = NoteCreatorTool(messager=messager)
 
     # Define general topics for supervisor and overall system visibility
-    register_topic = "agent/tools/register"
-    call_topic_base = "agent/tools/call"
-    response_topic_base = "agent/tools/response"
-    status_topic = "agent/status/info"
 
     # Define agent-specific topics for their internal ToolManagers to listen to
     researcher_register_topic = "agent/researcher/tools/register"

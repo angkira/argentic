@@ -69,7 +69,7 @@ async def test_vision():
 
         # Check what tokens were generated
         if hasattr(response.choices[0], 'logprobs') and response.choices[0].logprobs:
-            print(f"\nGenerated tokens:")
+            print("\nGenerated tokens:")
             for i, token_data in enumerate(response.choices[0].logprobs.content[:10]):  # First 10
                 print(f"  {i}: token='{token_data.token}' (bytes={token_data.bytes})")
     except Exception as e:

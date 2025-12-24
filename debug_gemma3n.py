@@ -63,7 +63,7 @@ def test_processor():
     # Test 1: Direct processing
     try:
         result = processor(text="test", images=img, return_tensors="pt")
-        print(f"\n✓ Direct processing works")
+        print("\n✓ Direct processing works")
         print(f"  Keys: {list(result.keys())}")
         print(f"  input_ids shape: {result['input_ids'].shape}")
         if "pixel_values" in result:
@@ -80,7 +80,7 @@ def test_processor():
             }
         ]
         prompt = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-        print(f"\n✓ Chat template works")
+        print("\n✓ Chat template works")
         print(f"  Generated prompt: {prompt[:200]}...")
     except Exception as e:
         print(f"\n✗ Chat template failed: {e}")

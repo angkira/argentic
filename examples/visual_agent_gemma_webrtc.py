@@ -23,11 +23,9 @@ TODO: Integrate Gemma 3n with proper formatting (requires research)
 """
 
 import asyncio
-import signal
 import sys
 
 from argentic.core.agent.visual_agent import VisualAgent
-from argentic.core.drivers import WebRTCDriver
 from argentic.core.llm.llm_factory import LLMFactory
 from argentic.core.messager import Messager
 
