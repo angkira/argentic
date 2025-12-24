@@ -59,21 +59,6 @@ docker-compose up argentic-transformers
 docker-compose logs -f argentic-transformers
 ```
 
-#### Option C: JAX + Gemma (Official, Full Multimodal)
-
-```bash
-# Set Kaggle credentials in .env first!
-
-# Build
-docker-compose build argentic-gemma-jax
-
-# Run (will download model ~4GB on first run)
-docker-compose up argentic-gemma-jax
-
-# Logs
-docker-compose logs -f argentic-gemma-jax
-```
-
 ## Architecture
 
 ```
@@ -89,9 +74,9 @@ docker-compose logs -f argentic-gemma-jax
 │         │                          │
 │  ┌──────────────────────────────┐ │
 │  │  Argentic with:              │ │
-│  │  - JAX Gemma (multimodal)    │ │
-│  │  OR                          │ │
 │  │  - Transformers (PaliGemma)  │ │
+│  │  - vLLM (multimodal)         │ │
+│  │  - Ollama (text/multimodal)  │ │
 │  └──────────────────────────────┘ │
 │                                     │
 └─────────────────────────────────────┘
@@ -116,12 +101,6 @@ docker-compose logs -f argentic-gemma-jax
 - **Models:** PaliGemma (multimodal, working)
 - **VRAM:** ~8GB
 
-### argentic-gemma-jax
-- **Base:** `nvidia/cuda:12.2.0-cudnn8-runtime-ubuntu22.04`
-- **GPU:** Required
-- **Models:** Gemma 3n E4B (official, multimodal)
-- **VRAM:** ~8GB
-
 ## Commands
 
 ```bash
@@ -129,7 +108,7 @@ docker-compose logs -f argentic-gemma-jax
 docker-compose build
 
 # Start specific service
-docker-compose up argentic-gemma-jax
+docker-compose up argentic-transformers
 
 # Start in background
 docker-compose up -d
@@ -147,10 +126,10 @@ docker-compose down -v
 docker-compose build --no-cache
 
 # Shell into container
-docker-compose exec argentic-gemma-jax bash
+docker-compose exec argentic-transformers bash
 
 # Run one-off command
-docker-compose run --rm argentic-gemma-jax python -c "from gemma import gm; print(gm.__version__)"
+docker-compose run --rm argentic-transformers python -c "import torch; print(torch.__version__)"
 ```
 
 ## Resource Requirements
@@ -160,7 +139,6 @@ docker-compose run --rm argentic-gemma-jax python -c "from gemma import gm; prin
 | **mosquitto** | No | - | 100MB | 50MB |
 | **ollama** | Yes | 6GB | 4GB | 5GB |
 | **transformers** | Yes | 8GB | 8GB | 15GB |
-| **gemma-jax** | Yes | 8GB | 8GB | 20GB |
 
 ## Configuration
 
@@ -173,13 +151,11 @@ Main orchestration file. Edit to:
 
 ### .env
 Environment variables:
-- `KAGGLE_USERNAME` / `KAGGLE_KEY` - For Gemma model downloads
 - `HF_TOKEN` - HuggingFace token (optional)
 - `HF_MODEL_ID` - Model to use with Transformers
 
 ### Dockerfiles
 - `Dockerfile.transformers` - PyTorch-based setup
-- `Dockerfile.gemma-jax` - JAX-based setup
 
 ## Troubleshooting
 
@@ -222,10 +198,6 @@ deploy:
 ### Model download fails
 
 ```bash
-# For JAX Gemma: Check Kaggle credentials
-echo $KAGGLE_USERNAME
-echo $KAGGLE_KEY
-
 # For Transformers: Pre-download model
 python -c "
 from transformers import AutoModel
@@ -241,13 +213,13 @@ volumes:
 
 ```bash
 # Check logs
-docker-compose logs argentic-gemma-jax
+docker-compose logs argentic-transformers
 
 # Check container status
 docker-compose ps
 
 # Inspect container
-docker inspect argentic-gemma-jax
+docker inspect argentic-transformers
 ```
 
 ## Development
@@ -257,10 +229,10 @@ For active development, mount source code:
 ```yaml
 # docker-compose.dev.yml
 services:
-  argentic-gemma-jax:
+  argentic-transformers:
     volumes:
       - .:/app  # Mount entire codebase
-    command: python examples/visual_agent_gemma_jax.py
+    command: python examples/visual_agent_example.py
 ```
 
 Run:
@@ -272,7 +244,7 @@ docker-compose -f docker-compose.dev.yml up
 
 For production deployment:
 
-1. Use multi-stage builds (see `Dockerfile.gemma-jax`)
+1. Use multi-stage builds (see `Dockerfile.transformers`)
 2. Enable health checks
 3. Set restart policies
 4. Add proper logging
@@ -282,11 +254,8 @@ For production deployment:
 ```yaml
 # docker-compose.prod.yml
 services:
-  argentic-gemma-jax:
+  argentic-transformers:
     restart: always
-    secrets:
-      - kaggle_username
-      - kaggle_key
     logging:
       driver: "json-file"
       options:
@@ -297,8 +266,6 @@ services:
 ## Resources
 
 - **Ollama:** https://ollama.com/
-- **JAX:** https://jax.readthedocs.io/
-- **Gemma:** https://github.com/google-deepmind/gemma
 - **HuggingFace:** https://huggingface.co/
 - **NVIDIA Container Toolkit:** https://github.com/NVIDIA/nvidia-container-toolkit
 

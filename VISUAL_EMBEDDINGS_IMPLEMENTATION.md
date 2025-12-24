@@ -39,11 +39,6 @@ agent = VisualAgent(
 - **Raises**: `NotImplementedError` with helpful message
 - **Note**: Native vLLM Python API supports embeddings via `multi_modal_data`, but requires custom provider implementation
 
-#### Gemma JAX Provider (`src/argentic/core/llm/providers/gemma_jax.py`)
-- **Status**: ❌ Not supported
-- **Raises**: `NotImplementedError`
-- **Reason**: Gemma 3n uses internal vision encoder, requires raw images
-
 #### Google Gemini Provider (`src/argentic/core/llm/providers/google_gemini.py`)
 - **Status**: ❌ Not supported
 - **Raises**: `NotImplementedError`
@@ -169,7 +164,6 @@ Potential improvements for future releases:
 ```
 src/argentic/core/agent/visual_agent.py
 src/argentic/core/llm/providers/vllm_provider.py
-src/argentic/core/llm/providers/gemma_jax.py
 src/argentic/core/llm/providers/google_gemini.py
 src/argentic/core/llm/providers/transformers_provider.py
 docs/VISUAL_AGENT_GUIDE.md

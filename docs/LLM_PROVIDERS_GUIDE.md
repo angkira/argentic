@@ -218,21 +218,6 @@ agent = VisualAgent(
 
 ## Other Providers
 
-### Gemma Provider
-
-```python
-from argentic.core.llm.providers.gemma_jax import GemmaProvider
-
-config = {
-    "gemma_model_name": "gemma-3n-e4b-it",
-    "gemma_checkpoint_path": "/path/to/checkpoint",
-}
-
-llm = GemmaProvider(config)
-```
-
-**Note:** Uses internal vision encoder, does not support pre-computed embeddings.
-
 ### Google Gemini Provider
 
 ```python

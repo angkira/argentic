@@ -44,7 +44,6 @@ class VisualAgent(Agent):
     Embedding Support by Provider:
     - VLLMNativeProvider: Full support via multi_modal_data parameter
     - VLLMProvider: Not supported (OpenAI API limitation)
-    - GemmaProvider: Not supported (uses internal vision encoder)
     - GoogleGeminiProvider: Not supported (uses internal vision encoder)
     - TransformersProvider: Model-dependent (some support pre-computed embeddings)
 

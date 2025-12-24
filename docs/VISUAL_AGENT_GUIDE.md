@@ -36,7 +36,7 @@ The Visual Agent supports two modes of visual processing:
 
 **Important**: Embedding support varies by provider:
 - ✅ **Supported**: `VLLMNativeProvider` (with `enable_mm_embeds=True`)
-- ❌ **Not Supported**: `VLLMProvider` (OpenAI API), `GemmaProvider`, `GoogleGeminiProvider`, `OpenAICompatibleProvider`
+- ❌ **Not Supported**: `VLLMProvider` (OpenAI API), `GoogleGeminiProvider`, `OpenAICompatibleProvider`
 - ⚠️ **Model-Dependent**: `TransformersProvider` (depends on model architecture)
 
 📖 See [LLM Providers Guide](./LLM_PROVIDERS_GUIDE.md) for detailed provider documentation and examples.
@@ -68,12 +68,12 @@ The Visual Agent supports two modes of visual processing:
           ▼
 ┌───────────────────────────┐
 │   LLM Provider            │
-│  - GemmaProvider          │
 │  - VLLMNativeProvider     │
 │  - OpenAICompatible       │
+│  - GoogleGemini           │
 │  ┌──────────────────┐     │
 │  │ Inference Pool   │     │ Thread Pool
-│  │ (JAX/GPU heavy)  │     │ (GPU-intensive)
+│  │ (GPU-intensive)  │     │ (GPU-intensive)
 │  └──────────────────┘     │
 └─────────┬─────────────────┘
           │ Text Response
@@ -218,7 +218,7 @@ import asyncio
 from argentic.core.agent.visual_agent import VisualAgent
 from argentic.core.agent.frame_sources import WebRTCFrameSource
 from argentic.core.drivers import WebRTCDriver
-from argentic.core.llm.providers.gemma import GemmaProvider
+from argentic.core.llm.providers.vllm_provider import VLLMProvider
 from argentic.core.messager import Messager
 
 async def main():
@@ -237,9 +237,9 @@ async def main():
     # Wrap driver in frame source
     frame_source = WebRTCFrameSource(driver)
 
-    llm = GemmaProvider(config={
-        "gemma_model_name": "gemma-3n-e4b-it",
-        "gemma_checkpoint_path": "/path/to/checkpoint"
+    llm = VLLMProvider(config={
+        "vllm_base_url": "http://localhost:8000/v1",
+        "vllm_model": "llava-hf/llava-v1.6-mistral-7b-hf"
     })
 
     # Create visual agent
@@ -603,11 +603,11 @@ The Visual Agent uses a multi-threaded architecture to prevent blocking:
    - CPU-intensive preprocessing
    - Default: 4 workers
 
-3. **Inference Thread Pool** (GemmaProvider)
-   - JAX model inference (CPU/GPU heavy)
+3. **Inference Thread Pool** (LLM Providers)
+   - Model inference (CPU/GPU heavy)
    - Image encoding
    - Audio encoding
-   - Default: 2 workers
+   - Provider-specific (varies by implementation)
 
 ### Performance Tuning
 
@@ -866,16 +866,6 @@ async def embedding_function(frames: List[np.ndarray]) -> Union[np.ndarray, Dict
     ...
 ```
 
-### GemmaProvider
-
-```python
-class GemmaProvider(ModelProvider):
-    async def achat(messages: List[Dict], ...) -> LLMChatResponse
-    async def ainvoke(prompt: str, ...) -> LLMChatResponse
-    def get_model_name() -> str
-    def supports_multimodal() -> bool
-```
-
 ## Best Practices
 
 1. **Always use async context managers**:
@@ -908,7 +898,7 @@ class GemmaProvider(ModelProvider):
 5. **Test without video first**:
    ```python
    # Test model loading
-   llm = GemmaProvider(config={...})
+   llm = VLLMProvider(config={"vllm_base_url": "http://localhost:8000/v1"})
    response = await llm.ainvoke("Hello, can you see?")
    ```
 

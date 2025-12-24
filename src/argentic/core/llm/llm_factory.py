@@ -36,16 +36,6 @@ def _import_provider(name: str):
                 "transformers library is required for TransformersProvider. "
                 "Install with: pip install transformers torch"
             ) from e
-    if name == "gemma_jax":
-        try:
-            from argentic.core.llm.providers.gemma_jax import GemmaJAXProvider as P
-
-            return P
-        except Exception as e:  # pragma: no cover
-            raise ImportError(
-                "gemma library is required for GemmaJAXProvider. "
-                "Install with: pip install 'jax[cuda12_local]' gemma"
-            ) from e
     if name == "vllm":
         try:
             from argentic.core.llm.providers.vllm_provider import VLLMProvider as P
@@ -66,7 +56,6 @@ PROVIDER_NAMES = [
     "google_gemini",
     "gemma",  # Alias for transformers
     "transformers",
-    "gemma_jax",  # Official Gemma JAX library
     "vllm",  # vLLM OpenAI-compatible server
 ]
 
