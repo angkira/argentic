@@ -94,18 +94,45 @@ Or use the shipit script that also handles version bumping:
 
 The project includes GitHub workflows:
 
-### 1. Publish to PyPI on Release
+### 1. Auto-Publish on Merge to Main (Recommended)
 
-**File**: `.github/workflows/publish-pypi.yml`
+**File**: `.github/workflows/auto-publish.yml`
 
-Automatically publishes to PyPI when a GitHub release is created.
+**Automatically publishes to PyPI when a pull request is merged to main** (or when changes are pushed to main).
+
+**How it works**:
+1. Detects if version in `pyproject.toml` changed
+2. Checks if a git tag exists for the new version
+3. If tag doesn't exist (new version detected):
+   - Builds and publishes package to PyPI
+   - Creates git tag for the version
+   - Pushes tag to GitHub
+   - Creates GitHub release with changelog notes
 
 **Setup**:
 1. Go to your GitHub repository settings
 2. Navigate to Secrets and Variables → Actions
 3. Add a new secret: `PYPI_TOKEN` with your PyPI token value
 
-### 2. Manual Release
+**Workflow**:
+```bash
+# 1. Make changes and commit (version auto-bumps via post-commit hook)
+git add .
+git commit -m "feat: add new feature"
+# → Version bumped automatically (e.g., 0.13.0 → 0.14.0)
+
+# 2. Push or merge PR to main
+git push origin main
+# → GitHub Actions automatically publishes to PyPI and creates release!
+```
+
+### 2. Publish to PyPI on Release
+
+**File**: `.github/workflows/publish-pypi.yml`
+
+Automatically publishes to PyPI when a GitHub release is created manually.
+
+### 3. Manual Release
 
 **File**: `.github/workflows/manual-release.yml`
 
@@ -116,7 +143,21 @@ Allows manual release creation from GitHub Actions UI:
 
 ## Workflow Examples
 
-### Standard Development Flow
+### Standard Development Flow (Auto-Publish)
+
+```bash
+# 1. Make changes
+git add .
+git commit -m "feat: add new feature"
+# → Version automatically bumped (e.g., 0.11.2 → 0.12.0)
+
+# 2. Push or merge PR to main
+git push origin main
+# → Pre-push hook runs unit tests
+# → GitHub Actions automatically publishes to PyPI and creates release!
+```
+
+### Manual Release (Alternative)
 
 ```bash
 # 1. Make changes
@@ -128,7 +169,7 @@ git commit -m "feat: add new feature"
 git push
 # → Pre-push hook runs unit tests
 
-# 3. Create release
+# 3. Create release manually
 ./bin/release_workflow.sh
 # → Publishes to PyPI and creates GitHub release
 ```
