@@ -23,6 +23,15 @@ fi
 CURRENT_VERSION=$(grep 'version = ' pyproject.toml | cut -d'"' -f2)
 echo "📦 Publishing version $CURRENT_VERSION to PyPI..."
 
+# Create git tag if it doesn't exist
+if git rev-parse "$CURRENT_VERSION" >/dev/null 2>&1; then
+    echo "🏷️  Tag $CURRENT_VERSION already exists"
+else
+    echo "🏷️  Creating tag $CURRENT_VERSION..."
+    git tag -a "$CURRENT_VERSION" -m "$CURRENT_VERSION"
+    echo "✅ Tag created successfully"
+fi
+
 # Clean old dist files
 echo "🧹 Cleaning old builds..."
 rm -rf dist build *.egg-info
@@ -51,3 +60,14 @@ uv run python -m twine upload dist/* \
 
 echo "✅ Successfully published argentic $CURRENT_VERSION to PyPI!"
 echo "🌐 Check: https://pypi.org/project/argentic/$CURRENT_VERSION/"
+
+# Ask to push tag and commit
+echo ""
+echo "Push tag and commits to remote? (y/N)"
+read -r response
+if [[ "$response" =~ ^[Yy]$ ]]; then
+    echo "🚀 Pushing to remote..."
+    git push origin main
+    git push origin "$CURRENT_VERSION"
+    echo "✅ Pushed to remote successfully"
+fi
