@@ -1,0 +1,34 @@
+// Nord Color Palette
+// https://www.nordtheme.com/
+
+// Polar Night (Dark Theme Backgrounds)
+$nord0: #2e3440;   // Base background
+$nord1: #3b4252;   // Lighter background
+$nord2: #434c5e;   // Selection background
+$nord3: #4c566a;   // Comments, invisibles
+
+// Snow Storm (Light Theme Backgrounds)
+$nord4: #d8dee9;   // Dark text
+$nord5: #e5e9f0;   // Base foreground
+$nord6: #eceff4;   // Base background (light)
+
+// Frost (Blues - Primary colors)
+$nord7: #8fbcbb;   // Cyan
+$nord8: #88c0d0;   // Bright cyan
+$nord9: #81a1c1;   // Blue
+$nord10: #5e81ac;  // Dark blue
+
+// Aurora (Accent colors)
+$nord11: #bf616a;  // Red
+$nord12: #d08770;  // Orange
+$nord13: #ebcb8b;  // Yellow
+$nord14: #a3be8c;  // Green
+$nord15: #b48ead;  // Purple
+
+// Semantic Color Mapping
+$nord-error: $nord11;
+$nord-warning: $nord13;
+$nord-success: $nord14;
+$nord-info: $nord8;
+$nord-primary: $nord9;
+$nord-secondary: $nord10;

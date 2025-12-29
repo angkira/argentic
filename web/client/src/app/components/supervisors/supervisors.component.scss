@@ -1,0 +1,17 @@
+@import '../agents/agents.component.scss';
+
+.supervisors-grid {
+  @extend .agents-grid;
+}
+
+.supervisor-card {
+  @extend .agent-card;
+}
+
+.supervisor-description {
+  @extend .agent-description;
+}
+
+.supervisor-meta {
+  @extend .agent-meta;
+}

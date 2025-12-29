@@ -1,0 +1,222 @@
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+
+  h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+}
+
+.connection-status {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+
+  &.connected {
+    color: var(--color-success);
+    background-color: var(--color-success-light);
+    border: 1px solid var(--color-success);
+  }
+
+  &.disconnected {
+    color: var(--text-secondary);
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+  }
+}
+
+.filters-panel {
+  margin-bottom: 20px;
+  padding: 20px;
+
+  .filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .filters-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-primary);
+
+    .filter-info {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+  }
+}
+
+.auto-scroll-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text-primary);
+
+  input[type="checkbox"] {
+    cursor: pointer;
+  }
+}
+
+.messages-container {
+  background: var(--card-bg);
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  max-height: calc(100vh - 400px);
+  overflow-y: auto;
+  position: relative;
+
+  &.auto-scroll {
+    scroll-behavior: smooth;
+  }
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--border-primary);
+    border-radius: 4px;
+
+    &:hover {
+      background: var(--color-primary);
+    }
+  }
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all var(--transition-base);
+
+  &:hover {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .message-header {
+    margin-bottom: 8px;
+  }
+
+  .message-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+
+  .message-timestamp {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-family: 'Monaco', 'Courier New', monospace;
+  }
+
+  .message-agent {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .message-topic {
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
+  .message-content {
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+
+    pre {
+      margin: 0;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  }
+
+  .message-metadata {
+    margin-top: 8px;
+
+    details {
+      cursor: pointer;
+
+      summary {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: 600;
+        padding: 4px 0;
+        user-select: none;
+
+        &:hover {
+          color: var(--color-primary);
+        }
+      }
+
+      pre {
+        margin: 8px 0 0 0;
+        font-family: 'Monaco', 'Courier New', monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+        padding: 8px;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+    }
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+
+  p {
+    font-size: 16px;
+    margin: 0;
+  }
+}
+
+.badge-primary {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}

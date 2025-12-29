@@ -1,0 +1,10 @@
+// Theme System
+@import 'design-tokens';
+@import 'nord-palette';
+@import 'light-theme';
+@import 'dark-theme';
+
+// Default to light theme if no preference
+:root {
+  color-scheme: light dark;
+}

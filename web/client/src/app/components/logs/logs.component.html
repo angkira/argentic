@@ -1,0 +1,112 @@
+@if (state$ | async; as state) {
+  <div class="container">
+    <div class="page-header">
+      <h1>Message Bus Logs</h1>
+      <div class="header-actions">
+        <span class="connection-status" [ngClass]="state.connected ? 'connected' : 'disconnected'">
+          {{ state.connected ? '● Connected' : '○ Disconnected' }}
+        </span>
+        <button class="btn btn-secondary btn-sm" (click)="clearMessages()">Clear Logs</button>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-panel card">
+      <div class="filters-grid">
+        <div class="form-group">
+          <label class="form-label">Agent</label>
+          <select class="form-control" [(ngModel)]="selectedAgentId" (ngModelChange)="selectedAgentId.set($event)">
+            <option value="">All Agents</option>
+            @for (agent of state.agents; track agent.id) {
+              <option [value]="agent.id">{{ agent.role }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Topic</label>
+          <select class="form-control" [(ngModel)]="selectedTopic" (ngModelChange)="selectedTopic.set($event)">
+            <option value="">All Topics</option>
+            @for (topic of state.topics; track topic) {
+              <option [value]="topic">{{ topic }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Message Type</label>
+          <select class="form-control" [(ngModel)]="selectedMessageType" (ngModelChange)="selectedMessageType.set($event)">
+            <option value="">All Types</option>
+            <option value="request">Request</option>
+            <option value="response">Response</option>
+            <option value="event">Event</option>
+            <option value="error">Error</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Search</label>
+          <input type="text"
+                 class="form-control"
+                 [(ngModel)]="searchTerm"
+                 (ngModelChange)="searchTerm.set($event)"
+                 placeholder="Search messages...">
+        </div>
+      </div>
+
+      <div class="filters-actions">
+        <button class="btn btn-outline btn-sm" (click)="clearFilters()">Clear Filters</button>
+        <span class="filter-info">
+          Showing {{ state.filteredMessages.length }} of {{ state.messages.length }} messages
+        </span>
+        <label class="auto-scroll-toggle">
+          <input type="checkbox"
+                 [checked]="autoScroll()"
+                 (change)="toggleAutoScroll()">
+          Auto-scroll
+        </label>
+      </div>
+    </div>
+
+    <!-- Messages List -->
+    <div class="messages-container" [class.auto-scroll]="autoScroll()">
+      @if (state.filteredMessages.length === 0) {
+        <div class="empty-state">
+          <p>{{ state.messages.length === 0 ? 'No messages yet. Waiting for agent activity...' : 'No messages match your filters.' }}</p>
+        </div>
+      }
+
+      @if (state.filteredMessages.length > 0) {
+        <div class="messages-list">
+          @for (message of state.filteredMessages; track message.id) {
+            <div class="message-card">
+              <div class="message-header">
+                <div class="message-meta">
+                  <span class="message-timestamp">{{ formatTimestamp(message.timestamp) }}</span>
+                  <span class="badge" [ngClass]="getMessageTypeClass(message.message_type)">
+                    {{ message.message_type }}
+                  </span>
+                  <span class="message-agent">{{ message.agent_role }}</span>
+                  <span class="message-topic">→ {{ message.topic }}</span>
+                </div>
+              </div>
+
+              <div class="message-content">
+                <pre>{{ formatContent(message.content) }}</pre>
+              </div>
+
+              @if (hasMetadata(message.metadata)) {
+                <div class="message-metadata">
+                  <details>
+                    <summary>Metadata</summary>
+                    <pre>{{ formatContent(message.metadata) }}</pre>
+                  </details>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}
