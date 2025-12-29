@@ -135,7 +135,7 @@ class TestSupervisor:
     async def test_start_task(self, supervisor):
         """Test starting a task with the supervisor."""
         # Create a supervisor with a fresh mock that won't auto-route to completion
-        mock_llm = MockLLMProvider({})
+        MockLLMProvider({})
         # For a simple task start test, we don't want it to immediately complete
         # So we'll patch the start_task to not actually route
 
@@ -376,7 +376,7 @@ class TestSupervisorIntegration:
         supervisor.add_agent(coder_agent)
 
         # Test multiple routing decisions
-        task_id = await supervisor.start_task("Complex multi-step task")
+        await supervisor.start_task("Complex multi-step task")
 
         assert len(supervisor._agents) == 2
         assert "researcher" in supervisor._agents

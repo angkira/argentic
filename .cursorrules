@@ -1,5 +1,12 @@
 # Argentic Framework - AI Agent Development Guide
 
+## Code-First Rules
+
+**CRITICAL: DO NOT CREATE MARKDOWN REPORTS/SUMMARIES/COMPARISONS UNLESS EXPLICITLY ASKED.**
+- Write REAL CODE, not documentation
+- No analysis docs, no comparison docs, no summary docs - JUST IMPLEMENTATION
+- User wants patches and working code, not essays
+
 ## Framework Overview
 
 Argentic is a Python microframework for building local AI agents with async MQTT messaging.

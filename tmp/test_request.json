@@ -1,0 +1,8 @@
+{
+  "model": "/home/angkira/models/gemma-3-4b-4bit/gemma-3n-E4B-it-quantized",
+  "prompt": "<bos><start_of_turn>user\nSay hello in 3 words!<end_of_turn>\n<start_of_turn>model\n",
+  "max_tokens": 30,
+  "temperature": 1.0,
+  "top_k": 64,
+  "top_p": 0.95
+}

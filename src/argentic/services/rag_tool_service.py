@@ -95,7 +95,7 @@ async def main():
     embed_cfg = rag_config["embedding"]
     vec_cfg = rag_config["vector_store"]
     default_retriever_cfg = rag_config["default_retriever"]
-    collections_cfg = rag_config.get("collections", {})
+    rag_config.get("collections", {})
 
     log_level_str = config.get("logging", {}).get("level", "debug")
     log_level = parse_log_level(log_level_str)

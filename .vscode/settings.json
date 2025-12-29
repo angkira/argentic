@@ -1,4 +1,12 @@
 {
+  "claude.contextFiles": [
+    ".claudecode/context.md",
+    "ARGENTIC_QUICKREF.md"
+  ],
+  "claude.instructions": "When working with this project: Always use async/await, share ToolManager for multi-agent, use separate MQTT topics per agent.",
+  "files.associations": {
+    "*.md": "markdown"
+  },
   "git.confirmSync": false,
   "git.autofetch": true,
   "git.showPushSuccessNotification": true,

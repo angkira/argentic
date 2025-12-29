@@ -78,7 +78,7 @@ class TestRabbitMQDriver:
 
     def test_config_url_handling(self, driver_config):
         """Test URL configuration handling"""
-        driver = RabbitMQDriver(driver_config)
+        RabbitMQDriver(driver_config)
 
         # Test URL building logic
         base_url = driver_config.url
@@ -214,7 +214,7 @@ class TestRabbitMQDriver:
     @patch("argentic.core.messager.drivers.RabbitMQDriver.aio_pika")
     def test_connection_url_construction(self, mock_aio_pika, driver_config):
         """Test RabbitMQ connection URL construction logic"""
-        driver = RabbitMQDriver(driver_config)
+        RabbitMQDriver(driver_config)
 
         # Test URL construction without actually connecting
         base_url = driver_config.url
@@ -230,9 +230,9 @@ class TestRabbitMQDriver:
 
         # Test expected URL format
         if user and password:
-            expected_url = f"amqp://{user}:{password}@localhost:{port}"
+            pass
         else:
-            expected_url = f"{base_url}:{port}"
+            pass
 
         # For this test config, should include auth
         assert user is not None
@@ -240,7 +240,7 @@ class TestRabbitMQDriver:
 
     def test_routing_key_pattern_validation(self, driver_config):
         """Test topic pattern validation logic"""
-        driver = RabbitMQDriver(driver_config)
+        RabbitMQDriver(driver_config)
 
         # Test valid topic patterns
         valid_topics = [
@@ -267,7 +267,7 @@ class TestRabbitMQDriver:
 
     def test_exchange_configuration(self, driver_config):
         """Test exchange configuration parameters"""
-        driver = RabbitMQDriver(driver_config)
+        RabbitMQDriver(driver_config)
 
         # Test default exchange settings (based on implementation)
         default_exchange_type = "fanout"  # From the actual code
@@ -290,7 +290,7 @@ class TestRabbitMQDriver:
 
     def test_queue_configuration(self, driver_config):
         """Test queue configuration parameters"""
-        driver = RabbitMQDriver(driver_config)
+        RabbitMQDriver(driver_config)
 
         # Test queue configuration parameters (based on implementation)
         queue_config = {

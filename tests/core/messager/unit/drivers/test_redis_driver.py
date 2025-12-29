@@ -61,10 +61,9 @@ class TestRedisDriver:
 
     def test_config_url_handling(self, driver_config):
         """Test URL configuration handling"""
-        driver = RedisDriver(driver_config)
+        RedisDriver(driver_config)
 
         # Test URL building logic
-        expected_url = f"{driver_config.url}:{driver_config.port}"
         if driver_config.password:
             # Redis URL should include password if provided
             assert driver_config.password == "testpass"
@@ -200,7 +199,7 @@ class TestRedisDriver:
     @patch("argentic.core.messager.drivers.RedisDriver.aioredis")
     def test_redis_url_construction(self, mock_aioredis, driver_config):
         """Test Redis URL construction logic"""
-        driver = RedisDriver(driver_config)
+        RedisDriver(driver_config)
 
         # Test URL construction without actually connecting
         base_url = driver_config.url
@@ -214,16 +213,16 @@ class TestRedisDriver:
 
         # Test expected URL format
         if port and port != 6379:
-            expected_url = f"{base_url}:{port}"
+            pass
         else:
-            expected_url = base_url
+            pass
 
         # For this test config, should be original URL since port is default
         assert base_url == "redis://localhost"
 
     def test_channel_pattern_validation(self, driver_config):
         """Test channel pattern validation logic"""
-        driver = RedisDriver(driver_config)
+        RedisDriver(driver_config)
 
         # Test valid channel patterns
         valid_channels = [
