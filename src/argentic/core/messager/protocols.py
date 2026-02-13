@@ -6,3 +6,4 @@ class MessagerProtocol(str, Enum):
     REDIS = "redis"
     KAFKA = "kafka"
     RABBITMQ = "rabbitmq"
+    ZEROMQ = "zeromq"

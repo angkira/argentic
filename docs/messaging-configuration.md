@@ -4,13 +4,19 @@ This guide covers the messaging system configuration in Argentic, which enables 
 
 ## Overview
 
-Argentic uses a messaging system to enable decoupled communication between components. The primary messaging protocol is MQTT, with support for other protocols planned.
+Argentic uses a messaging system to enable decoupled communication between components. Multiple messaging protocols are supported:
+
+- **MQTT** - Lightweight pub/sub for distributed systems
+- **Redis** - In-memory messaging with pub/sub
+- **Kafka** - High-throughput event streaming
+- **RabbitMQ** - Enterprise message queuing
+- **ZeroMQ** - Ultra-low latency brokerless messaging
 
 ## Messaging Protocols
 
 ### MQTT (Message Queuing Telemetry Transport)
 
-MQTT is the currently supported messaging protocol in Argentic. It's lightweight, publish-subscribe based, and ideal for distributed applications.
+MQTT is a lightweight, publish-subscribe protocol ideal for distributed applications and IoT deployments.
 
 #### Basic MQTT Configuration
 
@@ -150,6 +156,129 @@ messaging:
     ca_certs: "/etc/ssl/certs/aws-iot-ca.crt"
     cert_reqs: "CERT_REQUIRED"
     tls_version: "PROTOCOL_TLSv1_2"
+```
+
+### ZeroMQ (High-Performance Brokerless Messaging)
+
+ZeroMQ provides ultra-low latency messaging (~50-100μs) without requiring an external broker. Ideal for high-performance local multi-agent scenarios.
+
+#### Basic ZeroMQ Configuration (Embedded Proxy)
+
+```yaml
+messaging:
+  protocol: zeromq
+  broker_address: 127.0.0.1
+  port: 5555              # Frontend port (XSUB - for publishers)
+  backend_port: 5556      # Backend port (XPUB - for subscribers)
+  start_proxy: true       # Auto-start embedded proxy
+  proxy_mode: embedded    # Proxy runs in agent process
+```
+
+#### External Proxy Configuration
+
+For distributed setups, run the proxy separately:
+
+```yaml
+messaging:
+  protocol: zeromq
+  broker_address: 192.168.1.100  # Remote proxy host
+  port: 5555
+  backend_port: 5556
+  start_proxy: false      # Connect to external proxy
+  proxy_mode: external
+```
+
+#### Advanced ZeroMQ Configuration
+
+```yaml
+messaging:
+  protocol: zeromq
+  broker_address: 127.0.0.1
+  port: 5555
+  backend_port: 5556
+  start_proxy: true
+  proxy_mode: embedded
+
+  # Socket options
+  high_water_mark: 1000   # Message queue limit (prevents memory overflow)
+  linger: 1000            # Socket close wait time (ms)
+  connect_timeout: 5000   # Connection timeout (ms)
+  topic_encoding: utf-8   # Topic encoding (default: utf-8)
+```
+
+**ZeroMQ Configuration Options:**
+
+- **`broker_address`**: Hostname or IP for proxy (default: 127.0.0.1)
+- **`port`**: Frontend port for publishers (default: 5555)
+- **`backend_port`**: Backend port for subscribers (default: 5556)
+- **`start_proxy`**: Auto-start proxy if not running (default: true)
+- **`proxy_mode`**: `embedded` (in-process) or `external` (separate process)
+- **`high_water_mark`**: Max queued messages per socket (default: 1000)
+- **`linger`**: How long to wait for pending messages on close (ms)
+- **`connect_timeout`**: Connection timeout in milliseconds
+- **`topic_encoding`**: Character encoding for topics (default: utf-8)
+
+#### ZeroMQ Performance Characteristics
+
+- **Latency**: ~50-100μs (10-20x faster than MQTT)
+- **Throughput**: 1M+ messages/second
+- **Memory**: Lightweight, bounded by `high_water_mark`
+- **Architecture**: Brokerless (XPUB/XSUB proxy pattern)
+
+#### ZeroMQ Limitations
+
+- ❌ No message persistence (fire-and-forget only)
+- ❌ No QoS levels (all messages are QoS 0 equivalent)
+- ❌ No retention (messages not stored)
+- ❌ Topics cannot contain spaces (wire format uses space delimiter)
+- ❌ Best for local/LAN deployments (not internet-scale)
+
+#### When to Use ZeroMQ
+
+**✅ Use ZeroMQ when:**
+- Ultra-low latency is critical (<1ms)
+- High message throughput needed (100K+ msg/sec)
+- Local/LAN deployment only
+- No persistence requirements
+- Development/benchmarking
+
+**❌ Use MQTT/Kafka when:**
+- Message persistence required
+- QoS guarantees needed
+- Distributed across internet
+- Long-term message retention
+- Production reliability critical
+
+#### Running External ZeroMQ Proxy
+
+For external proxy mode, start a standalone proxy:
+
+```python
+# zeromq_proxy.py
+import zmq
+
+def run_proxy(frontend_port=5555, backend_port=5556):
+    context = zmq.Context()
+
+    # Frontend socket (XSUB) - publishers connect here
+    frontend = context.socket(zmq.XSUB)
+    frontend.bind(f"tcp://*:{frontend_port}")
+
+    # Backend socket (XPUB) - subscribers connect here
+    backend = context.socket(zmq.XPUB)
+    backend.bind(f"tcp://*:{backend_port}")
+
+    # Run proxy (blocks)
+    zmq.proxy(frontend, backend)
+
+if __name__ == "__main__":
+    print("Starting ZeroMQ proxy...")
+    run_proxy()
+```
+
+Run with:
+```bash
+python zeromq_proxy.py
 ```
 
 ### High Availability Setup

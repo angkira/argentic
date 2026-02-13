@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from aiomqtt.client import ProtocolVersion
 from pydantic import BaseModel, Field
@@ -43,6 +43,24 @@ class RabbitMQDriverConfig(BaseDriverConfig):
     user: Optional[str] = None
     password: Optional[str] = None
     virtualhost: Optional[str] = Field("/", description="Virtual host for RabbitMQ")
+
+
+class ZeroMQDriverConfig(BaseDriverConfig):
+    """ZeroMQ driver configuration with proxy support."""
+
+    url: str = "127.0.0.1"
+    port: int = 5555  # Frontend port (XSUB - for publishers)
+    backend_port: int = 5556  # Backend port (XPUB - for subscribers)
+
+    # Proxy management
+    start_proxy: bool = True  # Auto-start proxy if not running
+    proxy_mode: Literal["embedded", "external"] = "embedded"
+
+    # ZeroMQ socket options
+    high_water_mark: int = 1000  # Message queue limit
+    linger: int = 1000  # Socket close wait time (ms)
+    connect_timeout: int = 5000  # Connection timeout (ms)
+    topic_encoding: str = "utf-8"
 
 
 # Generic config for tests (legacy compatibility)

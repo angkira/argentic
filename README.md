@@ -6,7 +6,7 @@ Microframework for building and running local AI agents.
 
 [![Python application](https://github.com/angkira/argentic/actions/workflows/python-app.yml/badge.svg)](https://github.com/angkira/argentic/actions/workflows/python-app.yml)
 
-Argentic provides a lightweight, configurable framework designed to simplify the setup and operation of local AI agents. It integrates with various Large Language Model (LLM) backends and utilizes a messaging protocol (currently MQTT) for flexible communication between the core agent, tools, and clients.
+Argentic provides a lightweight, configurable framework designed to simplify the setup and operation of local AI agents. It integrates with various Large Language Model (LLM) backends and supports multiple messaging protocols (MQTT, Redis, Kafka, RabbitMQ, ZeroMQ) for flexible communication between the core agent, tools, and clients.
 
 > **📘 For AI Coding Agents**: This repository includes comprehensive AI agent documentation:
 > - **Claude Skill** (`argentic-skill.zip`) - For Claude Desktop/Code with automatic loading
@@ -22,9 +22,9 @@ Argentic provides a lightweight, configurable framework designed to simplify the
   - Ollama (via `ollama` Python library)
   - Llama.cpp (via HTTP server or direct CLI interaction)
   - Google Gemini (via API)
-- **Configuration Driven**: Easily configure LLM providers, messaging brokers (MQTT), communication topics, and logging via `config.yaml`.
+- **Configuration Driven**: Easily configure LLM providers, messaging brokers (MQTT, Redis, Kafka, RabbitMQ, ZeroMQ), communication topics, and logging via `config.yaml`.
 - **Command-Line Interface**: Start different components (agent, example tools, CLI client) using `start.sh`. Configure config path and log level via CLI arguments (`--config-path`, `--log-level`) or environment variables (`CONFIG_PATH`, `LOG_LEVEL`).
-- **Messaging Protocol**: Uses MQTT for decoupled communication between the agent and potential tools or clients. Includes message classes for defined interactions (e.g., `AskQuestionMessage`).
+- **Messaging Protocols**: Supports multiple messaging backends (MQTT, Redis, Kafka, RabbitMQ, ZeroMQ) for decoupled communication between the agent and potential tools or clients. ZeroMQ provides ultra-low latency (~50-100μs) for high-performance local deployments. Includes message classes for defined interactions (e.g., `AskQuestionMessage`).
 - **Extensible Tool System**: Designed to integrate external tools via messaging. Includes an example RAG (Retrieval-Augmented Generation) tool (`src/services/rag_tool_service.py`) demonstrating this capability.
 - **CLI Client**: A simple command-line client (`src/cli_client.py`) for interacting with the agent.
 - **Graceful Shutdown**: Handles termination signals for proper cleanup.
@@ -78,7 +78,7 @@ Argentic provides a lightweight, configurable framework designed to simplify the
 3. **Configure:**
    - Copy or rename `config.yaml.example` to `config.yaml` (if an example exists) or edit `config.yaml` directly.
    - Set up your desired LLM provider (`llm` section).
-   - Configure the MQTT broker details (`messaging` section).
+   - Configure the messaging broker details (`messaging` section). Choose from MQTT, Redis, Kafka, RabbitMQ, or ZeroMQ.
    - Set any required API keys or environment variables (e.g., `GOOGLE_GEMINI_API_KEY` if using Gemini). Refer to `.env.example` if provided.
 4. **Run Components:**
    Use the `start.sh` script:

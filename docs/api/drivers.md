@@ -24,4 +24,8 @@
 
 ### Redis
 
-::: core.messager.drivers.RedisDriver.RedisDriver 
+::: core.messager.drivers.RedisDriver.RedisDriver
+
+### ZeroMQ
+
+::: core.messager.drivers.ZeroMQDriver.ZeroMQDriver 

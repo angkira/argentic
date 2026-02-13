@@ -62,7 +62,7 @@ class GoogleGeminiProvider(ModelProvider):
 
         # Initialize API key - check both environment variable variants
         self.api_key = (
-            self.config.get("google_gemini_api_key")
+            self._get_config_value("google_gemini_api_key")
             or os.getenv("GEMINI_API_KEY")
             or os.getenv("GOOGLE_GEMINI_API_KEY")
         )
@@ -86,8 +86,8 @@ class GoogleGeminiProvider(ModelProvider):
         self.circuit_breaker_window = retry_config.get("circuit_breaker_window", 300)  # 5 minutes
 
         # Initialize the underlying ChatGoogleGenerativeAI model
-        model_name = self.config.get("google_gemini_model_name", "gemini-1.5-flash")
-        self.enable_google_search = self.config.get("enable_google_search", False)
+        model_name = self._get_config_value("google_gemini_model_name", "gemini-3-flash-preview")
+        self.enable_google_search = self._get_config_value("enable_google_search", False)
 
         # Configure google-generativeai if available
         if not _GENAI_AVAILABLE:
@@ -99,11 +99,16 @@ class GoogleGeminiProvider(ModelProvider):
             )
             return
         genai.configure(api_key=self.api_key)
-        gemini_params = self.config.get("google_gemini_parameters", {})
+        self.gemini_params = self._get_config_value("google_gemini_parameters", {})
+
+        # JSON mode configuration
+        self.enable_json_mode = self._get_config_value("enable_json_mode", False)
+        self.json_schema = self._get_config_value("response_json_schema", None)
+
         llm_tools_to_pass = []  # TODO: Map tools if needed
         self.model = genai.GenerativeModel(
             model_name=model_name,
-            generation_config=gemini_params,
+            generation_config=self.gemini_params,
             tools=llm_tools_to_pass if llm_tools_to_pass else None,
         )
 
@@ -123,6 +128,34 @@ class GoogleGeminiProvider(ModelProvider):
         else:
             self.logger.error(f"Failed to initialize Google Gemini provider: {error}")
             raise InternalServerError(f"Google Gemini initialization failed: {error}")
+
+    def _build_generation_config(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build generation config by merging base params, JSON mode settings, and runtime overrides.
+
+        Priority (highest to lowest):
+        1. Runtime kwargs generation_config
+        2. JSON mode settings (if enabled)
+        3. Base google_gemini_parameters from config
+        """
+        # Start with base parameters from config
+        config = dict(self.gemini_params)
+
+        # Add JSON mode settings if enabled
+        if self.enable_json_mode:
+            config["response_mime_type"] = "application/json"
+
+            # Add schema if provided (can be from config or runtime kwargs)
+            schema = kwargs.get("response_json_schema") or self.json_schema
+            if schema:
+                config["response_schema"] = schema
+
+        # Override with runtime generation_config if provided
+        runtime_config = kwargs.get("generation_config", {})
+        if isinstance(runtime_config, dict):
+            config.update(runtime_config)
+
+        return config
 
     def _is_retryable_error(self, error: Exception) -> bool:
         """
@@ -335,12 +368,18 @@ class GoogleGeminiProvider(ModelProvider):
                             }
                         )
 
+                # Build generation config
+                generation_config = self._build_generation_config(kwargs)
+
+                # Debug: Log generation config
+                self.logger.debug(f"Generation config: {generation_config}")
+
                 # Call with system_instruction if set
                 # google-generativeai generate_content is sync; call in thread
                 def _call():
                     return self.model.generate_content(
                         contents,
-                        generation_config=kwargs.get("generation_config"),
+                        generation_config=generation_config,
                         safety_settings=kwargs.get("safety_settings"),
                         stream=False,
                         tools=tools,
@@ -486,7 +525,7 @@ class GoogleGeminiProvider(ModelProvider):
 
     def get_model_name(self) -> str:
         """Get the model name."""
-        return str(self.config.get("google_gemini_model_name", "gemini-1.5-flash"))
+        return str(self._get_config_value("google_gemini_model_name", "gemini-3-flash-preview"))
 
     def supports_tools(self) -> bool:
         """Check if the model supports tool calling."""
@@ -499,6 +538,7 @@ class GoogleGeminiProvider(ModelProvider):
     def get_available_models(self) -> List[str]:
         """Get list of available Google Gemini models."""
         return [
+            "gemini-3-flash-preview",
             "gemini-1.5-flash",
             "gemini-1.5-flash-002",
             "gemini-1.5-pro",

@@ -123,7 +123,9 @@ llm:
   # Google Gemini specific settings
   provider: google_gemini
   google_gemini_api_key: YOUR_GEMINI_API_KEY # Store securely, e.g., via environment variable
-  google_gemini_model_name: gemini-2.0-flash # Updated to match official example
+  google_gemini_model_name: gemini-2.5-flash # Stable model with full JSON mode support
+  # Note: gemini-3-flash-preview available but has limited JSON mode support
+  enable_json_mode: false # Set to true to enforce JSON responses (optional)
 
   # Google Gemini Advanced Parameters
   google_gemini_parameters:
@@ -161,6 +163,26 @@ messaging:
   client_id: ai_agent_client
   tool_client_id: ai_tool_service
   cli_client_id: cli_client
+
+  # ZeroMQ Configuration (uncomment to use)
+  # protocol: zeromq
+  # broker_address: 127.0.0.1
+  # port: 5555              # Frontend port (XSUB - for publishers)
+  # backend_port: 5556      # Backend port (XPUB - for subscribers)
+  # start_proxy: true       # Auto-start embedded proxy
+  # proxy_mode: embedded    # Options: embedded | external
+  # high_water_mark: 1000   # Message queue limit
+  # linger: 1000            # Socket close wait time (ms)
+  # connect_timeout: 5000   # Connection timeout (ms)
+  # topic_encoding: utf-8   # Topic encoding
+  #
+  # External Proxy Mode (for distributed setups):
+  # protocol: zeromq
+  # broker_address: 192.168.1.100  # Remote proxy host
+  # port: 5555
+  # backend_port: 5556
+  # start_proxy: false      # Connect to external proxy
+  # proxy_mode: external
 
 # Agent configuration
 agent:

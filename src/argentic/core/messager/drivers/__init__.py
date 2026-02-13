@@ -15,6 +15,7 @@ from .configs import (
     MQTTDriverConfig,
     RabbitMQDriverConfig,
     RedisDriverConfig,
+    ZeroMQDriverConfig,
 )
 
 _DRIVER_MAPPING: Dict[MessagerProtocol, tuple[str, Type[BaseDriverConfig]]] = {
@@ -22,6 +23,7 @@ _DRIVER_MAPPING: Dict[MessagerProtocol, tuple[str, Type[BaseDriverConfig]]] = {
     MessagerProtocol.REDIS: ("RedisDriver", RedisDriverConfig),
     MessagerProtocol.KAFKA: ("KafkaDriver", KafkaDriverConfig),
     MessagerProtocol.RABBITMQ: ("RabbitMQDriver", RabbitMQDriverConfig),
+    MessagerProtocol.ZEROMQ: ("ZeroMQDriver", ZeroMQDriverConfig),
 }
 
 _DRIVER_MODULES = {
@@ -29,6 +31,7 @@ _DRIVER_MODULES = {
     "RedisDriver": "argentic.core.messager.drivers.RedisDriver",
     "KafkaDriver": "argentic.core.messager.drivers.KafkaDriver",
     "RabbitMQDriver": "argentic.core.messager.drivers.RabbitMQDriver",
+    "ZeroMQDriver": "argentic.core.messager.drivers.ZeroMQDriver",
 }
 
 
@@ -63,5 +66,6 @@ __all__ = [
     "RedisDriverConfig",
     "KafkaDriverConfig",
     "RabbitMQDriverConfig",
+    "ZeroMQDriverConfig",
     "DriverConfig",
 ]
