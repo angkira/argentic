@@ -40,3 +40,4 @@ dmypy.json
 Thumbs.db
 
 _site/
+.pypirc
