@@ -1,3 +1,9 @@
+## 0.14.0 (2026-02-13)
+
+### Feat
+
+- Upgrade sentence-transformers to v5.2.2 for transformers 5.x compatibility
+
 ## 0.13.0 (2025-12-25)
 
 ### Feat
