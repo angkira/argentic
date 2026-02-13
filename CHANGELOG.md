@@ -1,3 +1,9 @@
+## 0.15.0 (2026-02-13)
+
+### Feat
+
+- Switch to trusted publishing with OpenID Connect
+
 ## 0.14.0 (2026-02-13)
 
 ### Feat
